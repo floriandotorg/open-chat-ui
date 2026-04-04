@@ -12,7 +12,7 @@ Self-hosted, multi-provider LLM chat application.
 - SvelteKit (Svelte 5 runes) with Bun runtime via `svelte-adapter-bun`
 - Tailwind CSS 4 (no config file, `@tailwindcss/vite` plugin)
 - Drizzle ORM + SQLite (`bun:sqlite`)
-- better-auth for authentication (email/password, admin plugin)
+- better-auth for authentication (email/password)
 - Biome for linting/formatting
 - Vitest for testing (browser tests via Playwright, server tests via Node)
 
