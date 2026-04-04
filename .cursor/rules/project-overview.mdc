@@ -41,3 +41,7 @@ src/routes/api/               # JSON + SSE API endpoints
 - **Streaming**: `POST /api/chat` returns SSE (`text/event-stream`). Provider adapters yield `ChatStreamEvent` via `AsyncGenerator`. Client reads via `ReadableStream`.
 - **State management**: `createChatStore()` in `stores/chat.svelte.ts` uses `$state` runes. Provider/model selection passed via Svelte `setContext`/`getContext` from chat layout.
 - **Per-user isolation**: All DB queries filter by `userId`. API keys, conversations, messages, and settings are scoped per user.
+
+## Testing
+
+The default username is test@example.com and the default password is test.
