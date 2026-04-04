@@ -1,0 +1,52 @@
+import { auth } from '$lib/server/auth'
+import { requireUser } from '$lib/server/auth-guard'
+import { db } from '$lib/server/db'
+import { apiKeys, userSettings } from '$lib/server/db/schema'
+import { listProviders } from '$lib/server/providers'
+import type { Actions, PageServerLoad } from './$types'
+import { fail } from '@sveltejs/kit'
+import { eq } from 'drizzle-orm'
+
+export const load: PageServerLoad = async ({ locals }) => {
+  const user = requireUser(locals.user)
+
+  const [settings, userKeys] = await Promise.all([db.select().from(userSettings).where(eq(userSettings.userId, user.id)), db.select({ provider: apiKeys.provider }).from(apiKeys).where(eq(apiKeys.userId, user.id))])
+
+  const configuredProviders = new Set(userKeys.map(k => k.provider))
+  const providers = listProviders().map(p => ({
+    ...p,
+    hasKey: configuredProviders.has(p.id),
+  }))
+
+  return {
+    settings: settings[0] ?? null,
+    providers,
+    user,
+  }
+}
+
+export const actions: Actions = {
+  signOut: async event => {
+    await auth.api.signOut({ headers: event.request.headers })
+    return { success: true }
+  },
+  updatePassword: async event => {
+    const formData = await event.request.formData()
+    const currentPassword = formData.get('currentPassword')?.toString() ?? ''
+    const newPassword = formData.get('newPassword')?.toString() ?? ''
+
+    if (newPassword.length < 8) {
+      return fail(400, { passwordError: 'Password must be at least 8 characters' })
+    }
+
+    try {
+      await auth.api.changePassword({
+        body: { currentPassword, newPassword },
+        headers: event.request.headers,
+      })
+      return { passwordSuccess: true }
+    } catch {
+      return fail(400, { passwordError: 'Failed to update password. Check your current password.' })
+    }
+  },
+}

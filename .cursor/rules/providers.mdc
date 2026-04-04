@@ -1,0 +1,35 @@
+---
+description: LLM provider abstraction layer conventions
+globs: src/lib/server/providers/**/*.ts
+alwaysApply: false
+---
+
+# Provider Abstraction
+
+## Adding a New Provider
+
+1. Create `src/lib/server/providers/<name>.ts`
+2. Implement the `LLMProvider` interface via a factory function
+3. Register in `src/lib/server/providers/index.ts` registry map
+
+## Interface
+
+```typescript
+interface LLMProvider {
+  readonly id: string
+  readonly name: string
+  readonly capabilities: ProviderCapability[]
+  listModels(): Promise<ModelInfo[]>
+  chat(request: ChatRequest): AsyncGenerator<ChatStreamEvent>
+}
+
+type ProviderFactory = (apiKey: string) => LLMProvider
+```
+
+## Rules
+
+- Use the provider's official SDK directly (no Vercel AI SDK)
+- The `chat` method must be an `AsyncGenerator` yielding `ChatStreamEvent` objects
+- Always yield `usage` event before `done` event
+- Catch SDK errors and yield `{ type: 'error', error: message }` instead of throwing
+- Model lists are hardcoded per adapter with pricing and capability metadata

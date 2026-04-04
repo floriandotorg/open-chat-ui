@@ -1,0 +1,12 @@
+services:
+  open-chat-ui:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/data
+    environment:
+      - DATABASE_URL=file:/data/chat.db
+      - ORIGIN=http://localhost:3000
+      - BETTER_AUTH_SECRET=change-me
+      - ENCRYPTION_SECRET=change-me-too

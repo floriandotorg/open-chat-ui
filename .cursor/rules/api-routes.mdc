@@ -1,0 +1,37 @@
+---
+description: API route conventions for server endpoints
+globs: src/routes/api/**/*.ts
+alwaysApply: false
+---
+
+# API Route Conventions
+
+## Auth
+
+Every API handler gets the user via `requireUser(locals.user)` from `$lib/server/auth-guard`. Never use `locals.user!`.
+
+```typescript
+import { requireUser } from '$lib/server/auth-guard'
+
+export const GET: RequestHandler = async ({ locals }) => {
+  const userId = requireUser(locals.user).id
+  // ...
+}
+```
+
+## Endpoints
+
+| Route | Methods | Purpose |
+|---|---|---|
+| `/api/chat` | POST | Stream LLM response (SSE) |
+| `/api/conversations` | GET, POST | List/create conversations |
+| `/api/conversations/[id]` | GET, PATCH, DELETE | Single conversation CRUD |
+| `/api/messages/[conversationId]` | GET | List messages |
+| `/api/api-keys` | GET, POST | List provider key status / upsert key |
+| `/api/api-keys/[provider]` | DELETE | Remove key |
+| `/api/models/[provider]` | GET | List models for provider |
+| `/api/settings` | GET, PUT | User settings |
+
+## Streaming
+
+`POST /api/chat` returns `Content-Type: text/event-stream`. Each chunk is `data: <JSON>\n\n` where JSON is a `ChatStreamEvent` (`text_delta`, `usage`, `done`, or `error`).

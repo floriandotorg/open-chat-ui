@@ -1,0 +1,43 @@
+---
+description: Project overview and architecture for Open Chat UI
+alwaysApply: true
+---
+
+# Open Chat UI
+
+Self-hosted, multi-provider LLM chat application.
+
+## Stack
+
+- SvelteKit (Svelte 5 runes) with Bun runtime via `svelte-adapter-bun`
+- Tailwind CSS 4 (no config file, `@tailwindcss/vite` plugin)
+- Drizzle ORM + SQLite (`bun:sqlite`)
+- better-auth for authentication (email/password, admin plugin)
+- Biome for linting/formatting
+- Vitest for testing (browser tests via Playwright, server tests via Node)
+
+## Directory Layout
+
+```
+src/lib/server/providers/     # LLM provider abstraction (registry, adapters)
+src/lib/server/db/            # Drizzle schema + client
+src/lib/server/auth.ts        # better-auth config
+src/lib/server/auth-guard.ts  # requireUser() helper for route handlers
+src/lib/server/crypto.ts      # AES-256-GCM encrypt/decrypt for API keys
+src/lib/components/           # Svelte 5 UI components
+src/lib/stores/               # Svelte 5 rune-based stores
+src/lib/types.ts              # Shared TypeScript types
+src/routes/login/             # Auth pages
+src/routes/chat/              # Chat UI (layout, conversation pages)
+src/routes/settings/          # User settings (API keys, system prompt, account)
+src/routes/api/               # JSON + SSE API endpoints
+```
+
+## Key Patterns
+
+- **Provider abstraction**: `LLMProvider` interface in `providers/types.ts`. Each provider is a factory function registered in `providers/index.ts`. Adding a provider = one new file + one registry line.
+- **Auth guard**: All `/chat`, `/settings`, `/api/*` routes are protected in `hooks.server.ts`. Server load functions and API handlers use `requireUser(locals.user)` (never `locals.user!`).
+- **API key encryption**: User API keys are encrypted with AES-256-GCM before storage. `ENCRYPTION_SECRET` env var required.
+- **Streaming**: `POST /api/chat` returns SSE (`text/event-stream`). Provider adapters yield `ChatStreamEvent` via `AsyncGenerator`. Client reads via `ReadableStream`.
+- **State management**: `createChatStore()` in `stores/chat.svelte.ts` uses `$state` runes. Provider/model selection passed via Svelte `setContext`/`getContext` from chat layout.
+- **Per-user isolation**: All DB queries filter by `userId`. API keys, conversations, messages, and settings are scoped per user.

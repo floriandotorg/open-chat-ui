@@ -1,0 +1,34 @@
+---
+description: Svelte 5 component conventions
+globs: src/**/*.svelte
+alwaysApply: false
+---
+
+# Svelte Components
+
+## Runes
+
+Use Svelte 5 syntax exclusively: `$state`, `$derived`, `$effect`, `$props`, `$bindable`.
+
+```svelte
+<script lang="ts">
+let { value = $bindable(''), onchange }: { value: string; onchange: (v: string) => void } = $props()
+let derived = $derived(value.toUpperCase())
+</script>
+```
+
+## Event Handlers
+
+Use `onclick`, `onsubmit`, etc. (not `on:click`).
+
+## Snippets
+
+Use `{@render children()}` for slot content. Type children as `Snippet` from `'svelte'`.
+
+## Context
+
+Provider/model selection is shared from `chat/+layout.svelte` via `setContext('chat-provider', ...)` and consumed via `getContext('chat-provider')`.
+
+## Styling
+
+Tailwind CSS 4 utility classes. Use `dark:` variants for dark mode support. Icon-only buttons must include `aria-label`.

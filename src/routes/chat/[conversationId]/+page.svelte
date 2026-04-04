@@ -1,0 +1,62 @@
+<script lang="ts">
+import ChatInput from '$lib/components/ChatInput.svelte'
+import ChatMessage from '$lib/components/ChatMessage.svelte'
+import StreamingText from '$lib/components/StreamingText.svelte'
+import { createChatStore } from '$lib/stores/chat.svelte'
+import type { Message } from '$lib/types'
+import type { PageData } from './$types'
+import { getContext } from 'svelte'
+
+let { data }: { data: PageData } = $props()
+
+const ctx: { selectedProvider: string; selectedModel: string } = getContext('chat-provider')
+const chat = createChatStore()
+
+let messageContainer: HTMLDivElement | undefined = $state()
+
+$effect(() => {
+  chat.messages = data.messages.map((m: (typeof data.messages)[number]) => ({
+    ...m,
+    role: m.role as Message['role'],
+    createdAt: new Date(m.createdAt),
+  }))
+})
+
+$effect(() => {
+  chat.selectedProvider = ctx.selectedProvider
+})
+
+$effect(() => {
+  chat.selectedModel = ctx.selectedModel
+})
+
+$effect(() => {
+  if (messageContainer) {
+    void chat.messages.length
+    void chat.streamingText
+    messageContainer.scrollTop = messageContainer.scrollHeight
+  }
+})
+
+const handleSubmit = (content: string) => {
+  chat.sendMessage(data.conversation.id, content, data.conversation.systemPrompt ?? undefined)
+}
+</script>
+
+<div class="flex h-full flex-col">
+  <div bind:this={messageContainer} class="flex-1 space-y-4 overflow-y-auto p-4">
+    <div class="mx-auto max-w-3xl space-y-4">
+      {#each chat.messages as message (message.id)}
+        <ChatMessage {message} />
+      {/each}
+      <StreamingText text={chat.streamingText} />
+    </div>
+  </div>
+
+  <ChatInput
+    onsubmit={handleSubmit}
+    disabled={!ctx.selectedProvider || !ctx.selectedModel}
+    isStreaming={chat.isStreaming}
+    onstop={chat.stopStreaming}
+  />
+</div>
