@@ -8,8 +8,6 @@ import { resolve } from '$app/paths'
 import type { ActionData, PageData } from './$types'
 
 let { data, form }: { data: PageData; form: ActionData } = $props()
-let isAdmin = $derived(data.user.role === 'admin')
-let tabs = $derived([['keys', 'API Keys'], ...(isAdmin ? [['models', 'Models']] : []), ['prompt', 'System Prompt'], ['account', 'Account']] as const)
 let activeTab = $state<'keys' | 'models' | 'prompt' | 'account'>('keys')
 let systemPrompt = $state('')
 
@@ -35,7 +33,7 @@ const saveSystemPrompt = async (value: string) => {
   </div>
 
   <div class="mb-6 flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-900">
-    {#each tabs as [id, label] (id)}
+    {#each [['keys', 'API Keys'], ['models', 'Models'], ['prompt', 'System Prompt'], ['account', 'Account']] as [id, label] (id)}
       <button
         onclick={() => activeTab = id as typeof activeTab}
         class="flex-1 rounded-md px-3 py-2 text-sm font-medium transition {activeTab === id
@@ -53,7 +51,7 @@ const saveSystemPrompt = async (value: string) => {
         <ApiKeyForm {provider} />
       {/each}
     </div>
-  {:else if activeTab === 'models' && isAdmin}
+  {:else if activeTab === 'models'}
     <ModelManager providers={data.providers} />
   {:else if activeTab === 'prompt'}
     <SystemPromptEditor bind:value={systemPrompt} onsave={saveSystemPrompt} />

@@ -1,4 +1,4 @@
-import { requireAdmin } from '$lib/server/auth-guard'
+import { requireUser } from '$lib/server/auth-guard'
 import { db } from '$lib/server/db'
 import { providerModels } from '$lib/server/db/schema'
 import { getProviderFactory } from '$lib/server/providers'
@@ -7,7 +7,7 @@ import { json } from '@sveltejs/kit'
 import { eq } from 'drizzle-orm'
 
 export const GET: RequestHandler = async ({ locals, url }) => {
-  requireAdmin(locals.user)
+  requireUser(locals.user)
 
   const provider = url.searchParams.get('provider')
   if (!provider) {
@@ -30,7 +30,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 }
 
 export const PUT: RequestHandler = async ({ request, locals }) => {
-  requireAdmin(locals.user)
+  requireUser(locals.user)
 
   const { provider, modelId, enabled } = (await request.json()) as {
     provider: string
@@ -50,7 +50,7 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
 }
 
 export const PATCH: RequestHandler = async ({ request, locals }) => {
-  requireAdmin(locals.user)
+  requireUser(locals.user)
 
   const { provider, enabled } = (await request.json()) as {
     provider: string

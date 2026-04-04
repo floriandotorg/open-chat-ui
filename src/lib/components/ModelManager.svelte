@@ -19,7 +19,7 @@ const fetchModels = async (provider: string) => {
     return
   }
   loading = true
-  const res = await fetch(`/api/admin/models?provider=${provider}`)
+  const res = await fetch(`/api/models/manage?provider=${provider}`)
   if (res.ok) {
     models = await res.json()
   }
@@ -31,7 +31,7 @@ $effect(() => {
 })
 
 const toggleModel = async (modelId: string, enabled: boolean) => {
-  await fetch('/api/admin/models', {
+  await fetch('/api/models/manage', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider: selectedProvider, modelId, enabled }),
@@ -40,7 +40,7 @@ const toggleModel = async (modelId: string, enabled: boolean) => {
 }
 
 const toggleAll = async (enabled: boolean) => {
-  await fetch('/api/admin/models', {
+  await fetch('/api/models/manage', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider: selectedProvider, enabled }),
