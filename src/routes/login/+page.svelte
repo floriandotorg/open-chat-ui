@@ -29,7 +29,7 @@ let { form }: { form: ActionData } = $props()
           type="password"
           name="password"
           required
-          minlength="8"
+          minlength="3"
           class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
         />
       </label>
