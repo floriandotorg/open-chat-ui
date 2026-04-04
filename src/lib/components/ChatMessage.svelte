@@ -12,7 +12,7 @@ let isUser = $derived(message.role === 'user')
     : 'bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100'}">
     <div class="whitespace-pre-wrap text-sm">{message.content}</div>
     {#if !isUser && message.model}
-      <div class="mt-1 text-xs opacity-50">{message.provider}/{message.model}</div>
+      <div class="mt-1 text-xs opacity-50">{message.model}</div>
     {/if}
   </div>
 </div>

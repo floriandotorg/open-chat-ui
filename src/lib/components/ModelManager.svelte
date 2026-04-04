@@ -34,7 +34,7 @@ const toggleModel = async (modelId: string, enabled: boolean) => {
   await fetch('/api/models/manage', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider: selectedProvider, modelId, enabled }),
+    body: JSON.stringify({ modelId, enabled }),
   })
   models = models.map(m => (m.id === modelId ? { ...m, enabled } : m))
 }

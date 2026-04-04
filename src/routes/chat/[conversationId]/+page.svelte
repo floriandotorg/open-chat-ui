@@ -9,7 +9,7 @@ import { getContext } from 'svelte'
 
 let { data }: { data: PageData } = $props()
 
-const ctx: { selectedProvider: string; selectedModel: string } = getContext('chat-provider')
+const ctx: { selectedModel: string } = getContext('chat-provider')
 const chat = createChatStore()
 
 let messageContainer: HTMLDivElement | undefined = $state()
@@ -20,10 +20,6 @@ $effect(() => {
     role: m.role as Message['role'],
     createdAt: new Date(m.createdAt),
   }))
-})
-
-$effect(() => {
-  chat.selectedProvider = ctx.selectedProvider
 })
 
 $effect(() => {
@@ -55,7 +51,7 @@ const handleSubmit = (content: string) => {
 
   <ChatInput
     onsubmit={handleSubmit}
-    disabled={!ctx.selectedProvider || !ctx.selectedModel}
+    disabled={!ctx.selectedModel}
     isStreaming={chat.isStreaming}
     onstop={chat.stopStreaming}
   />

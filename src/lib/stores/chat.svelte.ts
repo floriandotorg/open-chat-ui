@@ -4,8 +4,7 @@ export const createChatStore = () => {
   let messages = $state<Message[]>([])
   let streamingText = $state('')
   let isStreaming = $state(false)
-  let selectedProvider = $state('anthropic')
-  let selectedModel = $state('claude-sonnet-4-20250514')
+  let selectedModel = $state('anthropic/claude-sonnet-4-20250514')
   let abortController = $state<AbortController | null>(null)
 
   const sendMessage = async (conversationId: string, content: string, systemPrompt?: string) => {
@@ -27,7 +26,6 @@ export const createChatStore = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           conversationId,
-          provider: selectedProvider,
           model: selectedModel,
           message: content,
           systemPrompt,
@@ -75,7 +73,6 @@ export const createChatStore = () => {
               conversationId,
               role: 'assistant',
               content: streamingText,
-              provider: selectedProvider,
               model: selectedModel,
               createdAt: new Date(),
             })
@@ -92,7 +89,6 @@ export const createChatStore = () => {
             conversationId,
             role: 'assistant',
             content: streamingText,
-            provider: selectedProvider,
             model: selectedModel,
             createdAt: new Date(),
           })
@@ -125,12 +121,6 @@ export const createChatStore = () => {
     },
     get isStreaming() {
       return isStreaming
-    },
-    get selectedProvider() {
-      return selectedProvider
-    },
-    set selectedProvider(v: string) {
-      selectedProvider = v
     },
     get selectedModel() {
       return selectedModel

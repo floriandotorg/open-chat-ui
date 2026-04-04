@@ -1,9 +1,20 @@
 import { requireUser } from '$lib/server/auth-guard'
 import { db } from '$lib/server/db'
 import { conversations } from '$lib/server/db/schema'
+import { normalizeModelRef } from '$lib/model-ref'
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
 import { and, eq } from 'drizzle-orm'
+
+const toConversation = (row: typeof conversations.$inferSelect) => ({
+  id: row.id,
+  userId: row.userId,
+  title: row.title,
+  systemPrompt: row.systemPrompt,
+  defaultModel: normalizeModelRef(row.defaultProvider, row.defaultModel),
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+})
 
 export const GET: RequestHandler = async ({ params, locals }) => {
   const userId = requireUser(locals.user).id
@@ -16,7 +27,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
     throw error(404, 'Conversation not found')
   }
 
-  return json(conversation)
+  return json(toConversation(conversation))
 }
 
 export const PATCH: RequestHandler = async ({ params, request, locals }) => {
@@ -28,7 +39,6 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
     .set({
       ...(body.title !== undefined && { title: body.title }),
       ...(body.systemPrompt !== undefined && { systemPrompt: body.systemPrompt }),
-      ...(body.defaultProvider !== undefined && { defaultProvider: body.defaultProvider }),
       ...(body.defaultModel !== undefined && { defaultModel: body.defaultModel }),
       updatedAt: new Date(),
     })
@@ -39,7 +49,7 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
     throw error(404, 'Conversation not found')
   }
 
-  return json(updated)
+  return json(toConversation(updated))
 }
 
 export const DELETE: RequestHandler = async ({ params, locals }) => {

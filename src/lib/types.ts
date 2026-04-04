@@ -3,7 +3,6 @@ export interface Message {
   conversationId: string
   role: 'user' | 'assistant' | 'system'
   content: string
-  provider?: string | null
   model?: string | null
   inputTokens?: number | null
   outputTokens?: number | null
@@ -15,7 +14,6 @@ export interface Conversation {
   userId: string
   title: string
   systemPrompt?: string | null
-  defaultProvider?: string | null
   defaultModel?: string | null
   createdAt: Date
   updatedAt: Date

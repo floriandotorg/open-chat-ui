@@ -4,6 +4,7 @@ import { db } from '$lib/server/db'
 import { apiKeys, conversations, messages, userSettings } from '$lib/server/db/schema'
 import { getProviderFactory } from '$lib/server/providers'
 import type { ChatMessage } from '$lib/server/providers/types'
+import { parseModelRef } from '$lib/model-ref'
 import type { RequestHandler } from './$types'
 import { error } from '@sveltejs/kit'
 import { and, asc, eq } from 'drizzle-orm'
@@ -11,13 +12,14 @@ import { and, asc, eq } from 'drizzle-orm'
 export const POST: RequestHandler = async ({ request, locals }) => {
   const userId = requireUser(locals.user).id
   const body = await request.json()
-  const { conversationId, provider, model, message, systemPrompt } = body as {
+  const { conversationId, model: modelRef, message, systemPrompt } = body as {
     conversationId: string
-    provider: string
     model: string
     message: string
     systemPrompt?: string
   }
+
+  const { provider, model } = parseModelRef(modelRef)
 
   const [conversation] = await db
     .select()
@@ -85,12 +87,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           role: 'assistant',
           content: fullText,
           provider,
-          model,
+          model: modelRef,
           inputTokens: tokenUsage.inputTokens,
           outputTokens: tokenUsage.outputTokens,
         })
 
-        await db.update(conversations).set({ defaultProvider: provider, defaultModel: model, updatedAt: new Date() }).where(eq(conversations.id, conversationId))
+        await db.update(conversations).set({ defaultProvider: provider, defaultModel: modelRef, updatedAt: new Date() }).where(eq(conversations.id, conversationId))
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Stream error'
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: msg })}\n\n`))

@@ -1,3 +1,4 @@
+import { formatModelRef } from '$lib/model-ref'
 import type { ChatRequest, ChatStreamEvent, LLMProvider, ModelInfo, ProviderCapability, ProviderFactory } from './types'
 import Anthropic from '@anthropic-ai/sdk'
 
@@ -18,7 +19,7 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
     const models: ModelInfo[] = []
     for await (const model of client.models.list({ limit: 100 })) {
       models.push({
-        id: model.id,
+        id: formatModelRef('anthropic', model.id),
         name: model.display_name,
         contextWindow: model.max_input_tokens ?? 200_000,
         maxOutputTokens: model.max_tokens ?? 4096,

@@ -3,6 +3,7 @@ import { requireUser } from '$lib/server/auth-guard'
 import { db } from '$lib/server/db'
 import { providerModels } from '$lib/server/db/schema'
 import { getProviderFactory } from '$lib/server/providers'
+import { parseModelRef } from '$lib/model-ref'
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
 import { eq } from 'drizzle-orm'
@@ -26,5 +27,5 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 
   const disabledSet = new Set(stored.filter(s => !s.enabled).map(s => s.modelId))
 
-  return json(allModels.filter(m => !disabledSet.has(m.id)))
+  return json(allModels.filter(m => !disabledSet.has(parseModelRef(m.id).model)))
 }

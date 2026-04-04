@@ -10,24 +10,11 @@ import { setContext } from 'svelte'
 let { data, children }: { data: LayoutData; children: Snippet } = $props()
 
 let sidebarOpen = $state(true)
-let selectedProvider = $state('')
 let selectedModel = $state('')
-
-$effect(() => {
-  if (!selectedProvider) {
-    selectedProvider = data.providers.find(p => p.hasKey)?.id ?? ''
-  }
-})
 
 const currentConversationId = $derived(page.params.conversationId)
 
 setContext('chat-provider', {
-  get selectedProvider() {
-    return selectedProvider
-  },
-  set selectedProvider(v: string) {
-    selectedProvider = v
-  },
   get selectedModel() {
     return selectedModel
   },
@@ -70,7 +57,7 @@ setContext('chat-provider', {
           </svg>
         </button>
       {/if}
-      <ModelPicker providers={data.providers} bind:selectedProvider bind:selectedModel />
+      <ModelPicker providers={data.providers} bind:selectedModel />
     </header>
 
     <div class="flex-1 overflow-hidden">

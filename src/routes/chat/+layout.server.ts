@@ -1,6 +1,7 @@
 import { requireUser } from '$lib/server/auth-guard'
 import { db } from '$lib/server/db'
 import { apiKeys, conversations } from '$lib/server/db/schema'
+import { normalizeModelRef } from '$lib/model-ref'
 import { listProviders } from '$lib/server/providers'
 import type { LayoutServerLoad } from './$types'
 import { desc, eq } from 'drizzle-orm'
@@ -16,5 +17,11 @@ export const load: LayoutServerLoad = async ({ locals }) => {
     hasKey: configuredProviders.has(p.id),
   }))
 
-  return { conversations: convos, providers }
+  return {
+    conversations: convos.map(c => ({
+      ...c,
+      defaultModel: normalizeModelRef(c.defaultProvider, c.defaultModel),
+    })),
+    providers,
+  }
 }

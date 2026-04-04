@@ -3,6 +3,7 @@ import { requireUser } from '$lib/server/auth-guard'
 import { db } from '$lib/server/db'
 import { providerModels } from '$lib/server/db/schema'
 import { getProviderFactory } from '$lib/server/providers'
+import { parseModelRef } from '$lib/model-ref'
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
 import { eq } from 'drizzle-orm'
@@ -29,7 +30,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 
   const models = allModels.map(m => ({
     ...m,
-    enabled: enabledMap.get(m.id) ?? true,
+    enabled: enabledMap.get(parseModelRef(m.id).model) ?? true,
   }))
 
   return json(models)
@@ -38,15 +39,16 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 export const PUT: RequestHandler = async ({ request, locals }) => {
   requireUser(locals.user)
 
-  const { provider, modelId, enabled } = (await request.json()) as {
-    provider: string
+  const { modelId, enabled } = (await request.json()) as {
     modelId: string
     enabled: boolean
   }
 
+  const { provider, model } = parseModelRef(modelId)
+
   await db
     .insert(providerModels)
-    .values({ provider, modelId, enabled })
+    .values({ provider, modelId: model, enabled })
     .onConflictDoUpdate({
       target: [providerModels.provider, providerModels.modelId],
       set: { enabled, updatedAt: new Date() },
@@ -71,10 +73,11 @@ export const PATCH: RequestHandler = async ({ request, locals }) => {
   const llm = getProviderFactory(provider)(apiKey)
   const allModels = await llm.listModels()
 
-  for (const model of allModels) {
+  for (const m of allModels) {
+    const { model } = parseModelRef(m.id)
     await db
       .insert(providerModels)
-      .values({ provider, modelId: model.id, enabled })
+      .values({ provider, modelId: model, enabled })
       .onConflictDoUpdate({
         target: [providerModels.provider, providerModels.modelId],
         set: { enabled, updatedAt: new Date() },

@@ -1,6 +1,7 @@
 import { requireUser } from '$lib/server/auth-guard'
 import { db } from '$lib/server/db'
 import { conversations, messages } from '$lib/server/db/schema'
+import { normalizeModelRef } from '$lib/model-ref'
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
 import { and, asc, eq } from 'drizzle-orm'
@@ -19,5 +20,10 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 
   const rows = await db.select().from(messages).where(eq(messages.conversationId, params.conversationId)).orderBy(asc(messages.createdAt))
 
-  return json(rows)
+  return json(
+    rows.map(m => ({
+      ...m,
+      model: normalizeModelRef(m.provider, m.model),
+    })),
+  )
 }
