@@ -1,17 +1,17 @@
 import type { User, Session } from 'better-auth/minimal'
 
-// See https://svelte.dev/docs/kit/types#app.d.ts
-// for information about these interfaces
+type AdminUser = User & {
+  role?: string | null
+  banned?: boolean | null
+  banReason?: string | null
+  banExpires?: Date | null
+}
+
 declare global {
   namespace App {
     interface Locals {
-      user?: User
+      user?: AdminUser
       session?: Session
     }
-
-    // interface Error {}
-    // interface PageData {}
-    // interface PageState {}
-    // interface Platform {}
   }
 }

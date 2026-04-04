@@ -70,6 +70,25 @@ export const messages = sqliteTable(
   table => [index('messages_conversation_idx').on(table.conversationId)],
 )
 
+export const providerModels = sqliteTable(
+  'provider_models',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    provider: text('provider').notNull(),
+    modelId: text('model_id').notNull(),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    createdAt: integer('created_at', { mode: 'timestamp' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer('updated_at', { mode: 'timestamp' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  table => [uniqueIndex('provider_models_provider_model_idx').on(table.provider, table.modelId)],
+)
+
 export const userSettings = sqliteTable('user_settings', {
   id: text('id')
     .primaryKey()
