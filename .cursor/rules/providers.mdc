@@ -32,4 +32,4 @@ type ProviderFactory = (apiKey: string) => LLMProvider
 - The `chat` method must be an `AsyncGenerator` yielding `ChatStreamEvent` objects
 - Always yield `usage` event before `done` event
 - Catch SDK errors and yield `{ type: 'error', error: message }` instead of throwing
-- Model lists are hardcoded per adapter with pricing and capability metadata
+- `listModels()` fetches available models from the provider's API using the user's API key

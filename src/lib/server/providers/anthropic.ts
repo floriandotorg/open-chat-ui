@@ -1,33 +1,32 @@
-import type { ChatRequest, ChatStreamEvent, LLMProvider, ModelInfo, ProviderFactory } from './types'
+import type { ChatRequest, ChatStreamEvent, LLMProvider, ModelInfo, ProviderCapability, ProviderFactory } from './types'
 import Anthropic from '@anthropic-ai/sdk'
 
-const MODELS: ModelInfo[] = [
-  {
-    id: 'claude-sonnet-4-20250514',
-    name: 'Claude Sonnet 4',
-    contextWindow: 200_000,
-    maxOutputTokens: 16_384,
-    capabilities: ['streaming', 'vision', 'tool_use', 'system_prompt'],
-    inputPricePerMToken: 3,
-    outputPricePerMToken: 15,
-  },
-  {
-    id: 'claude-haiku-3-5-20241022',
-    name: 'Claude 3.5 Haiku',
-    contextWindow: 200_000,
-    maxOutputTokens: 8_192,
-    capabilities: ['streaming', 'vision', 'tool_use', 'system_prompt'],
-    inputPricePerMToken: 0.8,
-    outputPricePerMToken: 4,
-  },
-]
+const mapCapabilities = (caps: Anthropic.ModelCapabilities | null): ProviderCapability[] => {
+  const result: ProviderCapability[] = ['streaming', 'system_prompt']
+  if (caps?.image_input?.supported) result.push('vision')
+  if (caps?.code_execution?.supported) result.push('code_interpreter')
+  return result
+}
 
 const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
   id: 'anthropic',
   name: 'Anthropic',
   capabilities: ['streaming', 'vision', 'tool_use', 'system_prompt'],
 
-  listModels: async () => MODELS,
+  listModels: async () => {
+    const client = new Anthropic({ apiKey })
+    const models: ModelInfo[] = []
+    for await (const model of client.models.list({ limit: 100 })) {
+      models.push({
+        id: model.id,
+        name: model.display_name,
+        contextWindow: model.max_input_tokens ?? 200_000,
+        maxOutputTokens: model.max_tokens ?? 4096,
+        capabilities: mapCapabilities(model.capabilities),
+      })
+    }
+    return models
+  },
 
   async *chat(request: ChatRequest): AsyncGenerator<ChatStreamEvent> {
     const client = new Anthropic({ apiKey })

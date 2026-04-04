@@ -1,21 +1,27 @@
+import { getDecryptedKey } from '$lib/server/api-key'
 import { requireUser } from '$lib/server/auth-guard'
 import { db } from '$lib/server/db'
 import { providerModels } from '$lib/server/db/schema'
 import { getProviderFactory } from '$lib/server/providers'
 import type { RequestHandler } from './$types'
-import { json } from '@sveltejs/kit'
+import { error, json } from '@sveltejs/kit'
 import { eq } from 'drizzle-orm'
 
 export const GET: RequestHandler = async ({ locals, url }) => {
-  requireUser(locals.user)
+  const userId = requireUser(locals.user).id
 
   const provider = url.searchParams.get('provider')
   if (!provider) {
     return json({ error: 'provider query param required' }, { status: 400 })
   }
 
-  const factory = getProviderFactory(provider)
-  const allModels = await factory('').listModels()
+  const apiKey = await getDecryptedKey(userId, provider)
+  if (!apiKey) {
+    throw error(400, `No API key configured for ${provider}`)
+  }
+
+  const llm = getProviderFactory(provider)(apiKey)
+  const allModels = await llm.listModels()
 
   const stored = await db.select().from(providerModels).where(eq(providerModels.provider, provider))
 
@@ -50,15 +56,20 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
 }
 
 export const PATCH: RequestHandler = async ({ request, locals }) => {
-  requireUser(locals.user)
+  const userId = requireUser(locals.user).id
 
   const { provider, enabled } = (await request.json()) as {
     provider: string
     enabled: boolean
   }
 
-  const factory = getProviderFactory(provider)
-  const allModels = await factory('').listModels()
+  const apiKey = await getDecryptedKey(userId, provider)
+  if (!apiKey) {
+    throw error(400, `No API key configured for ${provider}`)
+  }
+
+  const llm = getProviderFactory(provider)(apiKey)
+  const allModels = await llm.listModels()
 
   for (const model of allModels) {
     await db
