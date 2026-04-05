@@ -37,6 +37,7 @@ sw.addEventListener('fetch', event => {
 
   const url = new URL(event.request.url)
 
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return
   if (url.pathname.startsWith('/api/')) return
 
   const isAsset = ASSETS.includes(url.pathname)

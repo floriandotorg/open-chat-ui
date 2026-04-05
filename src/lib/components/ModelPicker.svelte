@@ -1,4 +1,5 @@
 <script lang="ts">
+import { browser } from '$app/environment'
 import type { ModelInfo, ProviderInfo } from '$lib/types'
 
 let {
@@ -30,7 +31,7 @@ const fetchAllModels = async () => {
 }
 
 $effect(() => {
-  fetchAllModels()
+  if (browser) fetchAllModels()
 })
 
 let allModels = $derived([...modelsByProvider.values()].flat())

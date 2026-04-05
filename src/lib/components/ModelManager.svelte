@@ -1,4 +1,5 @@
 <script lang="ts">
+import { browser } from '$app/environment'
 import type { ModelInfo, ProviderInfo } from '$lib/types'
 
 let { providers, titleModel = $bindable('') }: { providers: ProviderInfo[]; titleModel: string } = $props()
@@ -42,11 +43,11 @@ const fetchAllModels = async () => {
 }
 
 $effect(() => {
-  fetchModels(selectedProvider)
+  if (browser) fetchModels(selectedProvider)
 })
 
 $effect(() => {
-  fetchAllModels()
+  if (browser) fetchAllModels()
 })
 
 const toggleModel = async (modelId: string, enabled: boolean) => {

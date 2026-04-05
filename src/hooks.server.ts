@@ -1,5 +1,5 @@
 import { auth } from '$lib/server/auth'
-import { building } from '$app/environment'
+import { building, dev } from '$app/environment'
 import type { Handle } from '@sveltejs/kit'
 import { redirect } from '@sveltejs/kit'
 import { svelteKitHandler } from 'better-auth/svelte-kit'
@@ -7,6 +7,10 @@ import { svelteKitHandler } from 'better-auth/svelte-kit'
 const protectedPrefixes = ['/chat', '/settings', '/api/']
 
 const handleBetterAuth: Handle = async ({ event, resolve }) => {
+  if (dev && event.url.pathname === '/.well-known/appspecific/com.chrome.devtools.json') {
+    return new Response(undefined, { status: 404 })
+  }
+
   const session = await auth.api.getSession({ headers: event.request.headers })
 
   if (session) {
