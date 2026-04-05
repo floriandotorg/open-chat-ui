@@ -154,9 +154,9 @@ const submit = () => {
 
 $effect(() => {
   page.url.pathname
-  if (textarea && !disabled && !isStreaming) {
+  if (textarea && !disabled) {
     tick().then(() => {
-      if (textarea && !disabled && !isStreaming) {
+      if (textarea && !disabled) {
         textarea.focus()
       }
     })
@@ -463,7 +463,7 @@ const cancelRecording = () => {
           onpaste={handlePaste}
           placeholder="Send a Message"
           rows="1"
-          disabled={disabled || isStreaming}
+          disabled={disabled}
           class="flex-1 resize-none bg-transparent py-1 text-sm outline-none placeholder:text-gray-400 disabled:opacity-50 dark:text-white dark:placeholder:text-neutral-400"
         ></textarea>
 
@@ -471,7 +471,7 @@ const cancelRecording = () => {
           <button
             onclick={() => fileInput?.click()}
             aria-label="Attach file"
-            disabled={disabled || isStreaming}
+            disabled={disabled}
             class="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-neutral-600 dark:hover:text-white"
           >
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -482,7 +482,7 @@ const cancelRecording = () => {
           <button
             onclick={startRecording}
             aria-label="Dictation"
-            disabled={disabled || isStreaming}
+            disabled={disabled}
             class="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-neutral-600 dark:hover:text-white"
           >
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -500,7 +500,8 @@ const cancelRecording = () => {
                 <rect x="6" y="6" width="12" height="12" rx="2" />
               </svg>
             </button>
-          {:else}
+          {/if}
+          {#if !isStreaming || content.trim() || pendingImages.length || pendingFiles.length}
             <button
               onclick={submit}
               disabled={(!content.trim() && !pendingImages.length && !pendingFiles.length) || disabled}

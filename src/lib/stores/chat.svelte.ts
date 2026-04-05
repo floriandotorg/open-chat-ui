@@ -14,6 +14,16 @@ export const createChatStore = () => {
   let abortController = $state<AbortController | null>(null)
   let onFirstReply = $state<((conversationId: string) => void) | null>(null)
   let activeConversationId = $state<string | null>(null)
+  interface QueueEntry {
+    id: string
+    conversationId: string
+    content: string
+    systemPrompt?: string
+    images?: ImageAttachment[]
+    files?: FileAttachment[]
+  }
+
+  let messageQueue = $state<QueueEntry[]>([])
 
   const resetStreamingState = () => {
     streamingText = ''
@@ -39,6 +49,21 @@ export const createChatStore = () => {
   })
 
   const sendMessage = async (conversationId: string, content: string, systemPrompt?: string, images?: ImageAttachment[], files?: FileAttachment[]) => {
+    if (isStreaming) {
+      messageQueue = [
+        ...messageQueue,
+        {
+          id: crypto.randomUUID(),
+          conversationId,
+          content,
+          systemPrompt,
+          images,
+          files,
+        },
+      ]
+      return
+    }
+
     const isFirstMessage = messages.length === 0
     activeConversationId = conversationId
     isStreaming = true
@@ -185,17 +210,34 @@ export const createChatStore = () => {
           messages.push(buildMessage(conversationId))
         }
         resetStreamingState()
+        abortController = null
         return
       }
       resetStreamingState()
-      throw err
-    } finally {
+      messageQueue = []
       abortController = null
+      throw err
+    }
+
+    abortController = null
+    if (messageQueue.length > 0) {
+      const [next, ...rest] = messageQueue
+      messageQueue = rest
+      await sendMessage(next.conversationId, next.content, next.systemPrompt, next.images, next.files)
     }
   }
 
   const stopStreaming = () => {
+    messageQueue = []
     abortController?.abort()
+  }
+
+  const editQueuedMessage = (id: string, content: string) => {
+    messageQueue = messageQueue.map(m => (m.id === id ? { ...m, content } : m))
+  }
+
+  const deleteQueuedMessage = (id: string) => {
+    messageQueue = messageQueue.filter(m => m.id !== id)
   }
 
   return {
@@ -226,6 +268,12 @@ export const createChatStore = () => {
     get streamingCodeExecutions() {
       return streamingCodeExecutions
     },
+    get messageQueue() {
+      return messageQueue
+    },
+    set messageQueue(v: QueueEntry[]) {
+      messageQueue = v
+    },
     get selectedModel() {
       return selectedModel
     },
@@ -246,5 +294,13 @@ export const createChatStore = () => {
     },
     sendMessage,
     stopStreaming,
+    editQueuedMessage,
+    deleteQueuedMessage,
+    processQueue: () => {
+      if (isStreaming || messageQueue.length === 0) return
+      const [next, ...rest] = messageQueue
+      messageQueue = rest
+      sendMessage(next.conversationId, next.content, next.systemPrompt, next.images, next.files)
+    },
   }
 }

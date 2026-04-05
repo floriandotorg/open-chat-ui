@@ -4,8 +4,8 @@ import ModelManager from '$lib/components/ModelManager.svelte'
 import SystemPromptManager from '$lib/components/SystemPromptManager.svelte'
 import { enhance } from '$app/forms'
 import { goto } from '$app/navigation'
-import { page } from '$app/state'
 import { resolve } from '$app/paths'
+import { page } from '$app/state'
 import type { ActionData, PageData } from './$types'
 
 const TABS = ['keys', 'models', 'prompt', 'tools', 'account'] as const

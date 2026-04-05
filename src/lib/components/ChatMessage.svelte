@@ -17,7 +17,9 @@ let copied = $state(false)
 const copyMessage = () => {
   navigator.clipboard.writeText(message.content)
   copied = true
-  setTimeout(() => { copied = false }, 2000)
+  setTimeout(() => {
+    copied = false
+  }, 2000)
 }
 
 const editMessage = () => {}
