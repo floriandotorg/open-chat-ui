@@ -14,12 +14,7 @@ export const generateConversationTitle = async (userId: string, conversationId: 
   const apiKey = await getDecryptedKey(userId, provider)
   if (!apiKey) return null
 
-  const history = await db
-    .select()
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(asc(messages.createdAt))
-    .limit(4)
+  const history = await db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt)).limit(4)
 
   if (history.length === 0) return null
 
@@ -34,8 +29,7 @@ export const generateConversationTitle = async (userId: string, conversationId: 
         content: history.map(m => `${m.role}: ${m.content}`).join('\n\n'),
       },
     ],
-    systemPrompt:
-      'Generate a concise 3-4 word title for this conversation. Respond with ONLY the title, no quotes, no punctuation, no explanation.',
+    systemPrompt: 'Generate a concise 3-4 word title for this conversation. Respond with ONLY the title, no quotes, no punctuation, no explanation.',
     maxTokens: 25,
     temperature: 0.5,
   })) {
@@ -50,10 +44,7 @@ export const generateConversationTitle = async (userId: string, conversationId: 
     .trim()
   if (!title) return null
 
-  await db
-    .update(conversations)
-    .set({ title, updatedAt: new Date() })
-    .where(eq(conversations.id, conversationId))
+  await db.update(conversations).set({ title, updatedAt: new Date() }).where(eq(conversations.id, conversationId))
 
   return title
 }

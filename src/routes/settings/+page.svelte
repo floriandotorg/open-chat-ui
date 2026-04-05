@@ -1,7 +1,7 @@
 <script lang="ts">
 import ApiKeyForm from '$lib/components/ApiKeyForm.svelte'
 import ModelManager from '$lib/components/ModelManager.svelte'
-import SystemPromptEditor from '$lib/components/SystemPromptEditor.svelte'
+import SystemPromptManager from '$lib/components/SystemPromptManager.svelte'
 import { enhance } from '$app/forms'
 import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
@@ -9,21 +9,11 @@ import type { ActionData, PageData } from './$types'
 
 let { data, form }: { data: PageData; form: ActionData } = $props()
 let activeTab = $state<'keys' | 'models' | 'prompt' | 'tools' | 'account'>('keys')
-let systemPrompt = $state('')
 let titleModel = $state('')
 
 $effect(() => {
-  systemPrompt = data.settings?.defaultSystemPrompt ?? ''
   titleModel = data.settings?.titleModel ?? ''
 })
-
-const saveSystemPrompt = async (value: string) => {
-  await fetch('/api/settings', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ defaultSystemPrompt: value }),
-  })
-}
 </script>
 
 <div class="mx-auto max-w-2xl px-4 py-8">
@@ -65,7 +55,7 @@ const saveSystemPrompt = async (value: string) => {
       {/each}
     </div>
   {:else if activeTab === 'prompt'}
-    <SystemPromptEditor bind:value={systemPrompt} onsave={saveSystemPrompt} />
+    <SystemPromptManager initial={data.systemPrompts} />
   {:else}
     <div class="space-y-6">
       <div class="rounded-lg border border-gray-200 p-4 dark:border-gray-800">

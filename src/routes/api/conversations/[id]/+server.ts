@@ -11,6 +11,7 @@ const toConversation = (row: typeof conversations.$inferSelect) => ({
   userId: row.userId,
   title: row.title,
   systemPrompt: row.systemPrompt,
+  systemPromptId: row.systemPromptId,
   defaultModel: normalizeModelRef(row.defaultProvider, row.defaultModel),
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
@@ -39,6 +40,7 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
     .set({
       ...(body.title !== undefined && { title: body.title }),
       ...(body.systemPrompt !== undefined && { systemPrompt: body.systemPrompt }),
+      ...(body.systemPromptId !== undefined && { systemPromptId: body.systemPromptId }),
       ...(body.defaultModel !== undefined && { defaultModel: body.defaultModel }),
       updatedAt: new Date(),
     })

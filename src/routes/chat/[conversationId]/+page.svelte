@@ -87,13 +87,13 @@ $effect(() => {
 onMount(() => {
   const { message, images } = consumePendingMessage()
   if (message) {
-    chat.sendMessage(data.conversation.id, message, data.conversation.systemPrompt ?? undefined, images ?? undefined)
+    chat.sendMessage(data.conversation.id, message, undefined, images ?? undefined)
   }
 })
 
 const handleSubmit = (content: string, images?: import('$lib/types').ImageAttachment[]) => {
   stickToBottom = true
-  chat.sendMessage(data.conversation.id, content, data.conversation.systemPrompt ?? undefined, images)
+  chat.sendMessage(data.conversation.id, content, undefined, images)
 }
 </script>
 

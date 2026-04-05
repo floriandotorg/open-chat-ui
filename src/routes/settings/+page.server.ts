@@ -1,11 +1,11 @@
 import { auth } from '$lib/server/auth'
 import { requireUser } from '$lib/server/auth-guard'
 import { db } from '$lib/server/db'
-import { apiKeys, userSettings } from '$lib/server/db/schema'
+import { apiKeys, systemPrompts, userSettings } from '$lib/server/db/schema'
 import { listProviders } from '$lib/server/providers'
 import type { Actions, PageServerLoad } from './$types'
 import { fail } from '@sveltejs/kit'
-import { eq } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 
 const TOOL_SERVICES = [
   { id: 'kagi', name: 'Kagi Search', capabilities: [] as string[] },
@@ -15,7 +15,11 @@ const TOOL_SERVICES = [
 export const load: PageServerLoad = async ({ locals }) => {
   const user = requireUser(locals.user)
 
-  const [settings, userKeys] = await Promise.all([db.select().from(userSettings).where(eq(userSettings.userId, user.id)), db.select({ provider: apiKeys.provider }).from(apiKeys).where(eq(apiKeys.userId, user.id))])
+  const [settings, userKeys, prompts] = await Promise.all([
+    db.select().from(userSettings).where(eq(userSettings.userId, user.id)),
+    db.select({ provider: apiKeys.provider }).from(apiKeys).where(eq(apiKeys.userId, user.id)),
+    db.select().from(systemPrompts).where(eq(systemPrompts.userId, user.id)).orderBy(asc(systemPrompts.createdAt)),
+  ])
 
   const configuredProviders = new Set(userKeys.map(k => k.provider))
   const providers = listProviders().map(p => ({
@@ -32,6 +36,7 @@ export const load: PageServerLoad = async ({ locals }) => {
     settings: settings[0] ?? null,
     providers,
     toolServices,
+    systemPrompts: prompts,
     user,
   }
 }

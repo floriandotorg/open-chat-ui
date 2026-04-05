@@ -29,6 +29,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   return {
     conversation: {
       ...conversation,
+      systemPromptId: conversation.systemPromptId,
       defaultModel: normalizeModelRef(conversation.defaultProvider, conversation.defaultModel),
     },
     messages: msgs.map(m => {

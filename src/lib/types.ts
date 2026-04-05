@@ -43,7 +43,18 @@ export interface Conversation {
   userId: string
   title: string
   systemPrompt?: string | null
+  systemPromptId?: string | null
   defaultModel?: string | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface SystemPrompt {
+  id: string
+  userId: string
+  title: string
+  content: string
+  isDefault: boolean
   createdAt: Date
   updatedAt: Date
 }

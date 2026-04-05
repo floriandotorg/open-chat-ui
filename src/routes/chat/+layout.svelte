@@ -1,9 +1,10 @@
 <script lang="ts">
 import ConversationList from '$lib/components/ConversationList.svelte'
 import ModelPicker from '$lib/components/ModelPicker.svelte'
+import SystemPromptPicker from '$lib/components/SystemPromptPicker.svelte'
 import ThinkingEffortPicker from '$lib/components/ThinkingEffortPicker.svelte'
 import type { Conversation, ThinkingEffort } from '$lib/types'
-import { afterNavigate, goto } from '$app/navigation'
+import { afterNavigate, goto, invalidateAll } from '$app/navigation'
 import { resolve } from '$app/paths'
 import { page } from '$app/state'
 import type { LayoutData } from './$types'
@@ -26,6 +27,7 @@ let thinkingEffort = $state<ThinkingEffort>('none')
 let sidebarWidth = $state(SIDEBAR_DEFAULT)
 let isResizing = $state(false)
 let isMobile = $state(false)
+let currentSystemPromptId = $state<string | null>(null)
 
 onMount(() => {
   const stored = localStorage.getItem(STORAGE_KEY)
@@ -69,6 +71,29 @@ const startResize = (e: MouseEvent) => {
 }
 
 const currentConversationId = $derived(page.params.conversationId)
+const currentConversation = $derived(data.conversations.find(c => c.id === currentConversationId))
+
+$effect(() => {
+  if (currentConversation) {
+    currentSystemPromptId = currentConversation.systemPromptId ?? data.systemPrompts.find(p => p.isDefault)?.id ?? null
+  } else {
+    currentSystemPromptId = data.systemPrompts.find(p => p.isDefault)?.id ?? null
+  }
+})
+
+const changeSystemPrompt = async (promptId: string | null) => {
+  if (!currentConversationId) return
+  const prompt = data.systemPrompts.find(p => p.id === promptId)
+  await fetch(`/api/conversations/${currentConversationId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemPromptId: promptId,
+      systemPrompt: prompt?.content ?? null,
+    }),
+  })
+  await invalidateAll()
+}
 
 afterNavigate(() => {
   if (isMobile) sidebarOpen = false
@@ -182,7 +207,16 @@ const userInitial = $derived(userName[0]?.toUpperCase() ?? 'U')
         {/if}
         <ModelPicker providers={data.providers} bind:selectedModel />
       </div>
-      <ThinkingEffortPicker bind:thinkingEffort />
+      <div class="flex items-center gap-1">
+        {#if currentConversationId}
+          <SystemPromptPicker
+            prompts={data.systemPrompts}
+            bind:selectedId={currentSystemPromptId}
+            onchange={changeSystemPrompt}
+          />
+        {/if}
+        <ThinkingEffortPicker bind:thinkingEffort />
+      </div>
     </header>
 
     <div class="flex-1 overflow-hidden">

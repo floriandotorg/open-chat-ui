@@ -36,6 +36,7 @@ export const conversations = sqliteTable(
       .references(() => user.id, { onDelete: 'cascade' }),
     title: text('title').notNull().default('New Chat'),
     systemPrompt: text('system_prompt'),
+    systemPromptId: text('system_prompt_id').references(() => systemPrompts.id, { onDelete: 'set null' }),
     defaultProvider: text('default_provider'),
     defaultModel: text('default_model'),
     createdAt: integer('created_at', { mode: 'timestamp' })
@@ -89,6 +90,28 @@ export const providerModels = sqliteTable(
       .$defaultFn(() => new Date()),
   },
   table => [uniqueIndex('provider_models_provider_model_idx').on(table.provider, table.modelId)],
+)
+
+export const systemPrompts = sqliteTable(
+  'system_prompts',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    content: text('content').notNull().default(''),
+    isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+    createdAt: integer('created_at', { mode: 'timestamp' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer('updated_at', { mode: 'timestamp' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  table => [index('system_prompts_user_idx').on(table.userId)],
 )
 
 export const userSettings = sqliteTable('user_settings', {

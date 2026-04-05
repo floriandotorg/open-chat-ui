@@ -4,7 +4,7 @@ import { getDecryptedKey } from '$lib/server/api-key'
 import { requireUser } from '$lib/server/auth-guard'
 import { decrypt } from '$lib/server/crypto'
 import { db } from '$lib/server/db'
-import { apiKeys, conversations, messages, userSettings } from '$lib/server/db/schema'
+import { apiKeys, conversations, messages, systemPrompts, userSettings } from '$lib/server/db/schema'
 import { getPostSystemPrompt } from '$lib/server/prompts'
 import { getProviderFactory } from '$lib/server/providers'
 import type { ChatMessage, ChatMessageImage, ToolCallInfo } from '$lib/server/providers/types'
@@ -102,7 +102,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const [settings] = await db.select().from(userSettings).where(eq(userSettings.userId, userId))
 
-  const baseSystemPrompt = systemPrompt ?? conversation.systemPrompt ?? settings?.defaultSystemPrompt ?? undefined
+  let baseSystemPrompt: string | undefined = systemPrompt
+  if (!baseSystemPrompt && conversation.systemPromptId) {
+    const [sp] = await db.select().from(systemPrompts).where(eq(systemPrompts.id, conversation.systemPromptId))
+    baseSystemPrompt = sp?.content ?? undefined
+  }
+  if (!baseSystemPrompt) {
+    baseSystemPrompt = conversation.systemPrompt ?? settings?.defaultSystemPrompt ?? undefined
+  }
   const postSystemPrompt = getPostSystemPrompt(provider)
   const resolvedSystemPrompt = baseSystemPrompt ? `${baseSystemPrompt}\n\n${postSystemPrompt}` : postSystemPrompt
 
