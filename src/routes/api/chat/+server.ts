@@ -8,6 +8,7 @@ import { apiKeys, conversations, messages, userSettings } from '$lib/server/db/s
 import { getPostSystemPrompt } from '$lib/server/prompts'
 import { getProviderFactory } from '$lib/server/providers'
 import type { ChatMessage, ChatMessageImage, ToolCallInfo } from '$lib/server/providers/types'
+import { generateConversationTitle } from '$lib/server/title'
 import { executeTool, getToolSchemas } from '$lib/server/tools'
 import { getUploadPath } from '$lib/server/uploads'
 import type { ImageAttachment } from '$lib/types'
@@ -259,6 +260,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           toolCalls: allToolCalls.length ? JSON.stringify(allToolCalls) : null,
         })
         await db.update(conversations).set({ defaultProvider: provider, defaultModel: modelRef, updatedAt: new Date() }).where(eq(conversations.id, conversationId))
+
+        if (conversation.title === 'New Chat') {
+          generateConversationTitle(userId, conversationId).catch(() => {})
+        }
       }
 
       if (clientConnected) {
