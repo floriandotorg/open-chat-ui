@@ -15,11 +15,11 @@ let renderedContent = $derived(isUser ? '' : renderMarkdown(message.content))
       <div class="whitespace-pre-wrap text-sm">{message.content}</div>
     </div>
   {:else}
-    <div class="flex max-w-[80%] gap-3">
+    <div class="flex max-w-[80%] gap-3 min-w-0">
       <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-purple-600 text-xs font-bold text-white">
         AI
       </div>
-      <div>
+      <div class="min-w-0">
         {#if message.model}
           <div class="mb-1 text-xs font-medium text-gray-400 dark:text-neutral-500">{message.model}</div>
         {/if}

@@ -2,12 +2,13 @@
 import ConversationList from '$lib/components/ConversationList.svelte'
 import ModelPicker from '$lib/components/ModelPicker.svelte'
 import type { Conversation } from '$lib/types'
-import { goto } from '$app/navigation'
+import { afterNavigate, goto } from '$app/navigation'
 import { resolve } from '$app/paths'
 import { page } from '$app/state'
 import type { LayoutData } from './$types'
 import type { Snippet } from 'svelte'
 import { onMount, setContext } from 'svelte'
+import { fade } from 'svelte/transition'
 
 let { data, children }: { data: LayoutData; children: Snippet } = $props()
 
@@ -20,10 +21,22 @@ let sidebarOpen = $state(true)
 let selectedModel = $state('')
 let sidebarWidth = $state(SIDEBAR_DEFAULT)
 let isResizing = $state(false)
+let isMobile = $state(false)
 
 onMount(() => {
   const stored = localStorage.getItem(STORAGE_KEY)
   if (stored) sidebarWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Number(stored)))
+
+  const mql = window.matchMedia('(max-width: 767px)')
+  isMobile = mql.matches
+  if (isMobile) sidebarOpen = false
+
+  const onMediaChange = (e: MediaQueryListEvent) => {
+    isMobile = e.matches
+    if (e.matches) sidebarOpen = false
+  }
+  mql.addEventListener('change', onMediaChange)
+  return () => mql.removeEventListener('change', onMediaChange)
 })
 
 const startResize = (e: MouseEvent) => {
@@ -43,6 +56,10 @@ const startResize = (e: MouseEvent) => {
 }
 
 const currentConversationId = $derived(page.params.conversationId)
+
+afterNavigate(() => {
+  if (isMobile) sidebarOpen = false
+})
 
 setContext('chat-provider', {
   get selectedModel() {
@@ -68,8 +85,15 @@ const userInitial = $derived(userName[0]?.toUpperCase() ?? 'U')
 </script>
 
 <div class="flex h-screen bg-white text-gray-900 dark:bg-neutral-800 dark:text-gray-100" class:select-none={isResizing}>
-  {#if sidebarOpen}
-    <aside class="relative flex shrink-0 flex-col bg-gray-50 dark:bg-neutral-900" style="width: {sidebarWidth}px">
+  {#if isMobile && sidebarOpen}
+    <button class="fixed inset-0 z-40 bg-black/50" onclick={() => sidebarOpen = false} aria-label="Close sidebar" tabindex="-1" transition:fade={{ duration: 200 }}></button>
+  {/if}
+
+  {#if sidebarOpen || isMobile}
+    <aside
+      class="{isMobile ? `fixed inset-y-0 left-0 z-50 w-[280px] shadow-xl transition-transform duration-200 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}` : 'relative shrink-0'} flex flex-col bg-gray-50 dark:bg-neutral-900"
+      style={isMobile ? undefined : `width: ${sidebarWidth}px`}
+    >
       <div class="flex items-center justify-between px-4 py-3">
         <div class="flex items-center gap-2">
           <svg class="h-6 w-6 text-blue-500" viewBox="0 0 192 192" fill="none">
@@ -113,22 +137,24 @@ const userInitial = $derived(userName[0]?.toUpperCase() ?? 'U')
           </a>
         </div>
       </div>
-      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        onmousedown={startResize}
-        class="group absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize"
-      >
-        <div class="h-full w-px ml-auto bg-gray-200 transition-colors group-hover:w-full group-hover:bg-blue-400 dark:bg-neutral-700 dark:group-hover:bg-blue-500" class:w-full={isResizing} class:bg-blue-400={isResizing} class:dark:bg-blue-500={isResizing}></div>
-      </div>
+      {#if !isMobile}
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          onmousedown={startResize}
+          class="group absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize"
+        >
+          <div class="h-full w-px ml-auto bg-gray-200 transition-colors group-hover:w-full group-hover:bg-blue-400 dark:bg-neutral-700 dark:group-hover:bg-blue-500" class:w-full={isResizing} class:bg-blue-400={isResizing} class:dark:bg-blue-500={isResizing}></div>
+        </div>
+      {/if}
     </aside>
   {/if}
 
   <main class="flex flex-1 flex-col overflow-hidden">
     <header class="flex items-center gap-3 px-4 py-2.5">
-      {#if !sidebarOpen}
-        <button onclick={() => sidebarOpen = true} aria-label="Open sidebar" class="rounded-lg p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700">
+      {#if !sidebarOpen || isMobile}
+        <button onclick={() => sidebarOpen = !sidebarOpen} aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'} class="rounded-lg p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700">
           <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
           </svg>
