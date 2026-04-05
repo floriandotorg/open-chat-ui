@@ -1,8 +1,9 @@
+import { fetchUrl } from './fetch-url'
 import { kagiSearch } from './kagi-search'
 import { redditQuery } from './reddit'
 import type { ToolContext, ToolDefinition } from './types'
 
-const tools: ToolDefinition[] = [kagiSearch, redditQuery]
+const tools: ToolDefinition[] = [kagiSearch, redditQuery, fetchUrl]
 
 export const getAllTools = (): ToolDefinition[] => tools
 

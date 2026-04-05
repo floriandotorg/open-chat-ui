@@ -7,7 +7,10 @@ import type { Actions, PageServerLoad } from './$types'
 import { fail } from '@sveltejs/kit'
 import { eq } from 'drizzle-orm'
 
-const TOOL_SERVICES = [{ id: 'kagi', name: 'Kagi Search', capabilities: [] as string[] }]
+const TOOL_SERVICES = [
+  { id: 'kagi', name: 'Kagi Search', capabilities: [] as string[] },
+  { id: 'jina', name: 'Jina Reader', capabilities: [] as string[] },
+]
 
 export const load: PageServerLoad = async ({ locals }) => {
   const user = requireUser(locals.user)

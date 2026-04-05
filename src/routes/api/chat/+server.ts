@@ -105,8 +105,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const postSystemPrompt = getPostSystemPrompt(provider)
   const resolvedSystemPrompt = baseSystemPrompt ? `${baseSystemPrompt}\n\n${postSystemPrompt}` : postSystemPrompt
 
-  console.log('resolvedSystemPrompt', resolvedSystemPrompt)
-
   const chatMessages: ChatMessage[] = history.map(m => {
     const imgs = parseImages(m.images)
     return {
