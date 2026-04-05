@@ -24,10 +24,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const id = crypto.randomUUID()
   const ext = extForMime(file.type)
-  const filename = `${id}.${ext}`
+  const storedName = `${id}.${ext}`
 
   const buffer = await file.arrayBuffer()
-  await Bun.write(getUploadPath(filename), buffer)
+  await Bun.write(getUploadPath(storedName), buffer)
 
-  return json({ id: filename, mimeType: file.type, url: `/api/uploads/${filename}` })
+  return json({ id: storedName, filename: file.name, mimeType: file.type, url: `/api/uploads/${storedName}` })
 }

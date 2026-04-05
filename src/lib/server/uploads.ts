@@ -18,11 +18,16 @@ const EXT_MAP: Record<string, string> = {
   'image/gif': 'gif',
   'image/webp': 'webp',
   'image/svg+xml': 'svg',
+  'text/csv': 'csv',
 }
 
 const MIME_MAP: Record<string, string> = Object.fromEntries(Object.entries(EXT_MAP).map(([mime, ext]) => [ext, mime]))
 
 export const ALLOWED_MIME_TYPES = new Set(Object.keys(EXT_MAP))
+
+export const IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'])
+
+export const FILE_MIME_TYPES = new Set(['text/csv'])
 
 export const extForMime = (mimeType: string): string | undefined => EXT_MAP[mimeType]
 

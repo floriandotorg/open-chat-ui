@@ -1,15 +1,15 @@
 <script lang="ts">
 import ChatInput from '$lib/components/ChatInput.svelte'
 import { setPendingMessage } from '$lib/stores/pending-message'
-import type { Conversation, ImageAttachment } from '$lib/types'
+import type { Conversation, FileAttachment, ImageAttachment } from '$lib/types'
 import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
 import { getContext } from 'svelte'
 
 const ctx: { selectedModel: string } = getContext('chat-provider')
 
-const handleSubmit = async (content: string, images?: ImageAttachment[]) => {
-  setPendingMessage(content, images)
+const handleSubmit = async (content: string, images?: ImageAttachment[], files?: FileAttachment[]) => {
+  setPendingMessage(content, images, files)
   const res = await fetch('/api/conversations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -25,6 +25,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
   images?: ChatMessageImage[]
+  containerUploadFileIds?: string[]
   toolCalls?: ToolCallInfo[]
   toolCallId?: string
   rawContentBlocks?: unknown[]

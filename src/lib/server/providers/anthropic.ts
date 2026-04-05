@@ -15,11 +15,21 @@ const mapCapabilities = (caps: Anthropic.ModelCapabilities | null): ProviderCapa
 }
 
 const buildAnthropicContent = (m: ChatMessage): string | Anthropic.ContentBlockParam[] => {
-  if (!m.images?.length) return m.content
-  const parts: Anthropic.ContentBlockParam[] = m.images.map(img => ({
-    type: 'image' as const,
-    source: { type: 'base64' as const, media_type: img.mimeType as Anthropic.Base64ImageSource['media_type'], data: img.data },
-  }))
+  if (!m.images?.length && !m.containerUploadFileIds?.length) return m.content
+  const parts: Anthropic.ContentBlockParam[] = []
+  if (m.images?.length) {
+    for (const img of m.images) {
+      parts.push({
+        type: 'image' as const,
+        source: { type: 'base64' as const, media_type: img.mimeType as Anthropic.Base64ImageSource['media_type'], data: img.data },
+      })
+    }
+  }
+  if (m.containerUploadFileIds?.length) {
+    for (const fid of m.containerUploadFileIds) {
+      parts.push({ type: 'container_upload', file_id: fid } as unknown as Anthropic.ContentBlockParam)
+    }
+  }
   if (m.content) {
     parts.push({ type: 'text' as const, text: m.content })
   }
@@ -109,6 +119,8 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
   async *chat(request: ChatRequest): AsyncGenerator<ChatStreamEvent> {
     const client = new Anthropic({ apiKey })
 
+    const hasContainerUploads = request.messages.some(m => m.containerUploadFileIds?.length)
+
     const useThinking = request.thinkingEffort && request.thinkingEffort !== 'none'
     const baseMaxTokens = request.maxTokens ?? 4096
     const maxTokens = useThinking ? Math.max(baseMaxTokens, 16000) : baseMaxTokens
@@ -151,7 +163,11 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
       params.tools = tools
     }
 
-    const stream = client.messages.stream(params as Anthropic.MessageStreamParams, { signal: request.signal })
+    const streamOptions: Record<string, unknown> = { signal: request.signal }
+    if (hasContainerUploads) {
+      streamOptions.headers = { 'anthropic-beta': 'files-api-2025-04-14' }
+    }
+    const stream = client.messages.stream(params as Anthropic.MessageStreamParams, streamOptions)
 
     const pendingToolCalls = new Map<number, { id: string; name: string; argsJson: string }>()
     const pendingCodeExecs = new Map<number, { id: string; name: string; inputJson: string }>()

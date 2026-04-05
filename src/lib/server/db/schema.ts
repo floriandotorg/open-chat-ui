@@ -39,6 +39,7 @@ export const conversations = sqliteTable(
     systemPromptId: text('system_prompt_id').references(() => systemPrompts.id, { onDelete: 'set null' }),
     defaultProvider: text('default_provider'),
     defaultModel: text('default_model'),
+    container: text('container'),
     createdAt: integer('created_at', { mode: 'timestamp' })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -61,6 +62,7 @@ export const messages = sqliteTable(
     role: text('role').notNull(),
     content: text('content').notNull(),
     images: text('images'),
+    files: text('files'),
     provider: text('provider'),
     model: text('model'),
     inputTokens: integer('input_tokens'),

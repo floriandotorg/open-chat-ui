@@ -3,6 +3,13 @@ export interface ImageAttachment {
   mimeType: string
 }
 
+export interface FileAttachment {
+  id: string
+  filename: string
+  mimeType: string
+  providerFileId?: string
+}
+
 export interface ToolCallInfo {
   id: string
   name: string
@@ -28,6 +35,7 @@ export interface Message {
   role: 'user' | 'assistant' | 'system'
   content: string
   images?: ImageAttachment[]
+  files?: FileAttachment[]
   model?: string | null
   inputTokens?: number | null
   outputTokens?: number | null

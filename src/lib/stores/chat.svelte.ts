@@ -1,4 +1,4 @@
-import type { ChatStreamEvent, CodeExecutionBlock, ImageAttachment, Message, ThinkingEffort, ToolCallInfo } from '$lib/types'
+import type { ChatStreamEvent, CodeExecutionBlock, FileAttachment, ImageAttachment, Message, ThinkingEffort, ToolCallInfo } from '$lib/types'
 
 export const createChatStore = () => {
   let messages = $state<Message[]>([])
@@ -38,7 +38,7 @@ export const createChatStore = () => {
     createdAt: new Date(),
   })
 
-  const sendMessage = async (conversationId: string, content: string, systemPrompt?: string, images?: ImageAttachment[]) => {
+  const sendMessage = async (conversationId: string, content: string, systemPrompt?: string, images?: ImageAttachment[], files?: FileAttachment[]) => {
     const isFirstMessage = messages.length === 0
     activeConversationId = conversationId
     isStreaming = true
@@ -58,6 +58,7 @@ export const createChatStore = () => {
       role: 'user',
       content,
       images: images?.length ? images : undefined,
+      files: files?.length ? files : undefined,
       createdAt: new Date(),
     })
 
@@ -70,6 +71,7 @@ export const createChatStore = () => {
           model: selectedModel,
           message: content,
           images: images?.length ? images : undefined,
+          files: files?.length ? files : undefined,
           systemPrompt,
           thinkingEffort,
         }),

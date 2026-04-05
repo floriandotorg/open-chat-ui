@@ -11,8 +11,9 @@ import type { ChatMessage, ChatMessageImage, ToolCallInfo } from '$lib/server/pr
 import { generateConversationTitle } from '$lib/server/title'
 import { executeTool, getToolSchemas } from '$lib/server/tools'
 import { getUploadPath } from '$lib/server/uploads'
-import type { ImageAttachment } from '$lib/types'
+import type { FileAttachment, ImageAttachment } from '$lib/types'
 import type { RequestHandler } from './$types'
+import Anthropic, { toFile } from '@anthropic-ai/sdk'
 import { error } from '@sveltejs/kit'
 import { and, asc, eq } from 'drizzle-orm'
 
@@ -50,6 +51,21 @@ const parseImages = (raw: string | null): ImageAttachment[] => {
   return JSON.parse(raw) as ImageAttachment[]
 }
 
+const parseFiles = (raw: string | null): FileAttachment[] => {
+  if (!raw) return []
+  return JSON.parse(raw) as FileAttachment[]
+}
+
+const uploadFileToAnthropic = async (client: Anthropic, attachment: FileAttachment): Promise<string> => {
+  const filePath = getUploadPath(attachment.id)
+  const buffer = readFileSync(filePath)
+  const uploaded = await client.beta.files.upload({
+    file: await toFile(Buffer.from(buffer), attachment.filename, { type: attachment.mimeType }),
+    betas: ['files-api-2025-04-14'],
+  })
+  return uploaded.id
+}
+
 export const POST: RequestHandler = async ({ request, locals }) => {
   const userId = requireUser(locals.user).id
   const body = await request.json()
@@ -58,6 +74,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     model: modelRef,
     message,
     images: imageIds,
+    files: fileAttachments,
     systemPrompt,
     thinkingEffort,
   } = body as {
@@ -65,6 +82,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     model: string
     message: string
     images?: ImageAttachment[]
+    files?: FileAttachment[]
     systemPrompt?: string
     thinkingEffort?: 'none' | 'low' | 'medium' | 'high' | 'max'
   }
@@ -85,6 +103,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     role: 'user',
     content: message,
     images: imageIds?.length ? JSON.stringify(imageIds) : null,
+    files: fileAttachments?.length ? JSON.stringify(fileAttachments) : null,
   })
 
   const [keyRow] = await db
@@ -113,14 +132,43 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const postSystemPrompt = getPostSystemPrompt(provider)
   const resolvedSystemPrompt = baseSystemPrompt ? `${baseSystemPrompt}\n\n${postSystemPrompt}` : postSystemPrompt
 
-  const chatMessages: ChatMessage[] = history.map(m => {
+  const anthropicClient = provider === 'anthropic' ? new Anthropic({ apiKey: decryptedKey }) : null
+
+  const allFileIds: string[] = []
+  const chatMessages: ChatMessage[] = []
+  for (const m of history) {
     const imgs = parseImages(m.images)
-    return {
+    const fls = parseFiles(m.files)
+
+    if (fls.length && anthropicClient) {
+      for (const file of fls) {
+        if (file.providerFileId) {
+          allFileIds.push(file.providerFileId)
+        } else {
+          const providerFileId = await uploadFileToAnthropic(anthropicClient, file)
+          file.providerFileId = providerFileId
+          allFileIds.push(providerFileId)
+          await db
+            .update(messages)
+            .set({ files: JSON.stringify(fls) })
+            .where(eq(messages.id, m.id))
+        }
+      }
+    }
+
+    chatMessages.push({
       role: m.role as ChatMessage['role'],
       content: m.content,
       ...(imgs.length ? { images: imgs.map(loadImageData) } : {}),
+    })
+  }
+
+  if (allFileIds.length && chatMessages.length) {
+    const lastUserMsg = [...chatMessages].reverse().find(m => m.role === 'user')
+    if (lastUserMsg) {
+      lastUserMsg.containerUploadFileIds = allFileIds
     }
-  })
+  }
 
   const llm = getProviderFactory(provider)(decryptedKey)
   const toolSchemas = getToolSchemas()
@@ -133,7 +181,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   let fullText = ''
   const totalUsage = { inputTokens: 0, outputTokens: 0 }
   const allToolCalls: (PersistedToolCall | PersistedCodeExecution)[] = []
-  let container: string | undefined
+  let container: string | undefined = conversation.container ?? undefined
   let clientConnected = true
 
   const enqueue = (controller: ReadableStreamDefaultController, data: Uint8Array) => {
@@ -266,7 +314,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           outputTokens: totalUsage.outputTokens || undefined,
           toolCalls: allToolCalls.length ? JSON.stringify(allToolCalls) : null,
         })
-        await db.update(conversations).set({ defaultProvider: provider, defaultModel: modelRef, updatedAt: new Date() }).where(eq(conversations.id, conversationId))
+        await db
+          .update(conversations)
+          .set({ defaultProvider: provider, defaultModel: modelRef, updatedAt: new Date(), ...(container ? { container } : {}) })
+          .where(eq(conversations.id, conversationId))
 
         if (conversation.title === 'New Chat') {
           generateConversationTitle(userId, conversationId).catch(() => {})

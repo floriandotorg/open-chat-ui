@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { ImageAttachment } from '$lib/types'
+import type { FileAttachment, ImageAttachment } from '$lib/types'
 import { page } from '$app/state'
 import { tick } from 'svelte'
 
@@ -9,7 +9,7 @@ let {
   isStreaming = false,
   onstop,
 }: {
-  onsubmit: (content: string, images?: ImageAttachment[]) => void
+  onsubmit: (content: string, images?: ImageAttachment[], files?: FileAttachment[]) => void
   disabled?: boolean
   isStreaming?: boolean
   onstop?: () => void
@@ -34,7 +34,10 @@ interface PendingImage {
   previewUrl: string
 }
 
+const FILE_MIME_TYPES = new Set(['text/csv'])
+
 let pendingImages = $state<PendingImage[]>([])
+let pendingFiles = $state<FileAttachment[]>([])
 let uploadingCount = $state(0)
 
 const formattedTime = $derived(() => {
@@ -43,24 +46,31 @@ const formattedTime = $derived(() => {
   return `${m}:${s.toString().padStart(2, '0')}`
 })
 
+const isAcceptedFile = (file: File) => file.type.startsWith('image/') || FILE_MIME_TYPES.has(file.type)
+
 const uploadFile = async (file: File) => {
-  if (!file.type.startsWith('image/')) return
+  if (!isAcceptedFile(file)) return
   ++uploadingCount
-  const previewUrl = URL.createObjectURL(file)
+  const isImage = file.type.startsWith('image/')
+  const previewUrl = isImage ? URL.createObjectURL(file) : ''
   const formData = new FormData()
   formData.append('file', file)
   try {
     const res = await fetch('/api/uploads', { method: 'POST', body: formData })
     if (!res.ok) {
-      URL.revokeObjectURL(previewUrl)
+      if (isImage) URL.revokeObjectURL(previewUrl)
       const err = await res.json().catch(() => ({ message: 'Upload failed' }))
       console.error('Upload error:', err.message ?? err)
       return
     }
-    const data: { id: string; mimeType: string } = await res.json()
-    pendingImages = [...pendingImages, { attachment: { id: data.id, mimeType: data.mimeType }, previewUrl }]
+    const data: { id: string; filename: string; mimeType: string } = await res.json()
+    if (isImage) {
+      pendingImages = [...pendingImages, { attachment: { id: data.id, mimeType: data.mimeType }, previewUrl }]
+    } else {
+      pendingFiles = [...pendingFiles, { id: data.id, filename: data.filename, mimeType: data.mimeType }]
+    }
   } catch (err) {
-    URL.revokeObjectURL(previewUrl)
+    if (isImage) URL.revokeObjectURL(previewUrl)
     console.error('Upload error:', err)
   } finally {
     --uploadingCount
@@ -71,6 +81,10 @@ const removeImage = (idx: number) => {
   const removed = pendingImages[idx]
   if (removed) URL.revokeObjectURL(removed.previewUrl)
   pendingImages = pendingImages.filter((_, n) => n !== idx)
+}
+
+const removeFile = (idx: number) => {
+  pendingFiles = pendingFiles.filter((_, n) => n !== idx)
 }
 
 const handlePaste = (e: ClipboardEvent) => {
@@ -91,7 +105,7 @@ const handleDrop = (e: DragEvent) => {
   const files = e.dataTransfer?.files
   if (!files) return
   for (let n = 0; n < files.length; ++n) {
-    if (files[n].type.startsWith('image/')) uploadFile(files[n])
+    if (isAcceptedFile(files[n])) uploadFile(files[n])
   }
 }
 
@@ -125,11 +139,13 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 const submit = () => {
   const trimmed = content.trim()
-  if ((!trimmed && !pendingImages.length) || disabled) return
+  if ((!trimmed && !pendingImages.length && !pendingFiles.length) || disabled) return
   const images = pendingImages.length ? pendingImages.map(p => p.attachment) : undefined
-  onsubmit(trimmed, images)
+  const files = pendingFiles.length ? [...pendingFiles] : undefined
+  onsubmit(trimmed, images, files)
   for (const img of pendingImages) URL.revokeObjectURL(img.previewUrl)
   pendingImages = []
+  pendingFiles = []
   content = ''
   if (textarea) {
     textarea.style.height = 'auto'
@@ -386,7 +402,7 @@ const cancelRecording = () => {
       ondragleave={handleDragLeave}
       role="presentation"
     >
-      {#if pendingImages.length > 0 || uploadingCount > 0}
+      {#if pendingImages.length > 0 || pendingFiles.length > 0 || uploadingCount > 0}
         <div class="flex flex-wrap gap-2 px-4 pt-3">
           {#each pendingImages as img, idx (img.attachment.id)}
             <div class="group relative">
@@ -394,6 +410,23 @@ const cancelRecording = () => {
               <button
                 onclick={() => removeImage(idx)}
                 aria-label="Remove image"
+                class="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-gray-800 text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-neutral-200 dark:text-neutral-900"
+              >
+                <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          {/each}
+          {#each pendingFiles as file, idx (file.id)}
+            <div class="group relative flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-neutral-600 dark:bg-neutral-800">
+              <svg class="h-4 w-4 shrink-0 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span class="max-w-[120px] truncate text-xs text-gray-700 dark:text-neutral-300">{file.filename}</span>
+              <button
+                onclick={() => removeFile(idx)}
+                aria-label="Remove file"
                 class="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-gray-800 text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-neutral-200 dark:text-neutral-900"
               >
                 <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -417,7 +450,7 @@ const cancelRecording = () => {
         <input
           bind:this={fileInput}
           type="file"
-          accept="image/*"
+          accept="image/*,.csv,text/csv"
           multiple
           onchange={handleFileSelect}
           class="hidden"
@@ -437,7 +470,7 @@ const cancelRecording = () => {
         <div class="flex shrink-0 items-center gap-1">
           <button
             onclick={() => fileInput?.click()}
-            aria-label="Attach image"
+            aria-label="Attach file"
             disabled={disabled || isStreaming}
             class="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-neutral-600 dark:hover:text-white"
           >
@@ -470,7 +503,7 @@ const cancelRecording = () => {
           {:else}
             <button
               onclick={submit}
-              disabled={(!content.trim() && !pendingImages.length) || disabled}
+              disabled={(!content.trim() && !pendingImages.length && !pendingFiles.length) || disabled}
               aria-label="Send message"
               class="rounded-full bg-gray-900 p-2 text-white transition-colors hover:bg-gray-700 disabled:opacity-30 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
             >
