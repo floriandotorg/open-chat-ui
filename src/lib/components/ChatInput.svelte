@@ -27,7 +27,8 @@ let analyser: AnalyserNode | undefined
 let audioContext: AudioContext | undefined
 let animationFrame: number | undefined
 let timerInterval: ReturnType<typeof setInterval> | undefined
-let isDragging = $state(false)
+let dragCounter = $state(0)
+let isDragging = $derived(dragCounter > 0)
 
 interface PendingImage {
   attachment: ImageAttachment
@@ -99,27 +100,41 @@ const handlePaste = (e: ClipboardEvent) => {
   }
 }
 
-const handleDrop = (e: DragEvent) => {
-  e.preventDefault()
-  isDragging = false
-  const files = e.dataTransfer?.files
-  if (!files) return
-  for (let n = 0; n < files.length; ++n) {
-    if (isAcceptedFile(files[n])) uploadFile(files[n])
+$effect(() => {
+  const onDragEnter = (e: DragEvent) => {
+    if (disabled || !e.dataTransfer?.types.includes('Files')) return
+    e.preventDefault()
+    ++dragCounter
   }
-}
-
-const handleDragOver = (e: DragEvent) => {
-  e.preventDefault()
-  isDragging = true
-}
-
-const handleDragLeave = (e: DragEvent) => {
-  const target = e.currentTarget as HTMLElement
-  if (!target.contains(e.relatedTarget as Node)) {
-    isDragging = false
+  const onDragLeave = (e: DragEvent) => {
+    if (!e.dataTransfer?.types.includes('Files')) return
+    --dragCounter
+    if (dragCounter < 0) dragCounter = 0
   }
-}
+  const onDragOver = (e: DragEvent) => {
+    if (e.dataTransfer?.types.includes('Files')) e.preventDefault()
+  }
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault()
+    dragCounter = 0
+    if (disabled) return
+    const files = e.dataTransfer?.files
+    if (!files) return
+    for (let n = 0; n < files.length; ++n) {
+      if (isAcceptedFile(files[n])) uploadFile(files[n])
+    }
+  }
+  window.addEventListener('dragenter', onDragEnter)
+  window.addEventListener('dragleave', onDragLeave)
+  window.addEventListener('dragover', onDragOver)
+  window.addEventListener('drop', onDrop)
+  return () => {
+    window.removeEventListener('dragenter', onDragEnter)
+    window.removeEventListener('dragleave', onDragLeave)
+    window.removeEventListener('dragover', onDragOver)
+    window.removeEventListener('drop', onDrop)
+  }
+})
 
 const handleFileSelect = () => {
   const files = fileInput?.files
@@ -397,10 +412,6 @@ const cancelRecording = () => {
   {:else}
     <div
       class="mx-auto max-w-3xl rounded-2xl border bg-gray-50 transition-colors dark:bg-neutral-700 {isDragging ? 'border-blue-400 bg-blue-50 dark:border-blue-500 dark:bg-blue-950/30' : 'border-gray-200 dark:border-neutral-600'}"
-      ondrop={handleDrop}
-      ondragover={handleDragOver}
-      ondragleave={handleDragLeave}
-      role="presentation"
     >
       {#if pendingImages.length > 0 || pendingFiles.length > 0 || uploadingCount > 0}
         <div class="flex flex-wrap gap-2 px-4 pt-3">
@@ -518,3 +529,15 @@ const cancelRecording = () => {
     </div>
   {/if}
 </div>
+
+{#if isDragging}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-blue-500/10 backdrop-blur-[2px]">
+    <div class="pointer-events-none flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-blue-400 bg-white/80 px-16 py-10 shadow-lg dark:border-blue-500 dark:bg-neutral-800/80">
+      <svg class="h-10 w-10 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+      </svg>
+      <p class="text-lg font-medium text-gray-800 dark:text-neutral-100">Drop files here</p>
+      <p class="text-sm text-gray-500 dark:text-neutral-400">Images and CSV files</p>
+    </div>
+  </div>
+{/if}
