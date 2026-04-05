@@ -69,6 +69,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   let fullText = ''
   let tokenUsage: { inputTokens?: number; outputTokens?: number } = {}
+  let clientConnected = true
+
+  const enqueue = (controller: ReadableStreamDefaultController, data: Uint8Array) => {
+    if (!clientConnected) return
+    try {
+      controller.enqueue(data)
+    } catch {
+      clientConnected = false
+    }
+  }
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -79,7 +89,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           messages: chatMessages,
           systemPrompt: resolvedSystemPrompt,
           thinkingEffort: thinkingEffort ?? 'none',
-          signal: request.signal,
         })) {
           if (event.type === 'text_delta') {
             fullText += event.text ?? ''
@@ -87,9 +96,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           if (event.type === 'usage') {
             tokenUsage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens }
           }
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+          enqueue(controller, encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
         }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Stream error'
+        enqueue(controller, encoder.encode(`data: ${JSON.stringify({ type: 'error', error: msg })}\n\n`))
+      }
 
+      if (fullText) {
         await db.insert(messages).values({
           conversationId,
           role: 'assistant',
@@ -99,14 +113,19 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           inputTokens: tokenUsage.inputTokens,
           outputTokens: tokenUsage.outputTokens,
         })
-
         await db.update(conversations).set({ defaultProvider: provider, defaultModel: modelRef, updatedAt: new Date() }).where(eq(conversations.id, conversationId))
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Stream error'
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: msg })}\n\n`))
-      } finally {
-        controller.close()
       }
+
+      if (clientConnected) {
+        try {
+          controller.close()
+        } catch {
+          clientConnected = false
+        }
+      }
+    },
+    cancel() {
+      clientConnected = false
     },
   })
 
