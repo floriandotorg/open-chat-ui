@@ -1,4 +1,4 @@
-import type { ChatStreamEvent, ImageAttachment, Message, ThinkingEffort, ToolCallInfo } from '$lib/types'
+import type { ChatStreamEvent, CodeExecutionBlock, ImageAttachment, Message, ThinkingEffort, ToolCallInfo } from '$lib/types'
 
 export const createChatStore = () => {
   let messages = $state<Message[]>([])
@@ -8,6 +8,7 @@ export const createChatStore = () => {
   let isStreaming = $state(false)
   let isThinking = $state(false)
   let streamingToolCalls = $state<ToolCallInfo[]>([])
+  let streamingCodeExecutions = $state<CodeExecutionBlock[]>([])
   let selectedModel = $state('anthropic/claude-sonnet-4-20250514')
   let thinkingEffort = $state<ThinkingEffort>('none')
   let abortController = $state<AbortController | null>(null)
@@ -19,6 +20,7 @@ export const createChatStore = () => {
     streamingThinking = ''
     thinkingDuration = null
     streamingToolCalls = []
+    streamingCodeExecutions = []
     isStreaming = false
     isThinking = false
   }
@@ -32,6 +34,7 @@ export const createChatStore = () => {
     thinking: streamingThinking || undefined,
     thinkingDuration: thinkingDuration ?? undefined,
     toolCalls: streamingToolCalls.length ? [...streamingToolCalls] : undefined,
+    codeExecutions: streamingCodeExecutions.length ? [...streamingCodeExecutions] : undefined,
     createdAt: new Date(),
   })
 
@@ -44,7 +47,9 @@ export const createChatStore = () => {
     streamingThinking = ''
     thinkingDuration = null
     streamingToolCalls = []
+    streamingCodeExecutions = []
     abortController = new AbortController()
+    const codeExecRawInputs = new Map<string, string>()
     let thinkingStartTime: number | null = null
 
     messages.push({
@@ -124,6 +129,33 @@ export const createChatStore = () => {
           if (event.type === 'tool_result' && event.toolResult) {
             streamingToolCalls = streamingToolCalls.map(tc => (tc.id === event.toolResult?.toolCallId ? { ...tc, result: event.toolResult.result } : tc))
           }
+          if (event.type === 'code_execution_start' && event.codeExecution) {
+            streamingCodeExecutions = [
+              ...streamingCodeExecutions,
+              {
+                id: event.codeExecution.id,
+                name: event.codeExecution.name,
+                input: {},
+                textOffset: streamingText.length,
+              },
+            ]
+          }
+          if (event.type === 'code_execution_delta' && event.codeExecutionDelta) {
+            const { id, partialInput } = event.codeExecutionDelta
+            const raw = (codeExecRawInputs.get(id) ?? '') + partialInput
+            codeExecRawInputs.set(id, raw)
+            let input: Record<string, unknown>
+            try {
+              input = JSON.parse(raw)
+            } catch {
+              input = { _raw: raw }
+            }
+            streamingCodeExecutions = streamingCodeExecutions.map(ce => (ce.id === id ? { ...ce, input } : ce))
+          }
+          if (event.type === 'code_execution_result' && event.codeExecutionResult) {
+            const { id, ...result } = event.codeExecutionResult
+            streamingCodeExecutions = streamingCodeExecutions.map(ce => (ce.id === id ? { ...ce, ...result } : ce))
+          }
           if (event.type === 'error') {
             resetStreamingState()
             throw new Error(event.error ?? 'Stream error')
@@ -184,6 +216,9 @@ export const createChatStore = () => {
     },
     get streamingToolCalls() {
       return streamingToolCalls
+    },
+    get streamingCodeExecutions() {
+      return streamingCodeExecutions
     },
     get selectedModel() {
       return selectedModel

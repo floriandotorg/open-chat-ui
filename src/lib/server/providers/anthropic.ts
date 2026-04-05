@@ -2,6 +2,11 @@ import { formatModelRef } from '$lib/model-ref'
 import type { ChatMessage, ChatRequest, ChatStreamEvent, LLMProvider, ModelInfo, ProviderCapability, ProviderFactory, ToolCallInfo } from './types'
 import Anthropic from '@anthropic-ai/sdk'
 
+type AnyBlock = Record<string, unknown>
+
+const CODE_EXEC_TOOL_NAMES = new Set(['code_execution', 'bash_code_execution', 'text_editor_code_execution'])
+const CODE_EXEC_RESULT_TYPES = new Set(['bash_code_execution_tool_result', 'text_editor_code_execution_tool_result', 'code_execution_tool_result'])
+
 const mapCapabilities = (caps: Anthropic.ModelCapabilities | null): ProviderCapability[] => {
   const result: ProviderCapability[] = ['streaming', 'system_prompt']
   if (caps?.image_input?.supported) result.push('vision')
@@ -42,6 +47,11 @@ const buildAnthropicMessages = (messages: ChatMessage[]): Anthropic.MessageParam
       continue
     }
 
+    if (m.role === 'assistant' && m.rawContentBlocks?.length) {
+      result.push({ role: 'assistant', content: m.rawContentBlocks as Anthropic.ContentBlockParam[] })
+      continue
+    }
+
     if (m.role === 'assistant' && m.toolCalls?.length) {
       const content: Anthropic.ContentBlockParam[] = []
       if (m.content) {
@@ -63,10 +73,23 @@ const buildAnthropicMessages = (messages: ChatMessage[]): Anthropic.MessageParam
   return result
 }
 
+const extractCodeExecResult = (block: AnyBlock): { stdout?: string; stderr?: string; returnCode?: number; error?: string } => {
+  const content = block.content as AnyBlock | undefined
+  if (!content) return {}
+  if (typeof content.error_code === 'string') {
+    return { error: content.error_code as string }
+  }
+  return {
+    stdout: (content.stdout as string) ?? '',
+    stderr: (content.stderr as string) ?? '',
+    returnCode: (content.return_code as number) ?? 0,
+  }
+}
+
 const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
   id: 'anthropic',
   name: 'Anthropic',
-  capabilities: ['streaming', 'vision', 'tool_use', 'system_prompt'],
+  capabilities: ['streaming', 'vision', 'tool_use', 'code_interpreter', 'system_prompt'],
 
   listModels: async () => {
     const client = new Anthropic({ apiKey })
@@ -98,41 +121,81 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
       messages: buildAnthropicMessages(request.messages),
     }
 
+    if (request.container) {
+      params.container = request.container
+    }
+
     if (useThinking) {
       params.thinking = { type: 'adaptive' }
       params.output_config = { effort: request.thinkingEffort }
     }
 
+    const tools: Record<string, unknown>[] = []
+
+    if (request.codeExecution) {
+      tools.push({ type: 'code_execution_20260120', name: 'code_execution' })
+    }
+
     if (request.tools?.length) {
-      params.tools = request.tools.map(t => ({
-        name: t.name,
-        description: t.description,
-        input_schema: t.parameters,
-      }))
+      for (const t of request.tools) {
+        tools.push({
+          name: t.name,
+          description: t.description,
+          input_schema: t.parameters,
+          ...(request.codeExecution ? { allowed_callers: ['direct', 'code_execution_20260120'] } : {}),
+        })
+      }
+    }
+
+    if (tools.length > 0) {
+      params.tools = tools
     }
 
     const stream = client.messages.stream(params as Anthropic.MessageStreamParams, { signal: request.signal })
 
     const pendingToolCalls = new Map<number, { id: string; name: string; argsJson: string }>()
+    const pendingCodeExecs = new Map<number, { id: string; name: string; inputJson: string }>()
 
     try {
       for await (const event of stream) {
         if (event.type === 'content_block_start') {
-          const block = event.content_block
+          const block = event.content_block as unknown as AnyBlock
+
           if (block.type === 'tool_use') {
-            pendingToolCalls.set(event.index, { id: block.id, name: block.name, argsJson: '' })
+            pendingToolCalls.set(event.index, { id: block.id as string, name: block.name as string, argsJson: '' })
+          } else if (block.type === 'server_tool_use' && CODE_EXEC_TOOL_NAMES.has(block.name as string)) {
+            const id = block.id as string
+            const name = block.name as string
+            pendingCodeExecs.set(event.index, { id, name, inputJson: '' })
+            yield { type: 'code_execution_start', codeExecution: { id, name } }
+          } else if (CODE_EXEC_RESULT_TYPES.has(block.type as string)) {
+            const toolUseId = block.tool_use_id as string
+            yield {
+              type: 'code_execution_result',
+              codeExecutionResult: { id: toolUseId, ...extractCodeExecResult(block) },
+            }
           }
         }
+
         if (event.type === 'content_block_delta') {
           if (event.delta.type === 'thinking_delta') {
             yield { type: 'thinking_delta', thinking: (event.delta as { thinking: string }).thinking }
           } else if (event.delta.type === 'text_delta') {
             yield { type: 'text_delta', text: event.delta.text }
           } else if (event.delta.type === 'input_json_delta') {
+            const partial = (event.delta as { partial_json: string }).partial_json
             const tc = pendingToolCalls.get(event.index)
-            if (tc) tc.argsJson += (event.delta as { partial_json: string }).partial_json
+            if (tc) {
+              tc.argsJson += partial
+            }
+            const ce = pendingCodeExecs.get(event.index)
+            if (ce) {
+              ce.inputJson += partial
+              yield { type: 'code_execution_delta', codeExecutionDelta: { id: ce.id, partialInput: partial } }
+            }
           }
         }
+
         if (event.type === 'content_block_stop') {
           const tc = pendingToolCalls.get(event.index)
           if (tc) {
@@ -144,10 +207,21 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
             yield { type: 'tool_call', toolCall }
             pendingToolCalls.delete(event.index)
           }
+          const ce = pendingCodeExecs.get(event.index)
+          if (ce) {
+            pendingCodeExecs.delete(event.index)
+          }
         }
       }
 
       const finalMessage = await stream.finalMessage()
+
+      yield {
+        type: 'raw_assistant_content',
+        rawAssistantContent: finalMessage.content as unknown[],
+        container: finalMessage.container?.id ?? undefined,
+      }
+
       yield {
         type: 'usage',
         inputTokens: finalMessage.usage.input_tokens,

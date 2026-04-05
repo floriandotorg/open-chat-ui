@@ -45,3 +45,5 @@ src/routes/api/               # JSON + SSE API endpoints
 ## Testing
 
 The default username is test@example.com and the default password is test.
+
+Run lint (`bun run lint -- --fix`) and type checking (`bun run check`) after every finished feature.

@@ -5,6 +5,7 @@ import { requireUser } from '$lib/server/auth-guard'
 import { decrypt } from '$lib/server/crypto'
 import { db } from '$lib/server/db'
 import { apiKeys, conversations, messages, userSettings } from '$lib/server/db/schema'
+import { getPostSystemPrompt } from '$lib/server/prompts'
 import { getProviderFactory } from '$lib/server/providers'
 import type { ChatMessage, ChatMessageImage, ToolCallInfo } from '$lib/server/providers/types'
 import { executeTool, getToolSchemas } from '$lib/server/tools'
@@ -15,6 +16,7 @@ import { error } from '@sveltejs/kit'
 import { and, asc, eq } from 'drizzle-orm'
 
 const MAX_TOOL_ROUNDS = 10
+const CODE_EXEC_PROVIDERS = new Set(['anthropic'])
 
 interface PersistedToolCall {
   id: string
@@ -22,6 +24,18 @@ interface PersistedToolCall {
   arguments: Record<string, unknown>
   textOffset: number
   result: string
+}
+
+interface PersistedCodeExecution {
+  type: 'code_execution'
+  id: string
+  name: string
+  input: Record<string, unknown>
+  textOffset: number
+  stdout?: string
+  stderr?: string
+  returnCode?: number
+  error?: string
 }
 
 const loadImageData = (attachment: ImageAttachment): ChatMessageImage => {
@@ -87,7 +101,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const [settings] = await db.select().from(userSettings).where(eq(userSettings.userId, userId))
 
-  const resolvedSystemPrompt = systemPrompt ?? conversation.systemPrompt ?? settings?.defaultSystemPrompt ?? undefined
+  const baseSystemPrompt = systemPrompt ?? conversation.systemPrompt ?? settings?.defaultSystemPrompt ?? undefined
+  const postSystemPrompt = getPostSystemPrompt(provider)
+  const resolvedSystemPrompt = baseSystemPrompt ? `${baseSystemPrompt}\n\n${postSystemPrompt}` : postSystemPrompt
+
+  console.log('resolvedSystemPrompt', resolvedSystemPrompt)
 
   const chatMessages: ChatMessage[] = history.map(m => {
     const imgs = parseImages(m.images)
@@ -100,6 +118,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const llm = getProviderFactory(provider)(decryptedKey)
   const toolSchemas = getToolSchemas()
+  const useCodeExecution = CODE_EXEC_PROVIDERS.has(provider)
   const toolContext = {
     userId,
     getApiKey: (p: string) => getDecryptedKey(userId, p),
@@ -107,7 +126,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   let fullText = ''
   const totalUsage = { inputTokens: 0, outputTokens: 0 }
-  const allToolCalls: PersistedToolCall[] = []
+  const allToolCalls: (PersistedToolCall | PersistedCodeExecution)[] = []
+  let container: string | undefined
   let clientConnected = true
 
   const enqueue = (controller: ReadableStreamDefaultController, data: Uint8Array) => {
@@ -125,10 +145,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       const send = (event: unknown) => enqueue(controller, encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
 
       try {
+        const codeExecInputs = new Map<string, string>()
+
         for (let round = 0; round < MAX_TOOL_ROUNDS; ++round) {
           let roundText = ''
           const toolCalls: ToolCallInfo[] = []
           let stopReason: 'end' | 'tool_use' = 'end'
+          let rawContentBlocks: unknown[] | undefined
 
           for await (const event of llm.chat({
             model,
@@ -136,6 +159,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
             systemPrompt: resolvedSystemPrompt,
             thinkingEffort: thinkingEffort ?? 'none',
             tools: toolSchemas.length > 0 ? toolSchemas : undefined,
+            codeExecution: useCodeExecution,
+            container,
           })) {
             if (event.type === 'text_delta') {
               roundText += event.text ?? ''
@@ -145,6 +170,33 @@ export const POST: RequestHandler = async ({ request, locals }) => {
             } else if (event.type === 'tool_call' && event.toolCall) {
               toolCalls.push(event.toolCall)
               send(event)
+            } else if (event.type === 'code_execution_start' && event.codeExecution) {
+              send(event)
+            } else if (event.type === 'code_execution_delta' && event.codeExecutionDelta) {
+              const { id, partialInput } = event.codeExecutionDelta
+              codeExecInputs.set(id, (codeExecInputs.get(id) ?? '') + partialInput)
+              send(event)
+            } else if (event.type === 'code_execution_result' && event.codeExecutionResult) {
+              const textOffset = fullText.length + roundText.length
+              const { id, ...result } = event.codeExecutionResult
+              const inputJson = codeExecInputs.get(id) ?? '{}'
+              let input: Record<string, unknown> = {}
+              try {
+                input = JSON.parse(inputJson)
+              } catch {}
+              allToolCalls.push({
+                type: 'code_execution',
+                id,
+                name: 'bash_code_execution',
+                input,
+                textOffset,
+                ...result,
+              })
+              codeExecInputs.delete(id)
+              send(event)
+            } else if (event.type === 'raw_assistant_content') {
+              rawContentBlocks = event.rawAssistantContent
+              if (event.container) container = event.container
             } else if (event.type === 'usage') {
               totalUsage.inputTokens += event.inputTokens ?? 0
               totalUsage.outputTokens += event.outputTokens ?? 0
@@ -160,7 +212,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
           if (stopReason !== 'tool_use' || toolCalls.length === 0) break
 
-          chatMessages.push({ role: 'assistant', content: roundText, toolCalls })
+          chatMessages.push({
+            role: 'assistant',
+            content: roundText,
+            toolCalls,
+            rawContentBlocks,
+          })
 
           const toolResults = await Promise.all(
             toolCalls.map(async tc => ({
@@ -192,7 +249,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         send({ type: 'error', error: msg })
       }
 
-      if (fullText) {
+      if (fullText || allToolCalls.length) {
         await db.insert(messages).values({
           conversationId,
           role: 'assistant',

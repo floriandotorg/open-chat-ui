@@ -38,7 +38,7 @@ $effect(() => {
     }
   }
 
-  const mapped = serverMessages.map((m: (typeof serverMessages)[number]) => {
+  const mapped: Message[] = serverMessages.map((m: (typeof serverMessages)[number]) => {
     const cached = thinkingByContent.get(`${m.role}:${m.content}`)
     return {
       ...m,
@@ -46,7 +46,7 @@ $effect(() => {
       createdAt: new Date(m.createdAt),
       thinking: cached?.thinking,
       thinkingDuration: cached?.thinkingDuration,
-    }
+    } as Message
   })
   untrack(() => chat.stopStreaming())
   chat.messages = mapped
@@ -93,6 +93,7 @@ const handleSubmit = (content: string, images?: import('$lib/types').ImageAttach
         thinkingDuration={chat.thinkingDuration}
         isThinking={chat.isThinking}
         toolCalls={chat.streamingToolCalls}
+        codeExecutions={chat.streamingCodeExecutions}
       />
     </div>
   </div>

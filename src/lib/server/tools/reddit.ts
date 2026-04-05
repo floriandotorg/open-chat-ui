@@ -19,7 +19,10 @@ const clamp = (n: unknown, lo: number, hi: number, fallback: number) => {
 
 const parseCommaList = (s: unknown): string[] => {
   if (!s || typeof s !== 'string') return []
-  return s.split(',').map(x => x.trim()).filter(Boolean)
+  return s
+    .split(',')
+    .map(x => x.trim())
+    .filter(Boolean)
 }
 
 const permalink = (p: string | undefined | null) => {
@@ -106,7 +109,11 @@ const normalisePost = (node: RedditThing) => {
   }
 }
 
-interface CommentOpts { depth: number; parentFullname: string | null; maxChars: number }
+interface CommentOpts {
+  depth: number
+  parentFullname: string | null
+  maxChars: number
+}
 const normaliseComment = (node: RedditThing, { depth, parentFullname, maxChars }: CommentOpts) => {
   const d = node.data ?? (node as Record<string, unknown>)
   const utc = (d.created_utc as number) ?? 0
@@ -124,7 +131,12 @@ const normaliseComment = (node: RedditThing, { depth, parentFullname, maxChars }
   }
 }
 
-interface TreeOpts { depth?: number; parentFullname?: string | null; maxDepth?: number; maxChars?: number }
+interface TreeOpts {
+  depth?: number
+  parentFullname?: string | null
+  maxDepth?: number
+  maxChars?: number
+}
 const parseCommentsTree = (children: RedditThing[], opts: TreeOpts): { comments: ReturnType<typeof normaliseComment>[]; moreCount: number } => {
   const { depth = 0, parentFullname = null, maxDepth = 8, maxChars = DEFAULT_MAX_CHARS } = opts
   const out: ReturnType<typeof normaliseComment>[] = []
@@ -173,7 +185,7 @@ const cmdPosts = async (args: Args) => {
   const qs = new URLSearchParams({ limit: String(limit) })
   if (sort === 'top' || sort === 'controversial') qs.set('t', time)
 
-  const listing = await fetchWithRetry(buildUrl(`/r/${subreddit}/${sort}?${qs}`)) as Listing
+  const listing = (await fetchWithRetry(buildUrl(`/r/${subreddit}/${sort}?${qs}`))) as Listing
   const posts = (listing?.data?.children ?? []).filter(x => x.kind === 't3').map(normalisePost)
   return JSON.stringify({ subreddit, sort, limit, after: listing?.data?.after ?? null, posts })
 }
@@ -190,7 +202,7 @@ const cmdSearch = async (args: Args) => {
   if (scope !== 'all') qs.set('restrict_sr', 'on')
   const path = scope === 'all' ? `/search?${qs}` : `/r/${scope}/search?${qs}`
 
-  const listing = await fetchWithRetry(buildUrl(path)) as Listing
+  const listing = (await fetchWithRetry(buildUrl(path))) as Listing
   const posts = (listing?.data?.children ?? []).filter(x => x.kind === 't3').map(normalisePost)
   return JSON.stringify({ scope, query, sort, time, limit, after: listing?.data?.after ?? null, posts })
 }
@@ -202,7 +214,7 @@ const cmdThread = async (args: Args) => {
   const maxDepth = clamp(args.depth, 0, 20, 8)
   const maxChars = clamp(args.max_chars, 50, 20000, DEFAULT_MAX_CHARS)
 
-  const data = await fetchWithRetry(buildUrl(`/comments/${postId}?limit=${limit}`)) as [Listing, Listing]
+  const data = (await fetchWithRetry(buildUrl(`/comments/${postId}?limit=${limit}`))) as [Listing, Listing]
   const postChild = data[0]?.data?.children?.find(x => x.kind === 't3')
   const post = postChild ? normalisePost(postChild) : null
   const parsed = parseCommentsTree(data[1]?.data?.children ?? [], { maxDepth, maxChars })
@@ -227,10 +239,10 @@ const cmdFind = async (args: Args) => {
     let posts: ReturnType<typeof normalisePost>[]
     if (query) {
       const qs = new URLSearchParams({ q: query, restrict_sr: 'on', sort: 'new', t: 'all', limit: String(perSubLimit) })
-      const listing = await fetchWithRetry(buildUrl(`/r/${sub}/search?${qs}`)) as Listing
+      const listing = (await fetchWithRetry(buildUrl(`/r/${sub}/search?${qs}`))) as Listing
       posts = (listing?.data?.children ?? []).filter(x => x.kind === 't3').map(normalisePost)
     } else {
-      const listing = await fetchWithRetry(buildUrl(`/r/${sub}/new?limit=${perSubLimit}`)) as Listing
+      const listing = (await fetchWithRetry(buildUrl(`/r/${sub}/new?limit=${perSubLimit}`))) as Listing
       posts = (listing?.data?.children ?? []).filter(x => x.kind === 't3').map(normalisePost)
     }
 
@@ -360,7 +372,7 @@ Commands:
     },
     required: ['command'],
   },
-  execute: async (args) => {
+  execute: async args => {
     const command = String(args.command ?? '')
     const handler = COMMANDS[command]
     if (!handler) {

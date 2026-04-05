@@ -11,6 +11,17 @@ export interface ToolCallInfo {
   result?: string
 }
 
+export interface CodeExecutionBlock {
+  id: string
+  name: string
+  input: Record<string, unknown>
+  textOffset?: number
+  stdout?: string
+  stderr?: string
+  returnCode?: number
+  error?: string
+}
+
 export interface Message {
   id: string
   conversationId: string
@@ -23,6 +34,7 @@ export interface Message {
   thinking?: string
   thinkingDuration?: number
   toolCalls?: ToolCallInfo[]
+  codeExecutions?: CodeExecutionBlock[]
   createdAt: Date
 }
 
@@ -37,7 +49,7 @@ export interface Conversation {
 }
 
 export interface ChatStreamEvent {
-  type: 'text_delta' | 'thinking_delta' | 'usage' | 'done' | 'error' | 'tool_call' | 'tool_result'
+  type: 'text_delta' | 'thinking_delta' | 'usage' | 'done' | 'error' | 'tool_call' | 'tool_result' | 'code_execution_start' | 'code_execution_delta' | 'code_execution_result'
   text?: string
   thinking?: string
   inputTokens?: number
@@ -46,6 +58,9 @@ export interface ChatStreamEvent {
   toolCall?: { id: string; name: string; arguments: Record<string, unknown> }
   toolResult?: { toolCallId: string; toolName: string; result: string }
   stopReason?: 'end' | 'tool_use'
+  codeExecution?: { id: string; name: string }
+  codeExecutionDelta?: { id: string; partialInput: string }
+  codeExecutionResult?: { id: string; stdout?: string; stderr?: string; returnCode?: number; error?: string }
 }
 
 export interface ProviderInfo {
