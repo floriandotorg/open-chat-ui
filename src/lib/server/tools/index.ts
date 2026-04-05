@@ -1,7 +1,8 @@
 import { kagiSearch } from './kagi-search'
+import { redditQuery } from './reddit'
 import type { ToolContext, ToolDefinition } from './types'
 
-const tools: ToolDefinition[] = [kagiSearch]
+const tools: ToolDefinition[] = [kagiSearch, redditQuery]
 
 export const getAllTools = (): ToolDefinition[] => tools
 
