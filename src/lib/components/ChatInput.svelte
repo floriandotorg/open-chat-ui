@@ -475,7 +475,7 @@ const cancelRecording = () => {
           placeholder="Send a Message"
           rows="1"
           disabled={disabled}
-          class="flex-1 resize-none bg-transparent py-1 text-sm outline-none placeholder:text-gray-400 disabled:opacity-50 dark:text-white dark:placeholder:text-neutral-400"
+          class="flex-1 resize-none bg-transparent py-1.5 text-sm outline-none placeholder:text-gray-400 disabled:opacity-50 dark:text-white dark:placeholder:text-neutral-400"
         ></textarea>
 
         <div class="flex shrink-0 items-center gap-1">
