@@ -92,6 +92,7 @@ const handleSubmit = (content: string, images?: import('$lib/types').ImageAttach
         thinking={chat.streamingThinking}
         thinkingDuration={chat.thinkingDuration}
         isThinking={chat.isThinking}
+        toolCalls={chat.streamingToolCalls}
       />
     </div>
   </div>

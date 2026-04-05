@@ -8,7 +8,7 @@ import { resolve } from '$app/paths'
 import type { ActionData, PageData } from './$types'
 
 let { data, form }: { data: PageData; form: ActionData } = $props()
-let activeTab = $state<'keys' | 'models' | 'prompt' | 'account'>('keys')
+let activeTab = $state<'keys' | 'models' | 'prompt' | 'tools' | 'account'>('keys')
 let systemPrompt = $state('')
 let titleModel = $state('')
 
@@ -35,7 +35,7 @@ const saveSystemPrompt = async (value: string) => {
   </div>
 
   <div class="mb-6 flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-900">
-    {#each [['keys', 'API Keys'], ['models', 'Models'], ['prompt', 'System Prompt'], ['account', 'Account']] as [id, label] (id)}
+    {#each [['keys', 'API Keys'], ['models', 'Models'], ['prompt', 'System Prompt'], ['tools', 'Tools'], ['account', 'Account']] as [id, label] (id)}
       <button
         onclick={() => activeTab = id as typeof activeTab}
         class="flex-1 rounded-md px-3 py-2 text-sm font-medium transition {activeTab === id
@@ -55,6 +55,15 @@ const saveSystemPrompt = async (value: string) => {
     </div>
   {:else if activeTab === 'models'}
     <ModelManager providers={data.providers} bind:titleModel />
+  {:else if activeTab === 'tools'}
+    <div class="space-y-3">
+      <p class="text-sm text-gray-500 dark:text-gray-400">
+        Configure API keys for tools that models can use during conversations.
+      </p>
+      {#each data.toolServices as provider (provider.id)}
+        <ApiKeyForm {provider} />
+      {/each}
+    </div>
   {:else if activeTab === 'prompt'}
     <SystemPromptEditor bind:value={systemPrompt} onsave={saveSystemPrompt} />
   {:else}

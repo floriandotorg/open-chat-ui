@@ -64,6 +64,7 @@ export const messages = sqliteTable(
     model: text('model'),
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
+    toolCalls: text('tool_calls'),
     createdAt: integer('created_at', { mode: 'timestamp' })
       .notNull()
       .$defaultFn(() => new Date()),

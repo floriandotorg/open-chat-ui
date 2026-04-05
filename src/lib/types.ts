@@ -3,6 +3,14 @@ export interface ImageAttachment {
   mimeType: string
 }
 
+export interface ToolCallInfo {
+  id: string
+  name: string
+  arguments: Record<string, unknown>
+  textOffset?: number
+  result?: string
+}
+
 export interface Message {
   id: string
   conversationId: string
@@ -14,6 +22,7 @@ export interface Message {
   outputTokens?: number | null
   thinking?: string
   thinkingDuration?: number
+  toolCalls?: ToolCallInfo[]
   createdAt: Date
 }
 
@@ -28,12 +37,15 @@ export interface Conversation {
 }
 
 export interface ChatStreamEvent {
-  type: 'text_delta' | 'thinking_delta' | 'usage' | 'done' | 'error'
+  type: 'text_delta' | 'thinking_delta' | 'usage' | 'done' | 'error' | 'tool_call' | 'tool_result'
   text?: string
   thinking?: string
   inputTokens?: number
   outputTokens?: number
   error?: string
+  toolCall?: { id: string; name: string; arguments: Record<string, unknown> }
+  toolResult?: { toolCallId: string; toolName: string; result: string }
+  stopReason?: 'end' | 'tool_use'
 }
 
 export interface ProviderInfo {

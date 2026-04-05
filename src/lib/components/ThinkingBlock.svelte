@@ -11,13 +11,7 @@ let {
 
 let open = $state(false)
 
-const label = $derived(
-  isActive
-    ? 'Thinking\u2026'
-    : duration != null
-      ? `Thought for ${duration} second${duration !== 1 ? 's' : ''}`
-      : 'Thought',
-)
+const label = $derived(isActive ? 'Thinking\u2026' : duration != null ? `Thought for ${duration} second${duration !== 1 ? 's' : ''}` : 'Thought')
 </script>
 
 <div class="mb-2">

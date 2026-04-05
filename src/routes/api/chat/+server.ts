@@ -1,16 +1,28 @@
+import { readFileSync } from 'node:fs'
 import { parseModelRef } from '$lib/model-ref'
+import { getDecryptedKey } from '$lib/server/api-key'
 import { requireUser } from '$lib/server/auth-guard'
 import { decrypt } from '$lib/server/crypto'
 import { db } from '$lib/server/db'
 import { apiKeys, conversations, messages, userSettings } from '$lib/server/db/schema'
 import { getProviderFactory } from '$lib/server/providers'
-import type { ChatMessage, ChatMessageImage } from '$lib/server/providers/types'
+import type { ChatMessage, ChatMessageImage, ToolCallInfo } from '$lib/server/providers/types'
+import { executeTool, getToolSchemas } from '$lib/server/tools'
 import { getUploadPath } from '$lib/server/uploads'
 import type { ImageAttachment } from '$lib/types'
 import type { RequestHandler } from './$types'
 import { error } from '@sveltejs/kit'
-import { readFileSync } from 'node:fs'
 import { and, asc, eq } from 'drizzle-orm'
+
+const MAX_TOOL_ROUNDS = 10
+
+interface PersistedToolCall {
+  id: string
+  name: string
+  arguments: Record<string, unknown>
+  textOffset: number
+  result: string
+}
 
 const loadImageData = (attachment: ImageAttachment): ChatMessageImage => {
   const filePath = getUploadPath(attachment.id)
@@ -87,9 +99,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   })
 
   const llm = getProviderFactory(provider)(decryptedKey)
+  const toolSchemas = getToolSchemas()
+  const toolContext = {
+    userId,
+    getApiKey: (p: string) => getDecryptedKey(userId, p),
+  }
 
   let fullText = ''
-  let tokenUsage: { inputTokens?: number; outputTokens?: number } = {}
+  const totalUsage = { inputTokens: 0, outputTokens: 0 }
+  const allToolCalls: PersistedToolCall[] = []
   let clientConnected = true
 
   const enqueue = (controller: ReadableStreamDefaultController, data: Uint8Array) => {
@@ -104,24 +122,74 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder()
+      const send = (event: unknown) => enqueue(controller, encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+
       try {
-        for await (const event of llm.chat({
-          model,
-          messages: chatMessages,
-          systemPrompt: resolvedSystemPrompt,
-          thinkingEffort: thinkingEffort ?? 'none',
-        })) {
-          if (event.type === 'text_delta') {
-            fullText += event.text ?? ''
+        for (let round = 0; round < MAX_TOOL_ROUNDS; ++round) {
+          let roundText = ''
+          const toolCalls: ToolCallInfo[] = []
+          let stopReason: 'end' | 'tool_use' = 'end'
+
+          for await (const event of llm.chat({
+            model,
+            messages: chatMessages,
+            systemPrompt: resolvedSystemPrompt,
+            thinkingEffort: thinkingEffort ?? 'none',
+            tools: toolSchemas.length > 0 ? toolSchemas : undefined,
+          })) {
+            if (event.type === 'text_delta') {
+              roundText += event.text ?? ''
+              send(event)
+            } else if (event.type === 'thinking_delta') {
+              send(event)
+            } else if (event.type === 'tool_call' && event.toolCall) {
+              toolCalls.push(event.toolCall)
+              send(event)
+            } else if (event.type === 'usage') {
+              totalUsage.inputTokens += event.inputTokens ?? 0
+              totalUsage.outputTokens += event.outputTokens ?? 0
+            } else if (event.type === 'done') {
+              stopReason = event.stopReason ?? 'end'
+            } else if (event.type === 'error') {
+              send(event)
+            }
           }
-          if (event.type === 'usage') {
-            tokenUsage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens }
+
+          const textOffsetForRound = fullText.length + roundText.length
+          fullText += roundText
+
+          if (stopReason !== 'tool_use' || toolCalls.length === 0) break
+
+          chatMessages.push({ role: 'assistant', content: roundText, toolCalls })
+
+          const toolResults = await Promise.all(
+            toolCalls.map(async tc => ({
+              tc,
+              result: await executeTool(tc.name, tc.arguments, toolContext),
+            })),
+          )
+
+          for (const { tc, result } of toolResults) {
+            chatMessages.push({ role: 'tool', content: result, toolCallId: tc.id })
+            allToolCalls.push({
+              id: tc.id,
+              name: tc.name,
+              arguments: tc.arguments,
+              textOffset: textOffsetForRound,
+              result,
+            })
+            send({
+              type: 'tool_result',
+              toolResult: { toolCallId: tc.id, toolName: tc.name, result },
+            })
           }
-          enqueue(controller, encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
         }
+
+        send({ type: 'usage', inputTokens: totalUsage.inputTokens, outputTokens: totalUsage.outputTokens })
+        send({ type: 'done' })
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Stream error'
-        enqueue(controller, encoder.encode(`data: ${JSON.stringify({ type: 'error', error: msg })}\n\n`))
+        send({ type: 'error', error: msg })
       }
 
       if (fullText) {
@@ -131,8 +199,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           content: fullText,
           provider,
           model: modelRef,
-          inputTokens: tokenUsage.inputTokens,
-          outputTokens: tokenUsage.outputTokens,
+          inputTokens: totalUsage.inputTokens || undefined,
+          outputTokens: totalUsage.outputTokens || undefined,
+          toolCalls: allToolCalls.length ? JSON.stringify(allToolCalls) : null,
         })
         await db.update(conversations).set({ defaultProvider: provider, defaultModel: modelRef, updatedAt: new Date() }).where(eq(conversations.id, conversationId))
       }

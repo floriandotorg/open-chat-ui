@@ -29,6 +29,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       ...m,
       model: normalizeModelRef(m.provider, m.model),
       images: m.images ? JSON.parse(m.images) : undefined,
+      toolCalls: m.toolCalls ? JSON.parse(m.toolCalls) : undefined,
     })),
   }
 }

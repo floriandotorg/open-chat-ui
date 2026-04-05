@@ -15,10 +15,24 @@ export interface ChatMessageImage {
   mimeType: string
 }
 
+export interface ToolCallInfo {
+  id: string
+  name: string
+  arguments: Record<string, unknown>
+}
+
 export interface ChatMessage {
-  role: 'user' | 'assistant' | 'system'
+  role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
   images?: ChatMessageImage[]
+  toolCalls?: ToolCallInfo[]
+  toolCallId?: string
+}
+
+export interface ToolSchema {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
 }
 
 export interface ChatRequest {
@@ -29,15 +43,19 @@ export interface ChatRequest {
   temperature?: number
   thinkingEffort?: 'none' | 'low' | 'medium' | 'high' | 'max'
   signal?: AbortSignal
+  tools?: ToolSchema[]
 }
 
 export interface ChatStreamEvent {
-  type: 'text_delta' | 'thinking_delta' | 'usage' | 'done' | 'error'
+  type: 'text_delta' | 'thinking_delta' | 'usage' | 'done' | 'error' | 'tool_call' | 'tool_result'
   text?: string
   thinking?: string
   inputTokens?: number
   outputTokens?: number
   error?: string
+  toolCall?: ToolCallInfo
+  toolResult?: { toolCallId: string; toolName: string; result: string }
+  stopReason?: 'end' | 'tool_use'
 }
 
 export interface LLMProvider {

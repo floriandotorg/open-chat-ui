@@ -7,6 +7,8 @@ import type { Actions, PageServerLoad } from './$types'
 import { fail } from '@sveltejs/kit'
 import { eq } from 'drizzle-orm'
 
+const TOOL_SERVICES = [{ id: 'kagi', name: 'Kagi Search', capabilities: [] as string[] }]
+
 export const load: PageServerLoad = async ({ locals }) => {
   const user = requireUser(locals.user)
 
@@ -18,9 +20,15 @@ export const load: PageServerLoad = async ({ locals }) => {
     hasKey: configuredProviders.has(p.id),
   }))
 
+  const toolServices = TOOL_SERVICES.map(s => ({
+    ...s,
+    hasKey: configuredProviders.has(s.id),
+  }))
+
   return {
     settings: settings[0] ?? null,
     providers,
+    toolServices,
     user,
   }
 }

@@ -24,8 +24,7 @@ const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape') open = false
 }
 
-const barCount = (effort: ThinkingEffort): number =>
-  ({ none: 0, low: 1, medium: 2, high: 3, max: 4 })[effort]
+const barCount = (effort: ThinkingEffort): number => ({ none: 0, low: 1, medium: 2, high: 3, max: 4 })[effort]
 </script>
 
 <svelte:window onkeydown={open ? handleKeydown : undefined} />

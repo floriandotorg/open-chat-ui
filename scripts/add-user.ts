@@ -1,8 +1,8 @@
+import * as schema from '../src/lib/server/db/auth.schema'
 import { Database } from 'bun:sqlite'
-import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { betterAuth } from 'better-auth/minimal'
-import * as schema from '../src/lib/server/db/auth.schema'
+import { drizzle } from 'drizzle-orm/bun-sqlite'
 
 const [email, password, name] = Bun.argv.slice(2)
 

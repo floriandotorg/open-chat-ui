@@ -1,4 +1,4 @@
-import type { ChatStreamEvent, ImageAttachment, Message, ThinkingEffort } from '$lib/types'
+import type { ChatStreamEvent, ImageAttachment, Message, ThinkingEffort, ToolCallInfo } from '$lib/types'
 
 export const createChatStore = () => {
   let messages = $state<Message[]>([])
@@ -7,11 +7,33 @@ export const createChatStore = () => {
   let thinkingDuration = $state<number | null>(null)
   let isStreaming = $state(false)
   let isThinking = $state(false)
+  let streamingToolCalls = $state<ToolCallInfo[]>([])
   let selectedModel = $state('anthropic/claude-sonnet-4-20250514')
   let thinkingEffort = $state<ThinkingEffort>('none')
   let abortController = $state<AbortController | null>(null)
   let onFirstReply = $state<((conversationId: string) => void) | null>(null)
   let activeConversationId = $state<string | null>(null)
+
+  const resetStreamingState = () => {
+    streamingText = ''
+    streamingThinking = ''
+    thinkingDuration = null
+    streamingToolCalls = []
+    isStreaming = false
+    isThinking = false
+  }
+
+  const buildMessage = (conversationId: string): Message => ({
+    id: crypto.randomUUID(),
+    conversationId,
+    role: 'assistant',
+    content: streamingText,
+    model: selectedModel,
+    thinking: streamingThinking || undefined,
+    thinkingDuration: thinkingDuration ?? undefined,
+    toolCalls: streamingToolCalls.length ? [...streamingToolCalls] : undefined,
+    createdAt: new Date(),
+  })
 
   const sendMessage = async (conversationId: string, content: string, systemPrompt?: string, images?: ImageAttachment[]) => {
     const isFirstMessage = messages.length === 0
@@ -21,6 +43,7 @@ export const createChatStore = () => {
     streamingText = ''
     streamingThinking = ''
     thinkingDuration = null
+    streamingToolCalls = []
     abortController = new AbortController()
     let thinkingStartTime: number | null = null
 
@@ -50,10 +73,7 @@ export const createChatStore = () => {
 
       if (!response.ok) {
         const err = await response.json()
-        streamingText = ''
-        streamingThinking = ''
-        isStreaming = false
-        isThinking = false
+        resetStreamingState()
         throw new Error(err.message ?? 'Request failed')
       }
 
@@ -92,11 +112,20 @@ export const createChatStore = () => {
             }
             streamingText += event.text ?? ''
           }
+          if (event.type === 'tool_call' && event.toolCall) {
+            streamingToolCalls = [
+              ...streamingToolCalls,
+              {
+                ...event.toolCall,
+                textOffset: streamingText.length,
+              },
+            ]
+          }
+          if (event.type === 'tool_result' && event.toolResult) {
+            streamingToolCalls = streamingToolCalls.map(tc => (tc.id === event.toolResult?.toolCallId ? { ...tc, result: event.toolResult.result } : tc))
+          }
           if (event.type === 'error') {
-            streamingText = ''
-            streamingThinking = ''
-            isStreaming = false
-            isThinking = false
+            resetStreamingState()
             throw new Error(event.error ?? 'Stream error')
           }
           if (event.type === 'done') {
@@ -104,20 +133,8 @@ export const createChatStore = () => {
               isThinking = false
               thinkingDuration = thinkingStartTime ? Math.round((Date.now() - thinkingStartTime) / 1000) : null
             }
-            messages.push({
-              id: crypto.randomUUID(),
-              conversationId,
-              role: 'assistant',
-              content: streamingText,
-              model: selectedModel,
-              thinking: streamingThinking || undefined,
-              thinkingDuration: thinkingDuration ?? undefined,
-              createdAt: new Date(),
-            })
-            streamingText = ''
-            streamingThinking = ''
-            thinkingDuration = null
-            isStreaming = false
+            messages.push(buildMessage(conversationId))
+            resetStreamingState()
             if (isFirstMessage && onFirstReply) {
               onFirstReply(conversationId)
             }
@@ -127,29 +144,12 @@ export const createChatStore = () => {
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         if (streamingText && activeConversationId === conversationId) {
-          messages.push({
-            id: crypto.randomUUID(),
-            conversationId,
-            role: 'assistant',
-            content: streamingText,
-            model: selectedModel,
-            thinking: streamingThinking || undefined,
-            thinkingDuration: thinkingDuration ?? undefined,
-            createdAt: new Date(),
-          })
+          messages.push(buildMessage(conversationId))
         }
-        streamingText = ''
-        streamingThinking = ''
-        thinkingDuration = null
-        isStreaming = false
-        isThinking = false
+        resetStreamingState()
         return
       }
-      streamingText = ''
-      streamingThinking = ''
-      thinkingDuration = null
-      isStreaming = false
-      isThinking = false
+      resetStreamingState()
       throw err
     } finally {
       abortController = null
@@ -181,6 +181,9 @@ export const createChatStore = () => {
     },
     get isThinking() {
       return isThinking
+    },
+    get streamingToolCalls() {
+      return streamingToolCalls
     },
     get selectedModel() {
       return selectedModel

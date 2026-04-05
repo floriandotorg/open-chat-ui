@@ -1,13 +1,15 @@
 <script lang="ts">
+import { buildContentSegments } from '$lib/content-segments'
 import { copyCodeAction } from '$lib/copy-code'
 import { renderMarkdown } from '$lib/markdown'
 import type { Message } from '$lib/types'
 import ThinkingBlock from './ThinkingBlock.svelte'
+import ToolCallBlock from './ToolCallBlock.svelte'
 
 let { message }: { message: Message } = $props()
 
 let isUser = $derived(message.role === 'user')
-let renderedContent = $derived(isUser ? '' : renderMarkdown(message.content))
+let segments = $derived(isUser ? [] : buildContentSegments(message.content, message.toolCalls))
 </script>
 
 <div class="flex {isUser ? 'justify-end' : 'justify-start'}">
@@ -40,7 +42,13 @@ let renderedContent = $derived(isUser ? '' : renderMarkdown(message.content))
         {#if message.thinking}
           <ThinkingBlock thinking={message.thinking} duration={message.thinkingDuration} />
         {/if}
-        <div class="prose prose-sm dark:prose-invert max-w-none" use:copyCodeAction>{@html renderedContent}</div>
+        {#each segments as segment}
+          {#if segment.type === 'tool_call'}
+            <ToolCallBlock toolCall={segment.toolCall} />
+          {:else}
+            <div class="prose prose-sm dark:prose-invert max-w-none" use:copyCodeAction>{@html renderMarkdown(segment.content)}</div>
+          {/if}
+        {/each}
       </div>
     </div>
   {/if}

@@ -1,6 +1,6 @@
-import { env } from '$env/dynamic/private'
 import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { env } from '$env/dynamic/private'
 
 const getUploadDir = () => {
   const dir = env.UPLOAD_DIR ?? './uploads'
@@ -20,9 +20,7 @@ const EXT_MAP: Record<string, string> = {
   'image/svg+xml': 'svg',
 }
 
-const MIME_MAP: Record<string, string> = Object.fromEntries(
-  Object.entries(EXT_MAP).map(([mime, ext]) => [ext, mime]),
-)
+const MIME_MAP: Record<string, string> = Object.fromEntries(Object.entries(EXT_MAP).map(([mime, ext]) => [ext, mime]))
 
 export const ALLOWED_MIME_TYPES = new Set(Object.keys(EXT_MAP))
 
