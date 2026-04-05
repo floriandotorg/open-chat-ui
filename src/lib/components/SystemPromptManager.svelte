@@ -2,9 +2,9 @@
 import type { SystemPrompt } from '$lib/types'
 
 let {
-  initial,
+  initial = [],
 }: {
-  initial: SystemPrompt[]
+  initial?: SystemPrompt[]
 } = $props()
 
 let prompts = $state<SystemPrompt[]>([...initial])
