@@ -1,9 +1,9 @@
+import { parseModelRef } from '$lib/model-ref'
 import { getDecryptedKey } from '$lib/server/api-key'
 import { requireUser } from '$lib/server/auth-guard'
 import { db } from '$lib/server/db'
 import { conversations, messages, userSettings } from '$lib/server/db/schema'
 import { getProviderFactory } from '$lib/server/providers'
-import { parseModelRef } from '$lib/model-ref'
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
 import { and, asc, eq } from 'drizzle-orm'
@@ -33,12 +33,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     throw error(404, 'Conversation not found')
   }
 
-  const history = await db
-    .select()
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(asc(messages.createdAt))
-    .limit(4)
+  const history = await db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt)).limit(4)
 
   const llm = getProviderFactory(provider)(apiKey)
 
@@ -60,16 +55,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
   }
 
-  title = title.trim().replace(/^["']|["']$/g, '').trim()
+  title = title
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .trim()
   if (!title) {
     throw error(500, 'Failed to generate title')
   }
 
-  const [updated] = await db
-    .update(conversations)
-    .set({ title, updatedAt: new Date() })
-    .where(eq(conversations.id, conversationId))
-    .returning()
+  const [updated] = await db.update(conversations).set({ title, updatedAt: new Date() }).where(eq(conversations.id, conversationId)).returning()
 
   return json({ title: updated.title })
 }

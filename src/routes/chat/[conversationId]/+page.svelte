@@ -3,10 +3,11 @@ import ChatInput from '$lib/components/ChatInput.svelte'
 import ChatMessage from '$lib/components/ChatMessage.svelte'
 import StreamingText from '$lib/components/StreamingText.svelte'
 import { createChatStore } from '$lib/stores/chat.svelte'
-import { invalidateAll } from '$app/navigation'
+import { consumePendingMessage } from '$lib/stores/pending-message'
 import type { Message } from '$lib/types'
+import { invalidateAll } from '$app/navigation'
 import type { PageData } from './$types'
-import { getContext } from 'svelte'
+import { getContext, onMount } from 'svelte'
 
 let { data }: { data: PageData } = $props()
 
@@ -43,6 +44,13 @@ $effect(() => {
     void chat.messages.length
     void chat.streamingText
     messageContainer.scrollTop = messageContainer.scrollHeight
+  }
+})
+
+onMount(() => {
+  const pending = consumePendingMessage()
+  if (pending) {
+    chat.sendMessage(data.conversation.id, pending, data.conversation.systemPrompt ?? undefined)
   }
 })
 

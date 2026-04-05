@@ -1,4 +1,6 @@
 <script lang="ts">
+import { afterNavigate } from '$app/navigation'
+
 let {
   onsubmit,
   disabled = false,
@@ -45,6 +47,16 @@ const submit = () => {
     textarea.style.height = 'auto'
   }
 }
+
+afterNavigate(() => {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (textarea && !disabled && !isStreaming) {
+        textarea.focus()
+      }
+    })
+  })
+})
 
 const autoResize = () => {
   if (!textarea) return

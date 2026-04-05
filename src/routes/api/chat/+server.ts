@@ -1,10 +1,10 @@
+import { parseModelRef } from '$lib/model-ref'
 import { requireUser } from '$lib/server/auth-guard'
 import { decrypt } from '$lib/server/crypto'
 import { db } from '$lib/server/db'
 import { apiKeys, conversations, messages, userSettings } from '$lib/server/db/schema'
 import { getProviderFactory } from '$lib/server/providers'
 import type { ChatMessage } from '$lib/server/providers/types'
-import { parseModelRef } from '$lib/model-ref'
 import type { RequestHandler } from './$types'
 import { error } from '@sveltejs/kit'
 import { and, asc, eq } from 'drizzle-orm'
@@ -12,7 +12,12 @@ import { and, asc, eq } from 'drizzle-orm'
 export const POST: RequestHandler = async ({ request, locals }) => {
   const userId = requireUser(locals.user).id
   const body = await request.json()
-  const { conversationId, model: modelRef, message, systemPrompt } = body as {
+  const {
+    conversationId,
+    model: modelRef,
+    message,
+    systemPrompt,
+  } = body as {
     conversationId: string
     model: string
     message: string

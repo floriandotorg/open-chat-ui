@@ -1,7 +1,7 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
-@import "highlight.js/styles/github.css";
-@import "highlight.js/styles/github-dark.css" (prefers-color-scheme: dark);
+@import "highlight.js/styles/github.css" layer(hljs);
+@import "highlight.js/styles/github-dark.css" layer(hljs) (prefers-color-scheme: dark);
 
 @layer base {
   * {
@@ -29,12 +29,6 @@
 }
 
 @layer components {
-  .prose pre {
-    border-radius: 0.5rem;
-    margin-top: 0.75rem;
-    margin-bottom: 0.75rem;
-  }
-
   .prose :first-child {
     margin-top: 0;
   }
@@ -58,5 +52,144 @@
   .prose code:not(pre code)::before,
   .prose code:not(pre code)::after {
     content: none;
+  }
+
+  .prose .code-block {
+    margin: 0.75rem 0;
+    border-radius: 0.5rem;
+    border: 1px solid #e5e7eb;
+    overflow: hidden;
+    font-size: 0.8125rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .prose .code-block {
+      border-color: #374151;
+    }
+  }
+
+  .prose .code-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.4rem 0.75rem;
+    background: #f3f4f6;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .prose .code-header {
+      background: #1e1e1e;
+      border-bottom-color: #374151;
+    }
+  }
+
+  .prose .code-lang {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #6b7280;
+  }
+
+  .prose .code-copy {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.5rem;
+    border: none;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: #6b7280;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition:
+      color 0.15s,
+      background 0.15s;
+  }
+
+  .prose .code-copy:hover {
+    color: #374151;
+    background: rgba(0, 0, 0, 0.06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .prose .code-copy:hover {
+      color: #d1d5db;
+      background: rgba(255, 255, 255, 0.08);
+    }
+  }
+
+  .prose .code-content {
+    display: flex;
+    align-items: stretch;
+    overflow-x: auto;
+    background: #fafafa;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.8125rem;
+    line-height: 1.5rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .prose .code-content {
+      background: #0d1117;
+    }
+  }
+
+  .prose .code-line-numbers {
+    display: flex;
+    flex-direction: column;
+    padding: 0.75rem 0.5rem 0.75rem 0.75rem;
+    text-align: right;
+    user-select: none;
+    color: #9ca3af;
+    border-right: 1px solid #e5e7eb;
+    flex-shrink: 0;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .prose .code-line-numbers {
+      color: #4b5563;
+      border-right-color: #1f2937;
+    }
+  }
+
+  .prose .code-line-number {
+    display: block;
+    min-width: 1.5rem;
+  }
+
+  .prose .code-block pre,
+  .prose .code-content pre {
+    margin: 0 !important;
+    padding: 0.75rem !important;
+    background: transparent !important;
+    overflow: visible;
+    flex: 1;
+    min-width: 0;
+    border-radius: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    font-size: inherit !important;
+    line-height: inherit !important;
+  }
+
+  .prose .code-block code,
+  .prose .code-block pre code,
+  .prose .code-content code,
+  .prose .code-content code.hljs {
+    display: flex;
+    flex-direction: column;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    font-size: inherit !important;
+    line-height: inherit !important;
+  }
+
+  .prose .code-line {
+    display: block;
+    min-height: 1.5rem;
   }
 }

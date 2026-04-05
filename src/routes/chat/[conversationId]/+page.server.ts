@@ -1,7 +1,7 @@
+import { normalizeModelRef } from '$lib/model-ref'
 import { requireUser } from '$lib/server/auth-guard'
 import { db } from '$lib/server/db'
 import { conversations, messages } from '$lib/server/db/schema'
-import { normalizeModelRef } from '$lib/model-ref'
 import type { PageServerLoad } from './$types'
 import { error } from '@sveltejs/kit'
 import { and, asc, eq } from 'drizzle-orm'

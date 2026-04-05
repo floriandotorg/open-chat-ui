@@ -1,13 +1,13 @@
 <script lang="ts">
 import ConversationList from '$lib/components/ConversationList.svelte'
 import ModelPicker from '$lib/components/ModelPicker.svelte'
+import type { Conversation } from '$lib/types'
+import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
 import { page } from '$app/state'
-import { goto } from '$app/navigation'
 import type { LayoutData } from './$types'
 import type { Snippet } from 'svelte'
-import type { Conversation } from '$lib/types'
-import { setContext, onMount } from 'svelte'
+import { onMount, setContext } from 'svelte'
 
 let { data, children }: { data: LayoutData; children: Snippet } = $props()
 

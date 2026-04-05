@@ -7,11 +7,7 @@ let { conversations, currentId }: { conversations: Conversation[]; currentId?: s
 
 let searchQuery = $state('')
 
-const filteredConversations = $derived(
-  searchQuery.trim()
-    ? conversations.filter(c => c.title.toLowerCase().includes(searchQuery.toLowerCase()))
-    : conversations
-)
+const filteredConversations = $derived(searchQuery.trim() ? conversations.filter(c => c.title.toLowerCase().includes(searchQuery.toLowerCase())) : conversations)
 
 const groupedConversations = $derived.by(() => {
   const now = new Date()

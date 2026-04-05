@@ -1,6 +1,6 @@
 <script lang="ts">
-import { browser } from '$app/environment'
 import type { ModelInfo, ProviderInfo } from '$lib/types'
+import { browser } from '$app/environment'
 
 let { providers, titleModel = $bindable('') }: { providers: ProviderInfo[]; titleModel: string } = $props()
 
