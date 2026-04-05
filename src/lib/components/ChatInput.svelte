@@ -135,14 +135,16 @@ const submit = () => {
   }
 }
 
+$effect(() => {
+  if (textarea && !disabled && !isStreaming) {
+    textarea.focus()
+  }
+})
+
 afterNavigate(() => {
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      if (textarea && !disabled && !isStreaming) {
-        textarea.focus()
-      }
-    })
-  })
+  if (textarea && !disabled && !isStreaming) {
+    textarea.focus()
+  }
 })
 
 const autoResize = () => {
