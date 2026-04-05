@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { ImageAttachment } from '$lib/types'
-import { afterNavigate } from '$app/navigation'
+import { page } from '$app/state'
+import { tick } from 'svelte'
 
 let {
   onsubmit,
@@ -136,14 +137,13 @@ const submit = () => {
 }
 
 $effect(() => {
+  page.url.pathname
   if (textarea && !disabled && !isStreaming) {
-    textarea.focus()
-  }
-})
-
-afterNavigate(() => {
-  if (textarea && !disabled && !isStreaming) {
-    textarea.focus()
+    tick().then(() => {
+      if (textarea && !disabled && !isStreaming) {
+        textarea.focus()
+      }
+    })
   }
 })
 
