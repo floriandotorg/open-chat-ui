@@ -182,6 +182,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   let fullText = ''
   const totalUsage = { inputTokens: 0, outputTokens: 0 }
   const allToolCalls: (PersistedToolCall | PersistedCodeExecution)[] = []
+  let citationCounter = 0
   let container: string | undefined = conversation.container ?? undefined
   let clientConnected = true
 
@@ -289,17 +290,26 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           )
 
           for (const { tc, result } of toolResults) {
-            chatMessages.push({ role: 'tool', content: result, toolCallId: tc.id })
+            let finalResult = result
+            if (tc.name === 'web_search') {
+              let count = 0
+              finalResult = result.replace(/^(\d+)\.\s+/gm, () => {
+                ++count
+                return `${citationCounter + count}. `
+              })
+              citationCounter += count
+            }
+            chatMessages.push({ role: 'tool', content: finalResult, toolCallId: tc.id })
             allToolCalls.push({
               id: tc.id,
               name: tc.name,
               arguments: tc.arguments,
               textOffset: textOffsetForRound,
-              result,
+              result: finalResult,
             })
             send({
               type: 'tool_result',
-              toolResult: { toolCallId: tc.id, toolName: tc.name, result },
+              toolResult: { toolCallId: tc.id, toolName: tc.name, result: finalResult },
             })
           }
         }

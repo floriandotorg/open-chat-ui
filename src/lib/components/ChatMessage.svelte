@@ -1,9 +1,11 @@
 <script lang="ts">
+import { extractCitations, filterReferencedCitations, processCitations } from '$lib/citations'
 import { buildContentSegments } from '$lib/content-segments'
 import { copyCodeAction } from '$lib/copy-code'
 import { renderMarkdown } from '$lib/markdown'
 import type { Message } from '$lib/types'
 import CodeExecutionBlock from './CodeExecutionBlock.svelte'
+import SourcesBlock from './SourcesBlock.svelte'
 import ThinkingBlock from './ThinkingBlock.svelte'
 import ToolCallBlock from './ToolCallBlock.svelte'
 
@@ -11,6 +13,8 @@ let { message }: { message: Message } = $props()
 
 let isUser = $derived(message.role === 'user')
 let segments = $derived(isUser ? [] : buildContentSegments(message.content, message.toolCalls, message.codeExecutions))
+let allCitations = $derived(extractCitations(message.toolCalls))
+let citations = $derived(filterReferencedCitations(message.content, allCitations))
 
 let copied = $state(false)
 
@@ -88,9 +92,10 @@ const regenerateMessage = () => {}
           {:else if segment.type === 'code_execution'}
             <CodeExecutionBlock codeExecution={segment.codeExecution} />
           {:else}
-            <div class="prose prose-sm dark:prose-invert max-w-none" use:copyCodeAction>{@html renderMarkdown(segment.content)}</div>
+            <div class="prose prose-sm dark:prose-invert max-w-none" use:copyCodeAction>{@html processCitations(renderMarkdown(segment.content), citations)}</div>
           {/if}
         {/each}
+        <SourcesBlock {citations} />
         <div class="mt-1 flex gap-0.5">
           <button onclick={copyMessage} class="cursor-pointer rounded p-0.5 text-gray-400 hover:text-gray-600 dark:text-neutral-500 dark:hover:text-neutral-300" aria-label="Copy message">
             {#if copied}
@@ -107,3 +112,18 @@ const regenerateMessage = () => {}
     </div>
   {/if}
 </div>
+
+<style>
+  :global(.citation-ref) {
+    color: #0ea5e9;
+    text-decoration: none;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  :global(.citation-ref:hover) {
+    text-decoration: underline;
+  }
+  :global(.citation-ref sup) {
+    font-size: 0.75em;
+  }
+</style>

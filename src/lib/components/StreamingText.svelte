@@ -1,9 +1,11 @@
 <script lang="ts">
+import { extractCitations, filterReferencedCitations, processCitations } from '$lib/citations'
 import { buildContentSegments } from '$lib/content-segments'
 import { copyCodeAction } from '$lib/copy-code'
 import { renderMarkdown } from '$lib/markdown'
 import type { CodeExecutionBlock, ToolCallInfo } from '$lib/types'
 import CodeExecutionBlockComponent from './CodeExecutionBlock.svelte'
+import SourcesBlock from './SourcesBlock.svelte'
 import ThinkingBlock from './ThinkingBlock.svelte'
 import ToolCallBlock from './ToolCallBlock.svelte'
 
@@ -25,6 +27,8 @@ let {
 
 let showThinking = $derived(thinking || isThinking)
 let segments = $derived(buildContentSegments(text, toolCalls, codeExecutions))
+let allCitations = $derived(extractCitations(toolCalls))
+let citations = $derived(filterReferencedCitations(text, allCitations))
 let hasContent = $derived(text || showThinking || toolCalls.length > 0 || codeExecutions.length > 0)
 </script>
 
@@ -45,10 +49,11 @@ let hasContent = $derived(text || showThinking || toolCalls.length > 0 || codeEx
             <CodeExecutionBlockComponent codeExecution={segment.codeExecution} />
           {:else}
             <div class="prose prose-sm dark:prose-invert max-w-none" use:copyCodeAction>
-              {@html renderMarkdown(segment.content)}{#if idx === segments.length - 1}<span class="inline-block h-4 w-0.5 animate-pulse bg-gray-400 dark:bg-neutral-400"></span>{/if}
+              {@html processCitations(renderMarkdown(segment.content), citations)}{#if idx === segments.length - 1}<span class="inline-block h-4 w-0.5 animate-pulse bg-gray-400 dark:bg-neutral-400"></span>{/if}
             </div>
           {/if}
         {/each}
+        <SourcesBlock {citations} />
       </div>
     </div>
   </div>
