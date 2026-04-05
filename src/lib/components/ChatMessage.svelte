@@ -1,9 +1,11 @@
 <script lang="ts">
 import type { Message } from '$lib/types'
+import { renderMarkdown } from '$lib/markdown'
 
 let { message }: { message: Message } = $props()
 
 let isUser = $derived(message.role === 'user')
+let renderedContent = $derived(isUser ? '' : renderMarkdown(message.content))
 </script>
 
 <div class="flex {isUser ? 'justify-end' : 'justify-start'}">
@@ -20,7 +22,7 @@ let isUser = $derived(message.role === 'user')
         {#if message.model}
           <div class="mb-1 text-xs font-medium text-gray-400 dark:text-neutral-500">{message.model}</div>
         {/if}
-        <div class="whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">{message.content}</div>
+        <div class="prose prose-sm dark:prose-invert max-w-none">{@html renderedContent}</div>
       </div>
     </div>
   {/if}

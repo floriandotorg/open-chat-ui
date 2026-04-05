@@ -58,6 +58,11 @@
       }
     }
   },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
   "javascript": {
     "formatter": {
       "semicolons": "asNeeded",
@@ -90,6 +95,14 @@
             "noUnusedVariables": "off",
             "noUnusedImports": "off"
           }
+        }
+      }
+    },
+    {
+      "includes": ["**/*.css"],
+      "css": {
+        "linter": {
+          "enabled": false
         }
       }
     }

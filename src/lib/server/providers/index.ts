@@ -1,7 +1,11 @@
 import { createAnthropicProvider } from './anthropic'
+import { createMistralProvider } from './mistral'
 import type { ProviderFactory } from './types'
 
-const registry = new Map<string, ProviderFactory>([['anthropic', createAnthropicProvider]])
+const registry = new Map<string, ProviderFactory>([
+  ['anthropic', createAnthropicProvider],
+  ['mistral', createMistralProvider],
+])
 
 export const getProviderFactory = (providerId: string): ProviderFactory => {
   const factory = registry.get(providerId)
