@@ -15,6 +15,21 @@ const ctx: { selectedModel: string; thinkingEffort: ThinkingEffort } = getContex
 const chat = createChatStore()
 
 let messageContainer: HTMLDivElement | undefined = $state()
+let stickToBottom = $state(true)
+
+const SCROLL_THRESHOLD = 40
+
+const onScroll = () => {
+  if (!messageContainer) return
+  const { scrollTop, scrollHeight, clientHeight } = messageContainer
+  stickToBottom = scrollHeight - scrollTop - clientHeight < SCROLL_THRESHOLD
+}
+
+const scrollToBottom = () => {
+  if (messageContainer) {
+    messageContainer.scrollTop = messageContainer.scrollHeight
+  }
+}
 
 chat.onFirstReply = async (conversationId: string) => {
   const res = await fetch('/api/chat/title', {
@@ -61,11 +76,11 @@ $effect(() => {
 })
 
 $effect(() => {
-  if (messageContainer) {
-    void chat.messages.length
-    void chat.streamingText
-    void chat.streamingThinking
-    messageContainer.scrollTop = messageContainer.scrollHeight
+  void chat.messages.length
+  void chat.streamingText
+  void chat.streamingThinking
+  if (stickToBottom) {
+    scrollToBottom()
   }
 })
 
@@ -77,12 +92,13 @@ onMount(() => {
 })
 
 const handleSubmit = (content: string, images?: import('$lib/types').ImageAttachment[]) => {
+  stickToBottom = true
   chat.sendMessage(data.conversation.id, content, data.conversation.systemPrompt ?? undefined, images)
 }
 </script>
 
 <div class="flex h-full flex-col">
-  <div bind:this={messageContainer} class="flex-1 overflow-y-auto px-4 py-6">
+  <div bind:this={messageContainer} onscroll={onScroll} class="flex-1 overflow-y-auto px-4 py-6">
     <div class="mx-auto max-w-3xl space-y-6">
       {#each chat.messages as message (message.id)}
         <ChatMessage {message} />

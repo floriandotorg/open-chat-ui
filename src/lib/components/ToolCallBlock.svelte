@@ -41,7 +41,7 @@ let renderedResult = $derived(toolCall.result ? renderMarkdown(toolCall.result) 
         <pre class="mt-1 overflow-x-auto whitespace-pre-wrap break-all font-mono text-[10px]">{JSON.stringify(toolCall.arguments, null, 2)}</pre>
       </details>
       {#if toolCall.result}
-        <div class="tool-call-result overflow-hidden break-words text-[11px] leading-relaxed">{@html renderedResult}</div>
+        <div class="tool-call-result overflow-hidden wrap-break-word text-[11px] leading-relaxed">{@html renderedResult}</div>
       {/if}
     </div>
   {/if}
