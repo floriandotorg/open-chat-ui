@@ -38,40 +38,52 @@ const autoResize = () => {
 }
 </script>
 
-<div class="border-t border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
-  <div class="mx-auto flex max-w-3xl items-end gap-2">
+<div class="px-4 pb-4 pt-2">
+  <div class="mx-auto flex max-w-3xl items-end gap-1.5 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 dark:border-neutral-600 dark:bg-neutral-700">
     <textarea
       bind:this={textarea}
       bind:value={content}
       onkeydown={handleKeydown}
       oninput={autoResize}
-      placeholder="Type a message..."
+      placeholder="Send a Message"
       rows="1"
       disabled={disabled || isStreaming}
-      class="flex-1 resize-none rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+      class="flex-1 resize-none bg-transparent py-1 text-sm outline-none placeholder:text-gray-400 disabled:opacity-50 dark:text-white dark:placeholder:text-neutral-400"
     ></textarea>
 
-    {#if isStreaming}
+    <div class="flex shrink-0 items-center gap-1">
       <button
-        onclick={onstop}
-        aria-label="Stop generating"
-        class="shrink-0 rounded-xl bg-red-600 p-3 text-white transition hover:bg-red-700"
+        aria-label="Dictation"
+        disabled={disabled || isStreaming}
+        class="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-neutral-600 dark:hover:text-white"
       >
-        <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
-          <rect x="6" y="6" width="12" height="12" rx="1" />
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-14 0m7 7v4m-4 0h8M12 1a3 3 0 00-3 3v7a3 3 0 006 0V4a3 3 0 00-3-3z" />
         </svg>
       </button>
-    {:else}
-      <button
-        onclick={submit}
-        disabled={!content.trim() || disabled}
-        aria-label="Send message"
-        class="shrink-0 rounded-xl bg-blue-600 p-3 text-white transition hover:bg-blue-700 disabled:opacity-50"
-      >
-        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19V5m-7 7l7-7 7 7" />
-        </svg>
-      </button>
-    {/if}
+
+      {#if isStreaming}
+        <button
+          onclick={onstop}
+          aria-label="Stop generating"
+          class="rounded-full bg-gray-900 p-2 text-white transition-colors hover:bg-gray-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+        >
+          <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+            <rect x="6" y="6" width="12" height="12" rx="2" />
+          </svg>
+        </button>
+      {:else}
+        <button
+          onclick={submit}
+          disabled={!content.trim() || disabled}
+          aria-label="Send message"
+          class="rounded-full bg-gray-900 p-2 text-white transition-colors hover:bg-gray-700 disabled:opacity-30 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+        >
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+          </svg>
+        </button>
+      {/if}
+    </div>
   </div>
 </div>

@@ -7,12 +7,21 @@ let isUser = $derived(message.role === 'user')
 </script>
 
 <div class="flex {isUser ? 'justify-end' : 'justify-start'}">
-  <div class="max-w-[80%] rounded-2xl px-4 py-2.5 {isUser
-    ? 'bg-blue-600 text-white'
-    : 'bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100'}">
-    <div class="whitespace-pre-wrap text-sm">{message.content}</div>
-    {#if !isUser && message.model}
-      <div class="mt-1 text-xs opacity-50">{message.model}</div>
-    {/if}
-  </div>
+  {#if isUser}
+    <div class="max-w-[80%] rounded-2xl bg-gray-100 px-4 py-2.5 text-gray-900 dark:bg-neutral-700 dark:text-gray-100">
+      <div class="whitespace-pre-wrap text-sm">{message.content}</div>
+    </div>
+  {:else}
+    <div class="flex max-w-[80%] gap-3">
+      <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-purple-600 text-xs font-bold text-white">
+        AI
+      </div>
+      <div>
+        {#if message.model}
+          <div class="mb-1 text-xs font-medium text-gray-400 dark:text-neutral-500">{message.model}</div>
+        {/if}
+        <div class="whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">{message.content}</div>
+      </div>
+    </div>
+  {/if}
 </div>

@@ -4,8 +4,13 @@ let { text }: { text: string } = $props()
 
 {#if text}
   <div class="flex justify-start">
-    <div class="max-w-[80%] rounded-2xl bg-gray-100 px-4 py-2.5 text-gray-900 dark:bg-gray-800 dark:text-gray-100">
-      <div class="whitespace-pre-wrap text-sm">{text}<span class="inline-block h-4 w-0.5 animate-pulse bg-gray-400"></span></div>
+    <div class="flex max-w-[80%] gap-3">
+      <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-purple-600 text-xs font-bold text-white">
+        AI
+      </div>
+      <div class="whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">
+        {text}<span class="inline-block h-4 w-0.5 animate-pulse bg-gray-400 dark:bg-neutral-400"></span>
+      </div>
     </div>
   </div>
 {/if}

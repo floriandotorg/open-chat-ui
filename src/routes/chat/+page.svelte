@@ -14,19 +14,22 @@ const newChat = async () => {
 }
 </script>
 
-<div class="flex h-full flex-col items-center justify-center gap-4 text-center">
-  <div class="rounded-full bg-gray-100 p-4 dark:bg-gray-800">
-    <svg class="h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+<div class="flex h-full flex-col items-center justify-center gap-5 px-4 text-center">
+  <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-linear-to-br from-blue-500 to-purple-600 shadow-lg">
+    <svg class="h-7 w-7 text-white" viewBox="0 0 192 192" fill="none">
+      <path d="M56 80c0-13.255 10.745-24 24-24h32c13.255 0 24 10.745 24 24v24c0 13.255-10.745 24-24 24H96l-16 16v-16H80c-13.255 0-24-10.745-24-24V80z" fill="currentColor"/>
+      <circle cx="80" cy="92" r="6" fill="#1e293b"/>
+      <circle cx="96" cy="92" r="6" fill="#1e293b"/>
+      <circle cx="112" cy="92" r="6" fill="#1e293b"/>
     </svg>
   </div>
   <div>
-    <h2 class="text-lg font-medium">No conversation selected</h2>
-    <p class="mt-1 text-sm text-gray-500">Start a new chat or select one from the sidebar.</p>
+    <h2 class="text-xl font-semibold text-gray-900 dark:text-white">What can I help you with?</h2>
+    <p class="mt-1.5 text-sm text-gray-400 dark:text-neutral-500">Start a new conversation to get going.</p>
   </div>
   <button
     onclick={newChat}
-    class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
+    class="rounded-xl bg-gray-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-gray-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
   >
     New Chat
   </button>

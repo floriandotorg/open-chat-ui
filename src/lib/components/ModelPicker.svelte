@@ -1,5 +1,4 @@
 <script lang="ts">
-import { browser } from '$app/environment'
 import type { ModelInfo, ProviderInfo } from '$lib/types'
 
 let {
@@ -31,18 +30,16 @@ const fetchAllModels = async () => {
 }
 
 $effect(() => {
-  if (browser) fetchAllModels()
+  fetchAllModels()
 })
 
-let allModels = $derived([...modelsByProvider.values()].flat())
-let currentModelInfo = $derived(allModels.find(m => m.id === selectedModel))
 let availableProviders = $derived(providers.filter(p => p.hasKey))
 </script>
 
-<div class="flex items-center gap-2">
+<div class="relative inline-flex items-center">
   <select
     bind:value={selectedModel}
-    class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+    class="cursor-pointer appearance-none bg-transparent pr-6 text-sm font-medium outline-none dark:text-white"
   >
     {#each availableProviders as provider (provider.id)}
       {@const providerModels = modelsByProvider.get(provider.id) ?? []}
@@ -58,14 +55,7 @@ let availableProviders = $derived(providers.filter(p => p.hasKey))
       <option value="" disabled>No API keys configured</option>
     {/if}
   </select>
-
-  {#if currentModelInfo}
-    <div class="flex gap-1">
-      {#each currentModelInfo.capabilities as cap (cap)}
-        {#if cap !== 'streaming' && cap !== 'system_prompt'}
-          <span class="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-400">{cap}</span>
-        {/if}
-      {/each}
-    </div>
-  {/if}
+  <svg class="pointer-events-none absolute right-0 h-3.5 w-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+  </svg>
 </div>

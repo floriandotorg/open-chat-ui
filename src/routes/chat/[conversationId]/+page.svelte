@@ -52,8 +52,8 @@ const handleSubmit = (content: string) => {
 </script>
 
 <div class="flex h-full flex-col">
-  <div bind:this={messageContainer} class="flex-1 space-y-4 overflow-y-auto p-4">
-    <div class="mx-auto max-w-3xl space-y-4">
+  <div bind:this={messageContainer} class="flex-1 overflow-y-auto px-4 py-6">
+    <div class="mx-auto max-w-3xl space-y-6">
       {#each chat.messages as message (message.id)}
         <ChatMessage {message} />
       {/each}
