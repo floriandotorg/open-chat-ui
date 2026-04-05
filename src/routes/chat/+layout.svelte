@@ -7,12 +7,40 @@ import { goto } from '$app/navigation'
 import type { LayoutData } from './$types'
 import type { Snippet } from 'svelte'
 import type { Conversation } from '$lib/types'
-import { setContext } from 'svelte'
+import { setContext, onMount } from 'svelte'
 
 let { data, children }: { data: LayoutData; children: Snippet } = $props()
 
+const SIDEBAR_MIN = 200
+const SIDEBAR_MAX = 500
+const SIDEBAR_DEFAULT = 260
+const STORAGE_KEY = 'sidebar-width'
+
 let sidebarOpen = $state(true)
 let selectedModel = $state('')
+let sidebarWidth = $state(SIDEBAR_DEFAULT)
+let isResizing = $state(false)
+
+onMount(() => {
+  const stored = localStorage.getItem(STORAGE_KEY)
+  if (stored) sidebarWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Number(stored)))
+})
+
+const startResize = (e: MouseEvent) => {
+  e.preventDefault()
+  isResizing = true
+  const onMouseMove = (e: MouseEvent) => {
+    sidebarWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, e.clientX))
+  }
+  const onMouseUp = () => {
+    isResizing = false
+    localStorage.setItem(STORAGE_KEY, String(sidebarWidth))
+    window.removeEventListener('mousemove', onMouseMove)
+    window.removeEventListener('mouseup', onMouseUp)
+  }
+  window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('mouseup', onMouseUp)
+}
 
 const currentConversationId = $derived(page.params.conversationId)
 
@@ -39,9 +67,9 @@ const userName = $derived(data.user?.name ?? data.user?.email ?? 'User')
 const userInitial = $derived(userName[0]?.toUpperCase() ?? 'U')
 </script>
 
-<div class="flex h-screen bg-white text-gray-900 dark:bg-neutral-800 dark:text-gray-100">
+<div class="flex h-screen bg-white text-gray-900 dark:bg-neutral-800 dark:text-gray-100" class:select-none={isResizing}>
   {#if sidebarOpen}
-    <aside class="flex w-[260px] shrink-0 flex-col bg-gray-50 dark:bg-neutral-900">
+    <aside class="relative flex shrink-0 flex-col bg-gray-50 dark:bg-neutral-900" style="width: {sidebarWidth}px">
       <div class="flex items-center justify-between px-4 py-3">
         <div class="flex items-center gap-2">
           <svg class="h-6 w-6 text-blue-500" viewBox="0 0 192 192" fill="none">
@@ -84,6 +112,15 @@ const userInitial = $derived(userName[0]?.toUpperCase() ?? 'U')
             </svg>
           </a>
         </div>
+      </div>
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        onmousedown={startResize}
+        class="group absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize"
+      >
+        <div class="h-full w-px ml-auto bg-gray-200 transition-colors group-hover:w-full group-hover:bg-blue-400 dark:bg-neutral-700 dark:group-hover:bg-blue-500" class:w-full={isResizing} class:bg-blue-400={isResizing} class:dark:bg-blue-500={isResizing}></div>
       </div>
     </aside>
   {/if}
