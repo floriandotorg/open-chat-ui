@@ -30,6 +30,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 | `/api/api-keys` | GET, POST | List provider key status / upsert key |
 | `/api/api-keys/[provider]` | DELETE | Remove key |
 | `/api/models/[provider]` | GET | List models for provider |
+| `/api/chat/title` | POST | Generate conversation title via LLM |
 | `/api/settings` | GET, PUT | User settings |
 
 ## Streaming

@@ -3,6 +3,7 @@ import ChatInput from '$lib/components/ChatInput.svelte'
 import ChatMessage from '$lib/components/ChatMessage.svelte'
 import StreamingText from '$lib/components/StreamingText.svelte'
 import { createChatStore } from '$lib/stores/chat.svelte'
+import { invalidateAll } from '$app/navigation'
 import type { Message } from '$lib/types'
 import type { PageData } from './$types'
 import { getContext } from 'svelte'
@@ -13,6 +14,17 @@ const ctx: { selectedModel: string } = getContext('chat-provider')
 const chat = createChatStore()
 
 let messageContainer: HTMLDivElement | undefined = $state()
+
+chat.onFirstReply = async (conversationId: string) => {
+  const res = await fetch('/api/chat/title', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversationId }),
+  })
+  if (res.ok) {
+    await invalidateAll()
+  }
+}
 
 $effect(() => {
   chat.messages = data.messages.map((m: (typeof data.messages)[number]) => ({

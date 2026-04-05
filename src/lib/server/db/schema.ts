@@ -100,6 +100,7 @@ export const userSettings = sqliteTable('user_settings', {
   defaultSystemPrompt: text('default_system_prompt'),
   defaultProvider: text('default_provider'),
   defaultModel: text('default_model'),
+  titleModel: text('title_model'),
   updatedAt: integer('updated_at', { mode: 'timestamp' })
     .notNull()
     .$defaultFn(() => new Date()),

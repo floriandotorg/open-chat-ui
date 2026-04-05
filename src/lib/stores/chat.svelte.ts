@@ -6,8 +6,10 @@ export const createChatStore = () => {
   let isStreaming = $state(false)
   let selectedModel = $state('anthropic/claude-sonnet-4-20250514')
   let abortController = $state<AbortController | null>(null)
+  let onFirstReply = $state<((conversationId: string) => void) | null>(null)
 
   const sendMessage = async (conversationId: string, content: string, systemPrompt?: string) => {
+    const isFirstMessage = messages.length === 0
     isStreaming = true
     streamingText = ''
     abortController = new AbortController()
@@ -78,6 +80,9 @@ export const createChatStore = () => {
             })
             streamingText = ''
             isStreaming = false
+            if (isFirstMessage && onFirstReply) {
+              onFirstReply(conversationId)
+            }
           }
         }
       }
@@ -127,6 +132,12 @@ export const createChatStore = () => {
     },
     set selectedModel(v: string) {
       selectedModel = v
+    },
+    get onFirstReply() {
+      return onFirstReply
+    },
+    set onFirstReply(v: ((conversationId: string) => void) | null) {
+      onFirstReply = v
     },
     sendMessage,
     stopStreaming,

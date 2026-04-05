@@ -10,9 +10,11 @@ import type { ActionData, PageData } from './$types'
 let { data, form }: { data: PageData; form: ActionData } = $props()
 let activeTab = $state<'keys' | 'models' | 'prompt' | 'account'>('keys')
 let systemPrompt = $state('')
+let titleModel = $state('')
 
 $effect(() => {
   systemPrompt = data.settings?.defaultSystemPrompt ?? ''
+  titleModel = data.settings?.titleModel ?? ''
 })
 
 const saveSystemPrompt = async (value: string) => {
@@ -52,7 +54,7 @@ const saveSystemPrompt = async (value: string) => {
       {/each}
     </div>
   {:else if activeTab === 'models'}
-    <ModelManager providers={data.providers} />
+    <ModelManager providers={data.providers} bind:titleModel />
   {:else if activeTab === 'prompt'}
     <SystemPromptEditor bind:value={systemPrompt} onsave={saveSystemPrompt} />
   {:else}
