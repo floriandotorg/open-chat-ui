@@ -23,16 +23,23 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 | Route | Methods | Purpose |
 |---|---|---|
-| `/api/chat` | POST | Stream LLM response (SSE) |
+| `/api/chat` | POST | Stream LLM response (SSE) with tool loop |
+| `/api/chat/title` | POST | Generate conversation title via LLM |
 | `/api/conversations` | GET, POST | List/create conversations |
 | `/api/conversations/[id]` | GET, PATCH, DELETE | Single conversation CRUD |
 | `/api/messages/[conversationId]` | GET | List messages |
-| `/api/api-keys` | GET, POST | List provider key status / upsert key |
+| `/api/api-keys` | GET, POST | List provider/tool key status / upsert key |
 | `/api/api-keys/[provider]` | DELETE | Remove key |
 | `/api/models/[provider]` | GET | List models for provider |
-| `/api/chat/title` | POST | Generate conversation title via LLM |
+| `/api/models/manage` | GET, PUT, PATCH | Model allowlist management |
 | `/api/settings` | GET, PUT | User settings |
+| `/api/system-prompts` | GET, POST | List/create system prompts |
+| `/api/system-prompts/[id]` | PATCH, DELETE | Update/delete system prompt |
+| `/api/uploads` | POST | Multipart file upload |
+| `/api/uploads/[id]` | GET | Serve uploaded file |
+| `/api/files/[fileId]` | GET | Download from Anthropic Files API (code execution output) |
+| `/api/dictation` | POST | Audio transcription via Mistral Voxtral |
 
 ## Streaming
 
-`POST /api/chat` returns `Content-Type: text/event-stream`. Each chunk is `data: <JSON>\n\n` where JSON is a `ChatStreamEvent` (`text_delta`, `usage`, `done`, or `error`).
+`POST /api/chat` returns `Content-Type: text/event-stream`. Each chunk is `data: <JSON>\n\n` where JSON is a `ChatStreamEvent`. Event types include `text_delta`, `thinking_delta`, `tool_call`, `tool_result`, `code_execution_start`, `code_execution_delta`, `code_execution_result`, `code_execution_files`, `usage`, `done`, `error`, and `raw_assistant_content`.
