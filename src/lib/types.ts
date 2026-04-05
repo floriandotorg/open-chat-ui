@@ -6,6 +6,8 @@ export interface Message {
   model?: string | null
   inputTokens?: number | null
   outputTokens?: number | null
+  thinking?: string
+  thinkingDuration?: number
   createdAt: Date
 }
 
@@ -20,8 +22,9 @@ export interface Conversation {
 }
 
 export interface ChatStreamEvent {
-  type: 'text_delta' | 'usage' | 'done' | 'error'
+  type: 'text_delta' | 'thinking_delta' | 'usage' | 'done' | 'error'
   text?: string
+  thinking?: string
   inputTokens?: number
   outputTokens?: number
   error?: string
@@ -44,3 +47,13 @@ export interface ModelInfo {
 }
 
 export type ProviderCapability = 'streaming' | 'vision' | 'tool_use' | 'code_interpreter' | 'file_upload' | 'system_prompt'
+
+export type ThinkingEffort = 'none' | 'low' | 'medium' | 'high' | 'max'
+
+export const THINKING_EFFORT_LABELS: Record<ThinkingEffort, string> = {
+  none: 'None',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  max: 'Max',
+}

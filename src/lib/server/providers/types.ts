@@ -21,12 +21,14 @@ export interface ChatRequest {
   systemPrompt?: string
   maxTokens?: number
   temperature?: number
+  thinkingEffort?: 'none' | 'low' | 'medium' | 'high' | 'max'
   signal?: AbortSignal
 }
 
 export interface ChatStreamEvent {
-  type: 'text_delta' | 'usage' | 'done' | 'error'
+  type: 'text_delta' | 'thinking_delta' | 'usage' | 'done' | 'error'
   text?: string
+  thinking?: string
   inputTokens?: number
   outputTokens?: number
   error?: string

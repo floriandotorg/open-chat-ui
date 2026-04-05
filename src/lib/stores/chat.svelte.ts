@@ -1,10 +1,14 @@
-import type { ChatStreamEvent, Message } from '$lib/types'
+import type { ChatStreamEvent, Message, ThinkingEffort } from '$lib/types'
 
 export const createChatStore = () => {
   let messages = $state<Message[]>([])
   let streamingText = $state('')
+  let streamingThinking = $state('')
+  let thinkingDuration = $state<number | null>(null)
   let isStreaming = $state(false)
+  let isThinking = $state(false)
   let selectedModel = $state('anthropic/claude-sonnet-4-20250514')
+  let thinkingEffort = $state<ThinkingEffort>('none')
   let abortController = $state<AbortController | null>(null)
   let onFirstReply = $state<((conversationId: string) => void) | null>(null)
   let activeConversationId = $state<string | null>(null)
@@ -13,8 +17,12 @@ export const createChatStore = () => {
     const isFirstMessage = messages.length === 0
     activeConversationId = conversationId
     isStreaming = true
+    isThinking = false
     streamingText = ''
+    streamingThinking = ''
+    thinkingDuration = null
     abortController = new AbortController()
+    let thinkingStartTime: number | null = null
 
     messages.push({
       id: crypto.randomUUID(),
@@ -33,6 +41,7 @@ export const createChatStore = () => {
           model: selectedModel,
           message: content,
           systemPrompt,
+          thinkingEffort,
         }),
         signal: abortController.signal,
       })
@@ -40,7 +49,9 @@ export const createChatStore = () => {
       if (!response.ok) {
         const err = await response.json()
         streamingText = ''
+        streamingThinking = ''
         isStreaming = false
+        isThinking = false
         throw new Error(err.message ?? 'Request failed')
       }
 
@@ -65,24 +76,45 @@ export const createChatStore = () => {
 
           const event: ChatStreamEvent = JSON.parse(line.slice(6))
 
+          if (event.type === 'thinking_delta') {
+            if (!thinkingStartTime) {
+              thinkingStartTime = Date.now()
+              isThinking = true
+            }
+            streamingThinking += event.thinking ?? ''
+          }
           if (event.type === 'text_delta') {
+            if (isThinking) {
+              isThinking = false
+              thinkingDuration = thinkingStartTime ? Math.round((Date.now() - thinkingStartTime) / 1000) : null
+            }
             streamingText += event.text ?? ''
           }
           if (event.type === 'error') {
             streamingText = ''
+            streamingThinking = ''
             isStreaming = false
+            isThinking = false
             throw new Error(event.error ?? 'Stream error')
           }
           if (event.type === 'done') {
+            if (isThinking) {
+              isThinking = false
+              thinkingDuration = thinkingStartTime ? Math.round((Date.now() - thinkingStartTime) / 1000) : null
+            }
             messages.push({
               id: crypto.randomUUID(),
               conversationId,
               role: 'assistant',
               content: streamingText,
               model: selectedModel,
+              thinking: streamingThinking || undefined,
+              thinkingDuration: thinkingDuration ?? undefined,
               createdAt: new Date(),
             })
             streamingText = ''
+            streamingThinking = ''
+            thinkingDuration = null
             isStreaming = false
             if (isFirstMessage && onFirstReply) {
               onFirstReply(conversationId)
@@ -99,15 +131,23 @@ export const createChatStore = () => {
             role: 'assistant',
             content: streamingText,
             model: selectedModel,
+            thinking: streamingThinking || undefined,
+            thinkingDuration: thinkingDuration ?? undefined,
             createdAt: new Date(),
           })
         }
         streamingText = ''
+        streamingThinking = ''
+        thinkingDuration = null
         isStreaming = false
+        isThinking = false
         return
       }
       streamingText = ''
+      streamingThinking = ''
+      thinkingDuration = null
       isStreaming = false
+      isThinking = false
       throw err
     } finally {
       abortController = null
@@ -128,14 +168,29 @@ export const createChatStore = () => {
     get streamingText() {
       return streamingText
     },
+    get streamingThinking() {
+      return streamingThinking
+    },
+    get thinkingDuration() {
+      return thinkingDuration
+    },
     get isStreaming() {
       return isStreaming
+    },
+    get isThinking() {
+      return isThinking
     },
     get selectedModel() {
       return selectedModel
     },
     set selectedModel(v: string) {
       selectedModel = v
+    },
+    get thinkingEffort() {
+      return thinkingEffort
+    },
+    set thinkingEffort(v: ThinkingEffort) {
+      thinkingEffort = v
     },
     get onFirstReply() {
       return onFirstReply

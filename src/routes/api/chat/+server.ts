@@ -17,11 +17,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     model: modelRef,
     message,
     systemPrompt,
+    thinkingEffort,
   } = body as {
     conversationId: string
     model: string
     message: string
     systemPrompt?: string
+    thinkingEffort?: 'none' | 'low' | 'medium' | 'high' | 'max'
   }
 
   const { provider, model } = parseModelRef(modelRef)
@@ -76,6 +78,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           model,
           messages: chatMessages,
           systemPrompt: resolvedSystemPrompt,
+          thinkingEffort: thinkingEffort ?? 'none',
           signal: request.signal,
         })) {
           if (event.type === 'text_delta') {

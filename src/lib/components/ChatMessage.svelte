@@ -2,6 +2,7 @@
 import { copyCodeAction } from '$lib/copy-code'
 import { renderMarkdown } from '$lib/markdown'
 import type { Message } from '$lib/types'
+import ThinkingBlock from './ThinkingBlock.svelte'
 
 let { message }: { message: Message } = $props()
 
@@ -22,6 +23,9 @@ let renderedContent = $derived(isUser ? '' : renderMarkdown(message.content))
       <div class="min-w-0">
         {#if message.model}
           <div class="mb-1 text-xs font-medium text-gray-400 dark:text-neutral-500">{message.model}</div>
+        {/if}
+        {#if message.thinking}
+          <ThinkingBlock thinking={message.thinking} duration={message.thinkingDuration} />
         {/if}
         <div class="prose prose-sm dark:prose-invert max-w-none" use:copyCodeAction>{@html renderedContent}</div>
       </div>

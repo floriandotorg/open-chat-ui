@@ -4,14 +4,14 @@ import ChatMessage from '$lib/components/ChatMessage.svelte'
 import StreamingText from '$lib/components/StreamingText.svelte'
 import { createChatStore } from '$lib/stores/chat.svelte'
 import { consumePendingMessage } from '$lib/stores/pending-message'
-import type { Message } from '$lib/types'
+import type { Message, ThinkingEffort } from '$lib/types'
 import { invalidateAll } from '$app/navigation'
 import type { PageData } from './$types'
 import { getContext, onMount, untrack } from 'svelte'
 
 let { data }: { data: PageData } = $props()
 
-const ctx: { selectedModel: string } = getContext('chat-provider')
+const ctx: { selectedModel: string; thinkingEffort: ThinkingEffort } = getContext('chat-provider')
 const chat = createChatStore()
 
 let messageContainer: HTMLDivElement | undefined = $state()
@@ -28,11 +28,26 @@ chat.onFirstReply = async (conversationId: string) => {
 }
 
 $effect(() => {
-  const mapped = data.messages.map((m: (typeof data.messages)[number]) => ({
-    ...m,
-    role: m.role as Message['role'],
-    createdAt: new Date(m.createdAt),
-  }))
+  const serverMessages = data.messages
+  const existing = untrack(() => chat.messages)
+
+  const thinkingByContent = new Map<string, { thinking?: string; thinkingDuration?: number }>()
+  for (const m of existing) {
+    if (m.thinking) {
+      thinkingByContent.set(`${m.role}:${m.content}`, { thinking: m.thinking, thinkingDuration: m.thinkingDuration })
+    }
+  }
+
+  const mapped = serverMessages.map((m: (typeof serverMessages)[number]) => {
+    const cached = thinkingByContent.get(`${m.role}:${m.content}`)
+    return {
+      ...m,
+      role: m.role as Message['role'],
+      createdAt: new Date(m.createdAt),
+      thinking: cached?.thinking,
+      thinkingDuration: cached?.thinkingDuration,
+    }
+  })
   untrack(() => chat.stopStreaming())
   chat.messages = mapped
 })
@@ -42,9 +57,14 @@ $effect(() => {
 })
 
 $effect(() => {
+  chat.thinkingEffort = ctx.thinkingEffort
+})
+
+$effect(() => {
   if (messageContainer) {
     void chat.messages.length
     void chat.streamingText
+    void chat.streamingThinking
     messageContainer.scrollTop = messageContainer.scrollHeight
   }
 })
@@ -67,7 +87,12 @@ const handleSubmit = (content: string) => {
       {#each chat.messages as message (message.id)}
         <ChatMessage {message} />
       {/each}
-      <StreamingText text={chat.streamingText} />
+      <StreamingText
+        text={chat.streamingText}
+        thinking={chat.streamingThinking}
+        thinkingDuration={chat.thinkingDuration}
+        isThinking={chat.isThinking}
+      />
     </div>
   </div>
 

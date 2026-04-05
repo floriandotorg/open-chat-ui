@@ -1,7 +1,8 @@
 <script lang="ts">
 import ConversationList from '$lib/components/ConversationList.svelte'
 import ModelPicker from '$lib/components/ModelPicker.svelte'
-import type { Conversation } from '$lib/types'
+import ThinkingEffortPicker from '$lib/components/ThinkingEffortPicker.svelte'
+import type { Conversation, ThinkingEffort } from '$lib/types'
 import { afterNavigate, goto } from '$app/navigation'
 import { resolve } from '$app/paths'
 import { page } from '$app/state'
@@ -16,9 +17,12 @@ const SIDEBAR_MIN = 200
 const SIDEBAR_MAX = 500
 const SIDEBAR_DEFAULT = 260
 const STORAGE_KEY = 'sidebar-width'
+const THINKING_EFFORT_KEY = 'thinking-effort'
+const VALID_EFFORTS = new Set(['none', 'low', 'medium', 'high', 'max'])
 
 let sidebarOpen = $state(true)
 let selectedModel = $state('')
+let thinkingEffort = $state<ThinkingEffort>('none')
 let sidebarWidth = $state(SIDEBAR_DEFAULT)
 let isResizing = $state(false)
 let isMobile = $state(false)
@@ -26,6 +30,11 @@ let isMobile = $state(false)
 onMount(() => {
   const stored = localStorage.getItem(STORAGE_KEY)
   if (stored) sidebarWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Number(stored)))
+
+  const storedEffort = localStorage.getItem(THINKING_EFFORT_KEY)
+  if (storedEffort && VALID_EFFORTS.has(storedEffort)) {
+    thinkingEffort = storedEffort as ThinkingEffort
+  }
 
   const mql = window.matchMedia('(max-width: 767px)')
   isMobile = mql.matches
@@ -37,6 +46,10 @@ onMount(() => {
   }
   mql.addEventListener('change', onMediaChange)
   return () => mql.removeEventListener('change', onMediaChange)
+})
+
+$effect(() => {
+  localStorage.setItem(THINKING_EFFORT_KEY, thinkingEffort)
 })
 
 const startResize = (e: MouseEvent) => {
@@ -67,6 +80,12 @@ setContext('chat-provider', {
   },
   set selectedModel(v: string) {
     selectedModel = v
+  },
+  get thinkingEffort() {
+    return thinkingEffort
+  },
+  set thinkingEffort(v: ThinkingEffort) {
+    thinkingEffort = v
   },
 })
 
@@ -152,15 +171,18 @@ const userInitial = $derived(userName[0]?.toUpperCase() ?? 'U')
   {/if}
 
   <main class="flex flex-1 flex-col overflow-hidden">
-    <header class="flex items-center gap-3 px-4 py-2.5">
-      {#if !sidebarOpen || isMobile}
-        <button onclick={() => sidebarOpen = !sidebarOpen} aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'} class="rounded-lg p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700">
-          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        </button>
-      {/if}
-      <ModelPicker providers={data.providers} bind:selectedModel />
+    <header class="flex items-center justify-between gap-3 px-4 py-2.5">
+      <div class="flex items-center gap-3">
+        {#if !sidebarOpen || isMobile}
+          <button onclick={() => sidebarOpen = !sidebarOpen} aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'} class="rounded-lg p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+        {/if}
+        <ModelPicker providers={data.providers} bind:selectedModel />
+      </div>
+      <ThinkingEffortPicker bind:thinkingEffort />
     </header>
 
     <div class="flex-1 overflow-hidden">

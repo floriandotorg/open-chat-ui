@@ -32,21 +32,36 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
   async *chat(request: ChatRequest): AsyncGenerator<ChatStreamEvent> {
     const client = new Anthropic({ apiKey })
 
+    const useThinking = request.thinkingEffort && request.thinkingEffort !== 'none'
+    const baseMaxTokens = request.maxTokens ?? 4096
+    const maxTokens = useThinking ? Math.max(baseMaxTokens, 16000) : baseMaxTokens
+
+    const params: Record<string, unknown> = {
+      model: request.model,
+      max_tokens: maxTokens,
+      temperature: useThinking ? undefined : request.temperature,
+      system: request.systemPrompt,
+      messages: request.messages.filter(m => m.role !== 'system').map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+    }
+
+    if (useThinking) {
+      params.thinking = { type: 'adaptive' }
+      params.output_config = { effort: request.thinkingEffort }
+    }
+
     const stream = client.messages.stream(
-      {
-        model: request.model,
-        max_tokens: request.maxTokens ?? 4096,
-        temperature: request.temperature,
-        system: request.systemPrompt,
-        messages: request.messages.filter(m => m.role !== 'system').map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-      },
+      params as Anthropic.MessageStreamParams,
       { signal: request.signal },
     )
 
     try {
       for await (const event of stream) {
-        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-          yield { type: 'text_delta', text: event.delta.text }
+        if (event.type === 'content_block_delta') {
+          if (event.delta.type === 'thinking_delta') {
+            yield { type: 'thinking_delta', thinking: (event.delta as { thinking: string }).thinking }
+          } else if (event.delta.type === 'text_delta') {
+            yield { type: 'text_delta', text: event.delta.text }
+          }
         }
       }
 
