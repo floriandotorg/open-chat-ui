@@ -4,12 +4,26 @@ import ModelManager from '$lib/components/ModelManager.svelte'
 import SystemPromptManager from '$lib/components/SystemPromptManager.svelte'
 import { enhance } from '$app/forms'
 import { goto } from '$app/navigation'
+import { page } from '$app/state'
 import { resolve } from '$app/paths'
 import type { ActionData, PageData } from './$types'
 
+const TABS = ['keys', 'models', 'prompt', 'tools', 'account'] as const
+type Tab = (typeof TABS)[number]
+
 let { data, form }: { data: PageData; form: ActionData } = $props()
-let activeTab = $state<'keys' | 'models' | 'prompt' | 'tools' | 'account'>('keys')
 let titleModel = $state('')
+
+const activeTab = $derived.by<Tab>(() => {
+  const tab = page.url.searchParams.get('tab')
+  return TABS.includes(tab as Tab) ? (tab as Tab) : 'keys'
+})
+
+const setTab = (tab: Tab) => {
+  const url = new URL(page.url)
+  url.searchParams.set('tab', tab)
+  goto(url.toString(), { replaceState: true, keepFocus: true, noScroll: true })
+}
 
 $effect(() => {
   titleModel = data.settings?.titleModel ?? ''
@@ -27,7 +41,7 @@ $effect(() => {
   <div class="mb-6 flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-900">
     {#each [['keys', 'API Keys'], ['models', 'Models'], ['prompt', 'System Prompt'], ['tools', 'Tools'], ['account', 'Account']] as [id, label] (id)}
       <button
-        onclick={() => activeTab = id as typeof activeTab}
+        onclick={() => setTab(id as Tab)}
         class="flex-1 rounded-md px-3 py-2 text-sm font-medium transition {activeTab === id
           ? 'bg-white shadow dark:bg-gray-800'
           : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}"
