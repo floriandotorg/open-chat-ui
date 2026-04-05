@@ -1,6 +1,8 @@
 # Open Chat UI
 
-Self-hosted, multi-provider LLM chat application. Bring your own API keys, manage conversations, and use built-in tools like web search, URL fetching, and Reddit browsing — all from a single interface.
+Self-hosted, multi-provider LLM chat application. Bring your own API keys, manage conversations, and use built-in tools like web search, URL fetching, and Reddit browsing, all from a single interface.
+
+<img width="2892" height="2148" alt="CleanShot 2026-04-05 at 22 13 13" src="https://github.com/user-attachments/assets/4de56c40-9594-4217-bc5b-ac9b73ea290e" />
 
 ## Features
 
