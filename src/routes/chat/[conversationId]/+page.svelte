@@ -49,9 +49,10 @@ chat.onFirstReply = async (conversationId: string) => {
 let lastSyncedConversationId: string | undefined
 
 $effect(() => {
-  const serverMessages = data.messages
+  const serverAllMessages = data.allMessages
+  const serverBranches = data.activeBranches
   const convId = data.conversation.id
-  const existing = untrack(() => chat.messages)
+  const existing = untrack(() => chat.allMessages)
 
   const conversationChanged = lastSyncedConversationId !== undefined && lastSyncedConversationId !== convId
   lastSyncedConversationId = convId
@@ -67,7 +68,7 @@ $effect(() => {
     }
   }
 
-  const mapped: Message[] = serverMessages.map((m: (typeof serverMessages)[number]) => {
+  const mapped: Message[] = serverAllMessages.map((m: (typeof serverAllMessages)[number]) => {
     const cached = thinkingByContent.get(`${m.role}:${m.content}`)
     return {
       ...m,
@@ -79,7 +80,8 @@ $effect(() => {
   })
 
   if (untrack(() => chat.isStreaming)) return
-  chat.messages = mapped
+  chat.allMessages = mapped
+  chat.activeBranches = serverBranches
 })
 
 $effect(() => {
@@ -134,6 +136,30 @@ const handleSubmit = (content: string, images?: import('$lib/types').ImageAttach
   chat.sendMessage(data.conversation.id, content, undefined, images, files)
 }
 
+const handleRegenerate = (messageId: string) => {
+  stickToBottom = true
+  chat.regenerateMessage(data.conversation.id, messageId)
+}
+
+const handleEdit = (messageId: string, content: string) => {
+  stickToBottom = true
+  chat.editMessage(data.conversation.id, messageId, content)
+}
+
+const handleSwitchBranch = (messageId: string, direction: 'prev' | 'next') => {
+  const msg = chat.messages.find(m => m.id === messageId)
+  if (!msg) return
+
+  const parentKey = msg.parentId ?? '__root__'
+  const siblings = chat.allMessages.filter(m => (m.parentId ?? '__root__') === parentKey).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+
+  const currentIdx = siblings.findIndex(s => s.id === messageId)
+  const newIdx = direction === 'prev' ? currentIdx - 1 : currentIdx + 1
+  if (newIdx < 0 || newIdx >= siblings.length) return
+
+  chat.switchBranch(data.conversation.id, parentKey, siblings[newIdx].id)
+}
+
 const startEdit = (entry: { id: string; content: string }) => {
   editingQueueId = entry.id
   editContent = entry.content
@@ -180,7 +206,12 @@ const autoResizeEdit = () => {
   <div bind:this={messageContainer} onscroll={onScroll} class="flex-1 overflow-y-auto px-4 py-6">
     <div class="mx-auto max-w-3xl space-y-6">
       {#each chat.messages as message (message.id)}
-        <ChatMessage {message} />
+        <ChatMessage
+          {message}
+          onregenerate={handleRegenerate}
+          onedit={handleEdit}
+          onswitchbranch={handleSwitchBranch}
+        />
       {/each}
       <StreamingText
         text={chat.streamingText}

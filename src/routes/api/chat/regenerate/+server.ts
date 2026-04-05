@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { getAncestorPath } from '$lib/message-tree'
 import { parseModelRef } from '$lib/model-ref'
 import { getDecryptedKey } from '$lib/server/api-key'
 import { requireUser } from '$lib/server/auth-guard'
@@ -8,7 +9,6 @@ import { apiKeys, conversations, messages, systemPrompts, userSettings } from '$
 import { getPostSystemPrompt } from '$lib/server/prompts'
 import { getProviderFactory } from '$lib/server/providers'
 import type { ChatMessage, ChatMessageImage, ToolCallInfo } from '$lib/server/providers/types'
-import { generateConversationTitle } from '$lib/server/title'
 import { executeTool, getToolSchemas } from '$lib/server/tools'
 import { getUploadPath } from '$lib/server/uploads'
 import type { FileAttachment, ImageAttachment } from '$lib/types'
@@ -72,26 +72,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const body = await request.json()
   const {
     conversationId,
+    messageId,
     model: modelRef,
-    message,
-    images: imageIds,
-    files: fileAttachments,
-    systemPrompt,
     thinkingEffort,
-    parentId: requestParentId,
-    userMsgId: requestUserMsgId,
-    skipUserInsert,
   } = body as {
     conversationId: string
+    messageId: string
     model: string
-    message: string
-    images?: ImageAttachment[]
-    files?: FileAttachment[]
-    systemPrompt?: string
     thinkingEffort?: 'none' | 'low' | 'medium' | 'high' | 'max'
-    parentId?: string | null
-    userMsgId?: string
-    skipUserInsert?: boolean
   }
 
   const { provider, model } = parseModelRef(modelRef)
@@ -105,18 +93,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     throw error(404, 'Conversation not found')
   }
 
-  const userMsgId = requestUserMsgId ?? crypto.randomUUID()
-  if (!skipUserInsert) {
-    await db.insert(messages).values({
-      id: userMsgId,
-      conversationId,
-      parentId: requestParentId ?? null,
-      role: 'user',
-      content: message,
-      images: imageIds?.length ? JSON.stringify(imageIds) : null,
-      files: fileAttachments?.length ? JSON.stringify(fileAttachments) : null,
-    })
+  const allMsgs = await db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt))
+  const targetMsg = allMsgs.find(m => m.id === messageId)
+  if (!targetMsg || targetMsg.role !== 'assistant') {
+    throw error(400, 'Invalid message for regeneration')
   }
+
+  const userParentId = targetMsg.parentId
+  if (!userParentId) {
+    throw error(400, 'Cannot regenerate: no parent message')
+  }
+
+  const ancestorPath = getAncestorPath(userParentId, allMsgs)
 
   const [keyRow] = await db
     .select()
@@ -129,19 +117,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const decryptedKey = await decrypt(keyRow.encryptedKey, keyRow.iv)
 
-  const allMsgs = await db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt))
-  const byId = new Map(allMsgs.map(m => [m.id, m]))
-  const history: typeof allMsgs = []
-  let cur = byId.get(userMsgId)
-  while (cur) {
-    history.unshift(cur)
-    cur = cur.parentId ? byId.get(cur.parentId) : undefined
-  }
-
   const [settings] = await db.select().from(userSettings).where(eq(userSettings.userId, userId))
 
-  let baseSystemPrompt: string | undefined = systemPrompt
-  if (!baseSystemPrompt && conversation.systemPromptId) {
+  let baseSystemPrompt: string | undefined
+  if (conversation.systemPromptId) {
     const [sp] = await db.select().from(systemPrompts).where(eq(systemPrompts.id, conversation.systemPromptId))
     baseSystemPrompt = sp?.content ?? undefined
   }
@@ -155,7 +134,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const allFileIds: string[] = []
   const chatMessages: ChatMessage[] = []
-  for (const m of history) {
+  for (const m of ancestorPath) {
     const imgs = parseImages(m.images)
     const fls = parseFiles(m.files)
 
@@ -203,7 +182,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   let citationCounter = 0
   let container: string | undefined = conversation.container ?? undefined
   let clientConnected = true
-  const assistantMsgId = crypto.randomUUID()
+  const newAssistantId = crypto.randomUUID()
 
   const enqueue = (controller: ReadableStreamDefaultController, data: Uint8Array) => {
     if (!clientConnected) return
@@ -334,7 +313,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         }
 
         send({ type: 'usage', inputTokens: totalUsage.inputTokens, outputTokens: totalUsage.outputTokens })
-        send({ type: 'done', messageId: assistantMsgId })
+        send({ type: 'done', messageId: newAssistantId })
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Stream error'
         send({ type: 'error', error: msg })
@@ -342,9 +321,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
       if (fullText || allToolCalls.length) {
         await db.insert(messages).values({
-          id: assistantMsgId,
+          id: newAssistantId,
           conversationId,
-          parentId: userMsgId,
+          parentId: userParentId,
           role: 'assistant',
           content: fullText,
           provider,
@@ -355,9 +334,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         })
 
         const existingBranches: Record<string, string> = conversation.activeBranches ? JSON.parse(conversation.activeBranches) : {}
-        const parentKey = requestParentId ?? '__root__'
-        existingBranches[parentKey] = userMsgId
-        existingBranches[userMsgId] = assistantMsgId
+        existingBranches[userParentId] = newAssistantId
 
         await db
           .update(conversations)
@@ -369,10 +346,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
             ...(container ? { container } : {}),
           })
           .where(eq(conversations.id, conversationId))
-
-        if (conversation.title === 'New Chat') {
-          generateConversationTitle(userId, conversationId).catch(() => {})
-        }
       }
 
       if (clientConnected) {

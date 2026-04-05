@@ -40,6 +40,7 @@ export const conversations = sqliteTable(
     defaultProvider: text('default_provider'),
     defaultModel: text('default_model'),
     container: text('container'),
+    activeBranches: text('active_branches'),
     createdAt: integer('created_at', { mode: 'timestamp' })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -59,6 +60,7 @@ export const messages = sqliteTable(
     conversationId: text('conversation_id')
       .notNull()
       .references(() => conversations.id, { onDelete: 'cascade' }),
+    parentId: text('parent_id'),
     role: text('role').notNull(),
     content: text('content').notNull(),
     images: text('images'),
@@ -72,7 +74,7 @@ export const messages = sqliteTable(
       .notNull()
       .$defaultFn(() => new Date()),
   },
-  table => [index('messages_conversation_idx').on(table.conversationId)],
+  table => [index('messages_conversation_idx').on(table.conversationId), index('messages_parent_idx').on(table.parentId)],
 )
 
 export const providerModels = sqliteTable(

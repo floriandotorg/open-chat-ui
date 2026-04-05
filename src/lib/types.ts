@@ -39,6 +39,7 @@ export interface CodeExecutionBlock {
 export interface Message {
   id: string
   conversationId: string
+  parentId?: string | null
   role: 'user' | 'assistant' | 'system'
   content: string
   images?: ImageAttachment[]
@@ -50,6 +51,8 @@ export interface Message {
   thinkingDuration?: number
   toolCalls?: ToolCallInfo[]
   codeExecutions?: CodeExecutionBlock[]
+  siblingIndex?: number
+  siblingCount?: number
   createdAt: Date
 }
 
@@ -83,6 +86,7 @@ export interface ChatStreamEvent {
   error?: string
   toolCall?: { id: string; name: string; arguments: Record<string, unknown> }
   toolResult?: { toolCallId: string; toolName: string; result: string }
+  messageId?: string
   stopReason?: 'end' | 'tool_use'
   codeExecution?: { id: string; name: string }
   codeExecutionDelta?: { id: string; partialInput: string }
