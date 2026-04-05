@@ -7,7 +7,7 @@ import { consumePendingMessage } from '$lib/stores/pending-message'
 import type { Message } from '$lib/types'
 import { invalidateAll } from '$app/navigation'
 import type { PageData } from './$types'
-import { getContext, onMount } from 'svelte'
+import { getContext, onMount, untrack } from 'svelte'
 
 let { data }: { data: PageData } = $props()
 
@@ -28,11 +28,13 @@ chat.onFirstReply = async (conversationId: string) => {
 }
 
 $effect(() => {
-  chat.messages = data.messages.map((m: (typeof data.messages)[number]) => ({
+  const mapped = data.messages.map((m: (typeof data.messages)[number]) => ({
     ...m,
     role: m.role as Message['role'],
     createdAt: new Date(m.createdAt),
   }))
+  untrack(() => chat.stopStreaming())
+  chat.messages = mapped
 })
 
 $effect(() => {

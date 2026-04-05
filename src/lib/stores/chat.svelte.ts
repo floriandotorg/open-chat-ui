@@ -7,9 +7,11 @@ export const createChatStore = () => {
   let selectedModel = $state('anthropic/claude-sonnet-4-20250514')
   let abortController = $state<AbortController | null>(null)
   let onFirstReply = $state<((conversationId: string) => void) | null>(null)
+  let activeConversationId = $state<string | null>(null)
 
   const sendMessage = async (conversationId: string, content: string, systemPrompt?: string) => {
     const isFirstMessage = messages.length === 0
+    activeConversationId = conversationId
     isStreaming = true
     streamingText = ''
     abortController = new AbortController()
@@ -59,6 +61,8 @@ export const createChatStore = () => {
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
+          if (activeConversationId !== conversationId) return
+
           const event: ChatStreamEvent = JSON.parse(line.slice(6))
 
           if (event.type === 'text_delta') {
@@ -88,7 +92,7 @@ export const createChatStore = () => {
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        if (streamingText) {
+        if (streamingText && activeConversationId === conversationId) {
           messages.push({
             id: crypto.randomUUID(),
             conversationId,
