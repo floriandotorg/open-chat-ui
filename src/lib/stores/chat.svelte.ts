@@ -158,6 +158,10 @@ export const createChatStore = () => {
             const { id, ...result } = event.codeExecutionResult
             streamingCodeExecutions = streamingCodeExecutions.map(ce => (ce.id === id ? { ...ce, ...result } : ce))
           }
+          if (event.type === 'code_execution_files' && event.codeExecutionFiles) {
+            const { id, files } = event.codeExecutionFiles
+            streamingCodeExecutions = streamingCodeExecutions.map(ce => (ce.id === id ? { ...ce, files } : ce))
+          }
           if (event.type === 'error') {
             resetStreamingState()
             throw new Error(event.error ?? 'Stream error')

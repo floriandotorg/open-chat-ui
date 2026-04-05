@@ -83,16 +83,25 @@ const buildAnthropicMessages = (messages: ChatMessage[]): Anthropic.MessageParam
   return result
 }
 
-const extractCodeExecResult = (block: AnyBlock): { stdout?: string; stderr?: string; returnCode?: number; error?: string } => {
+const extractCodeExecResult = (block: AnyBlock): { stdout?: string; stderr?: string; returnCode?: number; error?: string; fileIds?: string[] } => {
   const content = block.content as AnyBlock | undefined
   if (!content) return {}
   if (typeof content.error_code === 'string') {
     return { error: content.error_code as string }
   }
+  const fileIds: string[] = []
+  if (Array.isArray(content.content)) {
+    for (const item of content.content as AnyBlock[]) {
+      if (item?.file_id && typeof item.file_id === 'string') {
+        fileIds.push(item.file_id)
+      }
+    }
+  }
   return {
     stdout: (content.stdout as string) ?? '',
     stderr: (content.stderr as string) ?? '',
     returnCode: (content.return_code as number) ?? 0,
+    ...(fileIds.length ? { fileIds } : {}),
   }
 }
 
@@ -145,7 +154,7 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
     const tools: Record<string, unknown>[] = []
 
     if (request.codeExecution) {
-      tools.push({ type: 'code_execution_20260120', name: 'code_execution' })
+      tools.push({ type: 'code_execution_20250825', name: 'code_execution' })
     }
 
     if (request.tools?.length) {
@@ -154,7 +163,6 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
           name: t.name,
           description: t.description,
           input_schema: t.parameters,
-          ...(request.codeExecution ? { allowed_callers: ['direct', 'code_execution_20260120'] } : {}),
         })
       }
     }
@@ -186,9 +194,10 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
             yield { type: 'code_execution_start', codeExecution: { id, name } }
           } else if (CODE_EXEC_RESULT_TYPES.has(block.type as string)) {
             const toolUseId = block.tool_use_id as string
+            const { fileIds: _, ...result } = extractCodeExecResult(block)
             yield {
               type: 'code_execution_result',
-              codeExecutionResult: { id: toolUseId, ...extractCodeExecResult(block) },
+              codeExecutionResult: { id: toolUseId, ...result },
             }
           }
         }
@@ -231,6 +240,26 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
       }
 
       const finalMessage = await stream.finalMessage()
+
+      for (const block of finalMessage.content as unknown as AnyBlock[]) {
+        if (CODE_EXEC_RESULT_TYPES.has(block.type as string)) {
+          const toolUseId = block.tool_use_id as string
+          const { fileIds } = extractCodeExecResult(block)
+          if (fileIds?.length) {
+            const files = await Promise.all(
+              fileIds.map(async fid => {
+                try {
+                  const meta = await client.beta.files.retrieveMetadata(fid)
+                  return { fileId: fid, filename: meta.filename, mimeType: meta.mime_type }
+                } catch {
+                  return { fileId: fid, filename: fid, mimeType: 'application/octet-stream' }
+                }
+              }),
+            )
+            yield { type: 'code_execution_files', codeExecutionFiles: { id: toolUseId, files } }
+          }
+        }
+      }
 
       yield {
         type: 'raw_assistant_content',

@@ -18,6 +18,12 @@ export interface ToolCallInfo {
   result?: string
 }
 
+export interface CodeExecutionFile {
+  fileId: string
+  filename: string
+  mimeType: string
+}
+
 export interface CodeExecutionBlock {
   id: string
   name: string
@@ -27,6 +33,7 @@ export interface CodeExecutionBlock {
   stderr?: string
   returnCode?: number
   error?: string
+  files?: CodeExecutionFile[]
 }
 
 export interface Message {
@@ -68,7 +75,7 @@ export interface SystemPrompt {
 }
 
 export interface ChatStreamEvent {
-  type: 'text_delta' | 'thinking_delta' | 'usage' | 'done' | 'error' | 'tool_call' | 'tool_result' | 'code_execution_start' | 'code_execution_delta' | 'code_execution_result'
+  type: 'text_delta' | 'thinking_delta' | 'usage' | 'done' | 'error' | 'tool_call' | 'tool_result' | 'code_execution_start' | 'code_execution_delta' | 'code_execution_result' | 'code_execution_files'
   text?: string
   thinking?: string
   inputTokens?: number
@@ -79,7 +86,8 @@ export interface ChatStreamEvent {
   stopReason?: 'end' | 'tool_use'
   codeExecution?: { id: string; name: string }
   codeExecutionDelta?: { id: string; partialInput: string }
-  codeExecutionResult?: { id: string; stdout?: string; stderr?: string; returnCode?: number; error?: string }
+  codeExecutionResult?: { id: string; stdout?: string; stderr?: string; returnCode?: number; error?: string; files?: CodeExecutionFile[] }
+  codeExecutionFiles?: { id: string; files: CodeExecutionFile[] }
 }
 
 export interface ProviderInfo {

@@ -60,16 +60,23 @@ export interface CodeExecutionDeltaEvent {
   partialInput: string
 }
 
+export interface CodeExecutionFile {
+  fileId: string
+  filename: string
+  mimeType: string
+}
+
 export interface CodeExecutionResultEvent {
   id: string
   stdout?: string
   stderr?: string
   returnCode?: number
   error?: string
+  files?: CodeExecutionFile[]
 }
 
 export interface ChatStreamEvent {
-  type: 'text_delta' | 'thinking_delta' | 'usage' | 'done' | 'error' | 'tool_call' | 'tool_result' | 'code_execution_start' | 'code_execution_delta' | 'code_execution_result' | 'raw_assistant_content'
+  type: 'text_delta' | 'thinking_delta' | 'usage' | 'done' | 'error' | 'tool_call' | 'tool_result' | 'code_execution_start' | 'code_execution_delta' | 'code_execution_result' | 'code_execution_files' | 'raw_assistant_content'
   text?: string
   thinking?: string
   inputTokens?: number
@@ -81,6 +88,7 @@ export interface ChatStreamEvent {
   codeExecution?: CodeExecutionStartEvent
   codeExecutionDelta?: CodeExecutionDeltaEvent
   codeExecutionResult?: CodeExecutionResultEvent
+  codeExecutionFiles?: { id: string; files: CodeExecutionFile[] }
   rawAssistantContent?: unknown[]
   container?: string
 }

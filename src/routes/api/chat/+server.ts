@@ -38,6 +38,7 @@ interface PersistedCodeExecution {
   stderr?: string
   returnCode?: number
   error?: string
+  files?: { fileId: string; filename: string; mimeType: string }[]
 }
 
 const loadImageData = (attachment: ImageAttachment): ChatMessageImage => {
@@ -247,6 +248,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
                 ...result,
               })
               codeExecInputs.delete(id)
+              send(event)
+            } else if (event.type === 'code_execution_files' && event.codeExecutionFiles) {
+              const { id, files } = event.codeExecutionFiles
+              const existing = allToolCalls.find((tc): tc is PersistedCodeExecution => 'type' in tc && tc.type === 'code_execution' && tc.id === id)
+              if (existing) {
+                existing.files = files
+              }
               send(event)
             } else if (event.type === 'raw_assistant_content') {
               rawContentBlocks = event.rawAssistantContent
