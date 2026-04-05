@@ -1,8 +1,14 @@
+export interface ImageAttachment {
+  id: string
+  mimeType: string
+}
+
 export interface Message {
   id: string
   conversationId: string
   role: 'user' | 'assistant' | 'system'
   content: string
+  images?: ImageAttachment[]
   model?: string | null
   inputTokens?: number | null
   outputTokens?: number | null

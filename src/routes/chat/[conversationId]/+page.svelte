@@ -70,14 +70,14 @@ $effect(() => {
 })
 
 onMount(() => {
-  const pending = consumePendingMessage()
-  if (pending) {
-    chat.sendMessage(data.conversation.id, pending, data.conversation.systemPrompt ?? undefined)
+  const { message, images } = consumePendingMessage()
+  if (message) {
+    chat.sendMessage(data.conversation.id, message, data.conversation.systemPrompt ?? undefined, images ?? undefined)
   }
 })
 
-const handleSubmit = (content: string) => {
-  chat.sendMessage(data.conversation.id, content, data.conversation.systemPrompt ?? undefined)
+const handleSubmit = (content: string, images?: import('$lib/types').ImageAttachment[]) => {
+  chat.sendMessage(data.conversation.id, content, data.conversation.systemPrompt ?? undefined, images)
 }
 </script>
 

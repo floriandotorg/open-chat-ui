@@ -1,11 +1,17 @@
-let pendingMessage: string | null = null
+import type { ImageAttachment } from '$lib/types'
 
-export const setPendingMessage = (msg: string) => {
+let pendingMessage: string | null = null
+let pendingImages: ImageAttachment[] | null = null
+
+export const setPendingMessage = (msg: string, images?: ImageAttachment[]) => {
   pendingMessage = msg
+  pendingImages = images?.length ? images : null
 }
 
 export const consumePendingMessage = () => {
   const msg = pendingMessage
+  const imgs = pendingImages
   pendingMessage = null
-  return msg
+  pendingImages = null
+  return { message: msg, images: imgs }
 }

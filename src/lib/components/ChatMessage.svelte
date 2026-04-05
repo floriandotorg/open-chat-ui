@@ -13,6 +13,19 @@ let renderedContent = $derived(isUser ? '' : renderMarkdown(message.content))
 <div class="flex {isUser ? 'justify-end' : 'justify-start'}">
   {#if isUser}
     <div class="max-w-[80%] rounded-2xl bg-gray-100 px-4 py-2.5 text-gray-900 dark:bg-neutral-700 dark:text-gray-100">
+      {#if message.images?.length}
+        <div class="mb-2 flex flex-wrap gap-2">
+          {#each message.images as img (img.id)}
+            <a href="/api/uploads/{img.id}" target="_blank" rel="noopener noreferrer">
+              <img
+                src="/api/uploads/{img.id}"
+                alt="Attached"
+                class="max-h-48 max-w-xs rounded-lg object-contain"
+              />
+            </a>
+          {/each}
+        </div>
+      {/if}
       <div class="whitespace-pre-wrap text-sm">{message.content}</div>
     </div>
   {:else}

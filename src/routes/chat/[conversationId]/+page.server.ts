@@ -28,6 +28,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     messages: msgs.map(m => ({
       ...m,
       model: normalizeModelRef(m.provider, m.model),
+      images: m.images ? JSON.parse(m.images) : undefined,
     })),
   }
 }

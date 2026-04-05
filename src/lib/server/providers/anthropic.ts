@@ -1,5 +1,5 @@
 import { formatModelRef } from '$lib/model-ref'
-import type { ChatRequest, ChatStreamEvent, LLMProvider, ModelInfo, ProviderCapability, ProviderFactory } from './types'
+import type { ChatMessage, ChatRequest, ChatStreamEvent, LLMProvider, ModelInfo, ProviderCapability, ProviderFactory } from './types'
 import Anthropic from '@anthropic-ai/sdk'
 
 const mapCapabilities = (caps: Anthropic.ModelCapabilities | null): ProviderCapability[] => {
@@ -7,6 +7,18 @@ const mapCapabilities = (caps: Anthropic.ModelCapabilities | null): ProviderCapa
   if (caps?.image_input?.supported) result.push('vision')
   if (caps?.code_execution?.supported) result.push('code_interpreter')
   return result
+}
+
+const buildAnthropicContent = (m: ChatMessage): string | Anthropic.ContentBlockParam[] => {
+  if (!m.images?.length) return m.content
+  const parts: Anthropic.ContentBlockParam[] = m.images.map(img => ({
+    type: 'image' as const,
+    source: { type: 'base64' as const, media_type: img.mimeType as Anthropic.Base64ImageSource['media_type'], data: img.data },
+  }))
+  if (m.content) {
+    parts.push({ type: 'text' as const, text: m.content })
+  }
+  return parts
 }
 
 const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
@@ -41,7 +53,10 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
       max_tokens: maxTokens,
       temperature: useThinking ? undefined : request.temperature,
       system: request.systemPrompt,
-      messages: request.messages.filter(m => m.role !== 'system').map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+      messages: request.messages.filter(m => m.role !== 'system').map(m => ({
+        role: m.role as 'user' | 'assistant',
+        content: buildAnthropicContent(m),
+      })),
     }
 
     if (useThinking) {

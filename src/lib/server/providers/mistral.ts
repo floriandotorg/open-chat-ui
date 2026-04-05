@@ -1,5 +1,5 @@
 import { formatModelRef } from '$lib/model-ref'
-import type { ChatRequest, ChatStreamEvent, LLMProvider, ModelInfo, ProviderCapability, ProviderFactory } from './types'
+import type { ChatMessage, ChatRequest, ChatStreamEvent, LLMProvider, ModelInfo, ProviderCapability, ProviderFactory } from './types'
 import { Mistral } from '@mistralai/mistralai'
 
 const mapCapabilities = (caps: { completionChat: boolean; vision: boolean; functionCalling: boolean }): ProviderCapability[] => {
@@ -7,6 +7,20 @@ const mapCapabilities = (caps: { completionChat: boolean; vision: boolean; funct
   if (caps.vision) result.push('vision')
   if (caps.functionCalling) result.push('tool_use')
   return result
+}
+
+type MistralContent = string | Array<{ type: 'text'; text: string } | { type: 'image_url'; imageUrl: { url: string } }>
+
+const buildMistralContent = (m: ChatMessage): MistralContent => {
+  if (!m.images?.length) return m.content
+  const parts: Array<{ type: 'text'; text: string } | { type: 'image_url'; imageUrl: { url: string } }> = m.images.map(img => ({
+    type: 'image_url' as const,
+    imageUrl: { url: `data:${img.mimeType};base64,${img.data}` },
+  }))
+  if (m.content) {
+    parts.push({ type: 'text' as const, text: m.content })
+  }
+  return parts
 }
 
 const createMistralAdapter = (apiKey: string): LLMProvider => ({
@@ -38,7 +52,7 @@ const createMistralAdapter = (apiKey: string): LLMProvider => ({
     const messages = request.messages.map(m => {
       if (m.role === 'system') return { role: 'system' as const, content: m.content }
       if (m.role === 'assistant') return { role: 'assistant' as const, content: m.content }
-      return { role: 'user' as const, content: m.content }
+      return { role: 'user' as const, content: buildMistralContent(m) }
     })
 
     if (request.systemPrompt) {

@@ -1,4 +1,4 @@
-import type { ChatStreamEvent, Message, ThinkingEffort } from '$lib/types'
+import type { ChatStreamEvent, ImageAttachment, Message, ThinkingEffort } from '$lib/types'
 
 export const createChatStore = () => {
   let messages = $state<Message[]>([])
@@ -13,7 +13,7 @@ export const createChatStore = () => {
   let onFirstReply = $state<((conversationId: string) => void) | null>(null)
   let activeConversationId = $state<string | null>(null)
 
-  const sendMessage = async (conversationId: string, content: string, systemPrompt?: string) => {
+  const sendMessage = async (conversationId: string, content: string, systemPrompt?: string, images?: ImageAttachment[]) => {
     const isFirstMessage = messages.length === 0
     activeConversationId = conversationId
     isStreaming = true
@@ -29,6 +29,7 @@ export const createChatStore = () => {
       conversationId,
       role: 'user',
       content,
+      images: images?.length ? images : undefined,
       createdAt: new Date(),
     })
 
@@ -40,6 +41,7 @@ export const createChatStore = () => {
           conversationId,
           model: selectedModel,
           message: content,
+          images: images?.length ? images : undefined,
           systemPrompt,
           thinkingEffort,
         }),

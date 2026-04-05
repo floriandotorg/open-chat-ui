@@ -4,10 +4,24 @@ import { decrypt } from '$lib/server/crypto'
 import { db } from '$lib/server/db'
 import { apiKeys, conversations, messages, userSettings } from '$lib/server/db/schema'
 import { getProviderFactory } from '$lib/server/providers'
-import type { ChatMessage } from '$lib/server/providers/types'
+import type { ChatMessage, ChatMessageImage } from '$lib/server/providers/types'
+import { getUploadPath } from '$lib/server/uploads'
+import type { ImageAttachment } from '$lib/types'
 import type { RequestHandler } from './$types'
 import { error } from '@sveltejs/kit'
+import { readFileSync } from 'node:fs'
 import { and, asc, eq } from 'drizzle-orm'
+
+const loadImageData = (attachment: ImageAttachment): ChatMessageImage => {
+  const filePath = getUploadPath(attachment.id)
+  const buffer = readFileSync(filePath)
+  return { data: buffer.toString('base64'), mimeType: attachment.mimeType }
+}
+
+const parseImages = (raw: string | null): ImageAttachment[] => {
+  if (!raw) return []
+  return JSON.parse(raw) as ImageAttachment[]
+}
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   const userId = requireUser(locals.user).id
@@ -16,12 +30,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     conversationId,
     model: modelRef,
     message,
+    images: imageIds,
     systemPrompt,
     thinkingEffort,
   } = body as {
     conversationId: string
     model: string
     message: string
+    images?: ImageAttachment[]
     systemPrompt?: string
     thinkingEffort?: 'none' | 'low' | 'medium' | 'high' | 'max'
   }
@@ -41,6 +57,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     conversationId,
     role: 'user',
     content: message,
+    images: imageIds?.length ? JSON.stringify(imageIds) : null,
   })
 
   const [keyRow] = await db
@@ -60,10 +77,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const resolvedSystemPrompt = systemPrompt ?? conversation.systemPrompt ?? settings?.defaultSystemPrompt ?? undefined
 
-  const chatMessages: ChatMessage[] = history.map(m => ({
-    role: m.role as ChatMessage['role'],
-    content: m.content,
-  }))
+  const chatMessages: ChatMessage[] = history.map(m => {
+    const imgs = parseImages(m.images)
+    return {
+      role: m.role as ChatMessage['role'],
+      content: m.content,
+      ...(imgs.length ? { images: imgs.map(loadImageData) } : {}),
+    }
+  })
 
   const llm = getProviderFactory(provider)(decryptedKey)
 

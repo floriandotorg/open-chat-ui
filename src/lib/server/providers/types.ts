@@ -10,9 +10,15 @@ export interface ModelInfo {
   outputPricePerMToken?: number
 }
 
+export interface ChatMessageImage {
+  data: string
+  mimeType: string
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
+  images?: ChatMessageImage[]
 }
 
 export interface ChatRequest {
