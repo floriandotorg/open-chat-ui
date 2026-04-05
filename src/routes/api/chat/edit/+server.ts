@@ -22,7 +22,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     throw error(404, 'Conversation not found')
   }
 
-  const [targetMsg] = await db.select().from(messages).where(eq(messages.id, messageId))
+  const [targetMsg] = await db
+    .select()
+    .from(messages)
+    .where(and(eq(messages.id, messageId), eq(messages.conversationId, conversationId)))
   if (!targetMsg || targetMsg.role !== 'user') {
     throw error(400, 'Can only edit user messages')
   }
