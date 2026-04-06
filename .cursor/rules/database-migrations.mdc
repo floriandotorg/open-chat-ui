@@ -1,0 +1,27 @@
+---
+description: Database migration safety rules for Drizzle ORM + SQLite
+globs: src/lib/server/db/schema.ts, drizzle.config.ts, drizzle/**
+alwaysApply: false
+---
+
+# Database Migrations
+
+## Never Destructive
+
+Migrations must NEVER delete, truncate, or drop tables/columns. SQLite cannot `ALTER COLUMN`, so Drizzle may silently recreate tables (deleting all rows) when schema changes are non-trivial.
+
+## Safe Schema Changes
+
+- New columns MUST use `.default(value)` without `.notNull()` — SQLite `ALTER TABLE ADD COLUMN` with `NOT NULL` triggers a table recreation that deletes all rows.
+- Never rename or remove columns in-place. Add the new column, migrate data, then deprecate the old one in a later release.
+
+## Running Migrations
+
+- Use `drizzle-kit generate` then `drizzle-kit migrate` (applies SQL files).
+- **Never** run `drizzle-kit push --force` — it auto-accepts destructive statements without confirmation.
+- If `drizzle-kit push` is needed for local dev, always run it **without** `--force` and review every statement before confirming.
+
+## Checklist Before Applying
+
+1. Read the generated `.sql` file — reject if it contains `DELETE`, `DROP TABLE`, or table recreation.
+2. Back up the database before running migrations in production.

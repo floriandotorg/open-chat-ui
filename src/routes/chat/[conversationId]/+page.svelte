@@ -11,7 +11,7 @@ import { getContext, onMount, tick, untrack } from 'svelte'
 
 let { data }: { data: PageData } = $props()
 
-const ctx: { selectedModel: string; thinkingEffort: ThinkingEffort } = getContext('chat-provider')
+const ctx: { selectedModel: string; thinkingEffort: ThinkingEffort; generatingConversationId: string | null } = getContext('chat-provider')
 const chat = createChatStore()
 
 let messageContainer: HTMLDivElement | undefined = $state()
@@ -90,6 +90,13 @@ $effect(() => {
 
 $effect(() => {
   chat.thinkingEffort = ctx.thinkingEffort
+})
+
+$effect(() => {
+  ctx.generatingConversationId = chat.isStreaming ? data.conversation.id : null
+  if (!chat.isStreaming) {
+    invalidateAll()
+  }
 })
 
 $effect(() => {

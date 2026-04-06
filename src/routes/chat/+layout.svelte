@@ -99,6 +99,8 @@ afterNavigate(() => {
   if (isMobile) sidebarOpen = false
 })
 
+let generatingConversationId = $state<string | null>(null)
+
 setContext('chat-provider', {
   get selectedModel() {
     return selectedModel
@@ -111,6 +113,12 @@ setContext('chat-provider', {
   },
   set thinkingEffort(v: ThinkingEffort) {
     thinkingEffort = v
+  },
+  get generatingConversationId() {
+    return generatingConversationId
+  },
+  set generatingConversationId(v: string | null) {
+    generatingConversationId = v
   },
 })
 
@@ -163,7 +171,7 @@ const userInitial = $derived(userName[0]?.toUpperCase() ?? 'U')
         </div>
       </div>
 
-      <ConversationList conversations={data.conversations} currentId={currentConversationId} />
+      <ConversationList conversations={data.conversations} currentId={currentConversationId} {generatingConversationId} />
 
       <div class="border-t border-gray-200 p-2.5 dark:border-neutral-700/50" style="padding-bottom: max(0.625rem, env(safe-area-inset-bottom))">
         <div class="flex items-center justify-between rounded-xl px-2 py-1.5">

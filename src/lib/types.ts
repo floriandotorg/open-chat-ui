@@ -63,6 +63,7 @@ export interface Conversation {
   systemPrompt?: string | null
   systemPromptId?: string | null
   defaultModel?: string | null
+  generating?: boolean | null
   createdAt: Date
   updatedAt: Date
 }

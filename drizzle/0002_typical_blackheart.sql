@@ -1,0 +1,1 @@
+ALTER TABLE `conversations` ADD `generating` integer DEFAULT false;

@@ -41,6 +41,7 @@ export const conversations = sqliteTable(
     defaultModel: text('default_model'),
     container: text('container'),
     activeBranches: text('active_branches'),
+    generating: integer('generating', { mode: 'boolean' }).default(false),
     createdAt: integer('created_at', { mode: 'timestamp' })
       .notNull()
       .$defaultFn(() => new Date()),

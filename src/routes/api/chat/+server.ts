@@ -197,6 +197,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     getApiKey: (p: string) => getDecryptedKey(userId, p),
   }
 
+  await db.update(conversations).set({ generating: true }).where(eq(conversations.id, conversationId))
+
   let fullText = ''
   const totalUsage = { inputTokens: 0, outputTokens: 0 }
   const allToolCalls: (PersistedToolCall | PersistedCodeExecution)[] = []
@@ -366,6 +368,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
             defaultModel: modelRef,
             updatedAt: new Date(),
             activeBranches: JSON.stringify(existingBranches),
+            generating: false,
             ...(container ? { container } : {}),
           })
           .where(eq(conversations.id, conversationId))
@@ -373,6 +376,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         if (conversation.title === 'New Chat') {
           generateConversationTitle(userId, conversationId).catch(() => {})
         }
+      } else {
+        await db.update(conversations).set({ generating: false }).where(eq(conversations.id, conversationId))
       }
 
       if (clientConnected) {

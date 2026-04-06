@@ -4,7 +4,7 @@ import { goto, invalidateAll } from '$app/navigation'
 import { resolve } from '$app/paths'
 import ConfirmDialog from './ConfirmDialog.svelte'
 
-let { conversations, currentId }: { conversations: Conversation[]; currentId?: string } = $props()
+let { conversations, currentId, generatingConversationId }: { conversations: Conversation[]; currentId?: string; generatingConversationId?: string | null } = $props()
 
 let searchQuery = $state('')
 let showDeleteDialog = $state(false)
@@ -81,15 +81,22 @@ const confirmDelete = async () => {
             : 'hover:bg-gray-100 dark:hover:bg-neutral-800'}"
         >
           <span class="truncate">{conv.title}</span>
-          <button
-            onclick={(e) => promptDelete(e, conv)}
-            aria-label="Delete conversation"
-            class="shrink-0 rounded-lg p-1 opacity-0 transition hover:bg-gray-300 dark:hover:bg-neutral-600 {conv.id === currentId ? 'group-hover:opacity-100' : 'group-hover:opacity-100'}"
-          >
-            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          {#if conv.generating || conv.id === generatingConversationId}
+            <svg class="h-3.5 w-3.5 shrink-0 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
             </svg>
-          </button>
+          {:else}
+            <button
+              onclick={(e) => promptDelete(e, conv)}
+              aria-label="Delete conversation"
+              class="shrink-0 rounded-lg p-1 opacity-0 transition hover:bg-gray-300 dark:hover:bg-neutral-600 group-hover:opacity-100"
+            >
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          {/if}
         </a>
       {/each}
     </div>
