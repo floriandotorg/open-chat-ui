@@ -17,6 +17,7 @@ COPY --from=builder /app/scripts ./scripts
 COPY entrypoint.sh ./
 RUN chmod +x entrypoint.sh
 ENV NODE_ENV=production
+ENV BODY_SIZE_LIMIT=10M
 EXPOSE 3000
 VOLUME ["/data"]
 ENTRYPOINT ["./entrypoint.sh"]
