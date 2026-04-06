@@ -1,5 +1,6 @@
 <script lang="ts">
 import './layout.css'
+import { invalidateAll } from '$app/navigation'
 import { onMount } from 'svelte'
 
 let { children } = $props()
@@ -10,6 +11,19 @@ onMount(() => {
       location.reload()
     }
   })
+
+  let lastRefresh = Date.now()
+  const MIN_INTERVAL = 3000
+
+  const onVisibilityChange = () => {
+    if (document.visibilityState === 'visible' && Date.now() - lastRefresh > MIN_INTERVAL) {
+      lastRefresh = Date.now()
+      invalidateAll()
+    }
+  }
+
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  return () => document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 </script>
 
