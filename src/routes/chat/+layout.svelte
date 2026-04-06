@@ -128,7 +128,7 @@ const userName = $derived(data.user?.name ?? data.user?.email ?? 'User')
 const userInitial = $derived(userName[0]?.toUpperCase() ?? 'U')
 </script>
 
-<div class="flex h-screen bg-white text-gray-900 dark:bg-neutral-800 dark:text-gray-100" class:select-none={isResizing}>
+<div class="flex h-dvh bg-white text-gray-900 dark:bg-neutral-800 dark:text-gray-100" class:select-none={isResizing}>
   {#if isMobile && sidebarOpen}
     <button class="fixed inset-0 z-40 bg-black/50" onclick={() => sidebarOpen = false} aria-label="Close sidebar" tabindex="-1" transition:fade={{ duration: 200 }}></button>
   {/if}
@@ -165,7 +165,7 @@ const userInitial = $derived(userName[0]?.toUpperCase() ?? 'U')
 
       <ConversationList conversations={data.conversations} currentId={currentConversationId} />
 
-      <div class="border-t border-gray-200 p-2.5 dark:border-neutral-700/50">
+      <div class="border-t border-gray-200 p-2.5 dark:border-neutral-700/50" style="padding-bottom: max(0.625rem, env(safe-area-inset-bottom))">
         <div class="flex items-center justify-between rounded-xl px-2 py-1.5">
           <div class="flex items-center gap-2.5">
             <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-sm font-medium text-white">
