@@ -35,7 +35,7 @@ $effect(() => {
   <div class="mb-8 text-center">
     <h2 class="text-xl font-semibold text-gray-900 dark:text-white">What can I help you with?</h2>
   </div>
-  <div class="w-full max-w-3xl">
+  <div class="w-full max-w-7xl">
     <ChatInput onsubmit={handleSubmit} disabled={!ctx.selectedModel} />
   </div>
 </div>

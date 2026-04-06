@@ -178,7 +178,7 @@ const autoResizeEdit = () => {
       </div>
     </div>
   {:else}
-    <div class="flex max-w-[80%] gap-3 min-w-0">
+    <div class="flex max-w-[90%] gap-3 min-w-0">
       <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-purple-600 text-xs font-bold text-white">
         AI
       </div>
