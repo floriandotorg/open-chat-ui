@@ -236,6 +236,11 @@ const autoResize = () => {
   textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`
 }
 
+$effect(() => {
+  content
+  tick().then(autoResize)
+})
+
 const encodeWav = (samples: Float32Array, sampleRate: number): ArrayBuffer => {
   const numChannels = 1
   const bitsPerSample = 16
@@ -341,7 +346,6 @@ const transcribeAudio = async () => {
       const { text } = await res.json()
       if (text) {
         content += (content && !content.endsWith(' ') ? ' ' : '') + text
-        autoResize()
       }
     }
   } catch (err) {
