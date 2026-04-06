@@ -1,7 +1,7 @@
 <script lang="ts">
 import type { FileAttachment, ImageAttachment } from '$lib/types'
 import { page } from '$app/state'
-import { onMount, tick } from 'svelte'
+import { tick } from 'svelte'
 
 let {
   onsubmit,
@@ -18,11 +18,6 @@ let {
 let content = $state('')
 let textarea: HTMLTextAreaElement | undefined = $state()
 let fileInput: HTMLInputElement | undefined = $state()
-let cameraInput: HTMLInputElement | undefined = $state()
-let photoInput: HTMLInputElement | undefined = $state()
-let showAttachMenu = $state(false)
-let attachMenuRef: HTMLDivElement | undefined = $state()
-let isMobile = $state(false)
 let dictationState = $state<'idle' | 'recording' | 'transcribing'>('idle')
 let recordingSeconds = $state(0)
 let waveformBars = $state<number[]>([])
@@ -150,52 +145,9 @@ const handleFileSelect = () => {
   if (fileInput) fileInput.value = ''
 }
 
-const handleCameraCapture = () => {
-  const files = cameraInput?.files
-  if (!files) return
-  for (let n = 0; n < files.length; ++n) {
-    uploadFile(files[n])
-  }
-  if (cameraInput) cameraInput.value = ''
-}
-
-const handlePhotoSelect = () => {
-  const files = photoInput?.files
-  if (!files) return
-  for (let n = 0; n < files.length; ++n) {
-    uploadFile(files[n])
-  }
-  if (photoInput) photoInput.value = ''
-}
-
 const handleAttachClick = () => {
-  if (isMobile) {
-    showAttachMenu = !showAttachMenu
-  } else {
-    fileInput?.click()
-  }
+  fileInput?.click()
 }
-
-onMount(() => {
-  const mql = window.matchMedia('(max-width: 767px)')
-  isMobile = mql.matches
-  const onChange = (e: MediaQueryListEvent) => {
-    isMobile = e.matches
-  }
-  mql.addEventListener('change', onChange)
-  return () => mql.removeEventListener('change', onChange)
-})
-
-$effect(() => {
-  if (!showAttachMenu) return
-  const onClickOutside = (e: MouseEvent) => {
-    if (attachMenuRef && !attachMenuRef.contains(e.target as Node)) {
-      showAttachMenu = false
-    }
-  }
-  document.addEventListener('click', onClickOutside, true)
-  return () => document.removeEventListener('click', onClickOutside, true)
-})
 
 const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -522,22 +474,6 @@ const cancelRecording = () => {
           onchange={handleFileSelect}
           class="hidden"
         />
-        <input
-          bind:this={cameraInput}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          onchange={handleCameraCapture}
-          class="hidden"
-        />
-        <input
-          bind:this={photoInput}
-          type="file"
-          accept="image/*"
-          multiple
-          onchange={handlePhotoSelect}
-          class="hidden"
-        />
         <textarea
           bind:this={textarea}
           bind:value={content}
@@ -551,50 +487,16 @@ const cancelRecording = () => {
         ></textarea>
 
         <div class="flex shrink-0 items-center gap-1">
-          <div class="relative" bind:this={attachMenuRef}>
-            <button
-              onclick={handleAttachClick}
-              aria-label="Attach file"
-              disabled={disabled}
-              class="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-neutral-600 dark:hover:text-white"
-            >
-              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-              </svg>
-            </button>
-            {#if showAttachMenu}
-              <div class="absolute bottom-full left-0 mb-2 w-48 rounded-xl border border-gray-200 bg-white py-1 shadow-lg dark:border-neutral-600 dark:bg-neutral-800">
-                <button
-                  onclick={() => { showAttachMenu = false; cameraInput?.click() }}
-                  class="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-neutral-200 dark:hover:bg-neutral-700"
-                >
-                  <svg class="h-4 w-4 text-gray-400 dark:text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  Take Photo
-                </button>
-                <button
-                  onclick={() => { showAttachMenu = false; photoInput?.click() }}
-                  class="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-neutral-200 dark:hover:bg-neutral-700"
-                >
-                  <svg class="h-4 w-4 text-gray-400 dark:text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  Photo Library
-                </button>
-                <button
-                  onclick={() => { showAttachMenu = false; fileInput?.click() }}
-                  class="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-neutral-200 dark:hover:bg-neutral-700"
-                >
-                  <svg class="h-4 w-4 text-gray-400 dark:text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  Browse Files
-                </button>
-              </div>
-            {/if}
-          </div>
+          <button
+            onclick={handleAttachClick}
+            aria-label="Attach file"
+            disabled={disabled}
+            class="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-neutral-600 dark:hover:text-white"
+          >
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+          </button>
 
           <button
             onclick={startRecording}
