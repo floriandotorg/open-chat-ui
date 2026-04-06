@@ -2,10 +2,13 @@
 import type { Conversation } from '$lib/types'
 import { goto, invalidateAll } from '$app/navigation'
 import { resolve } from '$app/paths'
+import ConfirmDialog from './ConfirmDialog.svelte'
 
 let { conversations, currentId }: { conversations: Conversation[]; currentId?: string } = $props()
 
 let searchQuery = $state('')
+let showDeleteDialog = $state(false)
+let deleteTarget = $state<{ id: string; title: string } | null>(null)
 
 const filteredConversations = $derived(searchQuery.trim() ? conversations.filter(c => c.title.toLowerCase().includes(searchQuery.toLowerCase())) : conversations)
 
@@ -33,9 +36,17 @@ const groupedConversations = $derived.by(() => {
   return buckets.filter(([, items]) => items.length > 0)
 })
 
-const deleteConversation = async (e: Event, id: string) => {
+const promptDelete = (e: Event, conv: Conversation) => {
   e.stopPropagation()
   e.preventDefault()
+  deleteTarget = { id: conv.id, title: conv.title }
+  showDeleteDialog = true
+}
+
+const confirmDelete = async () => {
+  if (!deleteTarget) return
+  const id = deleteTarget.id
+  deleteTarget = null
   await fetch(`/api/conversations/${id}`, { method: 'DELETE' })
   if (currentId === id) {
     await goto(resolve('/chat'))
@@ -71,7 +82,7 @@ const deleteConversation = async (e: Event, id: string) => {
         >
           <span class="truncate">{conv.title}</span>
           <button
-            onclick={(e) => deleteConversation(e, conv.id)}
+            onclick={(e) => promptDelete(e, conv)}
             aria-label="Delete conversation"
             class="shrink-0 rounded-lg p-1 opacity-0 transition hover:bg-gray-300 dark:hover:bg-neutral-600 {conv.id === currentId ? 'group-hover:opacity-100' : 'group-hover:opacity-100'}"
           >
@@ -89,3 +100,12 @@ const deleteConversation = async (e: Event, id: string) => {
     </div>
   {/if}
 </nav>
+
+<ConfirmDialog
+  bind:open={showDeleteDialog}
+  title="Delete chat"
+  description="Are you sure you want to delete &quot;{deleteTarget?.title}&quot;? This cannot be undone."
+  confirmLabel="Delete"
+  destructive
+  onconfirm={confirmDelete}
+/>
