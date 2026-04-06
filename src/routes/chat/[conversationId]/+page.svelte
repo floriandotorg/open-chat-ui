@@ -214,8 +214,8 @@ const autoResizeEdit = () => {
 </script>
 
 <div class="flex h-full flex-col">
-  <div bind:this={messageContainer} onscroll={onScroll} class="flex flex-1 flex-col-reverse overflow-y-auto px-4 py-6">
-    <div class="mx-auto max-w-7xl space-y-6">
+  <div bind:this={messageContainer} onscroll={onScroll} class="flex flex-1 flex-col-reverse overflow-y-auto px-4 py-6 lg:px-8">
+    <div class="w-full space-y-6">
       {#each chat.messages as message (message.id)}
         <ChatMessage
           {message}

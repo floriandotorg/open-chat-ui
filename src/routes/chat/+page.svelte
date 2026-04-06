@@ -31,11 +31,11 @@ $effect(() => {
 })
 </script>
 
-<div class="flex h-full flex-col items-center justify-center px-4">
+<div class="flex h-full flex-col items-center justify-center px-4 lg:px-8">
   <div class="mb-8 text-center">
     <h2 class="text-xl font-semibold text-gray-900 dark:text-white">What can I help you with?</h2>
   </div>
-  <div class="w-full max-w-7xl">
+  <div class="w-full">
     <ChatInput onsubmit={handleSubmit} disabled={!ctx.selectedModel} />
   </div>
 </div>

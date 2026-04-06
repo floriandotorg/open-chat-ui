@@ -420,9 +420,9 @@ const cancelRecording = () => {
 }
 </script>
 
-<div class="px-4 pt-2" style="padding-bottom: max(1rem, env(safe-area-inset-bottom))">
+<div class="px-4 pt-2 lg:px-8" style="padding-bottom: max(1rem, env(safe-area-inset-bottom))">
   {#if dictationState === 'recording'}
-    <div class="mx-auto flex max-w-7xl items-center gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-800 dark:bg-blue-950/40">
+    <div class="mx-auto flex max-w-3xl items-center gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-800 dark:bg-blue-950/40">
       <button
         onclick={cancelRecording}
         aria-label="Cancel recording"
@@ -458,7 +458,7 @@ const cancelRecording = () => {
       </button>
     </div>
   {:else if dictationState === 'transcribing'}
-    <div class="mx-auto flex max-w-7xl items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3.5 dark:border-neutral-600 dark:bg-neutral-700">
+    <div class="mx-auto flex max-w-3xl items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3.5 dark:border-neutral-600 dark:bg-neutral-700">
       <svg class="h-4 w-4 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -467,7 +467,7 @@ const cancelRecording = () => {
     </div>
   {:else}
     <div
-      class="mx-auto max-w-7xl rounded-2xl border bg-gray-50 transition-colors dark:bg-neutral-700 {isDragging ? 'border-blue-400 bg-blue-50 dark:border-blue-500 dark:bg-blue-950/30' : 'border-gray-200 dark:border-neutral-600'}"
+      class="rounded-2xl border bg-gray-50 transition-colors dark:bg-neutral-700 {isDragging ? 'border-blue-400 bg-blue-50 dark:border-blue-500 dark:bg-blue-950/30' : 'border-gray-200 dark:border-neutral-600'}"
     >
       {#if pendingImages.length > 0 || pendingFiles.length > 0 || uploadingCount > 0}
         <div class="flex flex-wrap gap-2 px-4 pt-3">
