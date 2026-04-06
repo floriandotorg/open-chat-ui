@@ -16,6 +16,7 @@
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
+		<script>window.addEventListener('vite:preloadError',(e)=> {e.preventDefault();window.location.reload()})</script>
 		<div style="display: contents">%sveltekit.body%</div>
 	</body>
 </html>

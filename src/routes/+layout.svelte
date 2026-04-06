@@ -1,6 +1,16 @@
 <script lang="ts">
 import './layout.css'
+import { onMount } from 'svelte'
+
 let { children } = $props()
+
+onMount(() => {
+  navigator.serviceWorker?.addEventListener('message', event => {
+    if (event.data?.type === 'RELOAD') {
+      location.reload()
+    }
+  })
+})
 </script>
 
 

@@ -3,18 +3,18 @@
 /// <reference lib="esnext" />
 /// <reference lib="webworker" />
 
-import { build, files, version } from '$service-worker'
+import { build, version } from '$service-worker'
 
 const sw = self as unknown as ServiceWorkerGlobalScope
 
 const CACHE = `cache-${version}`
-const ASSETS = [...build, ...files]
+const IMMUTABLE = new Set(build)
 
 sw.addEventListener('install', event => {
   event.waitUntil(
     caches
       .open(CACHE)
-      .then(cache => cache.addAll(ASSETS))
+      .then(cache => cache.addAll(build))
       .then(() => sw.skipWaiting()),
   )
 })
@@ -40,21 +40,21 @@ sw.addEventListener('fetch', event => {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return
   if (url.pathname.startsWith('/api/')) return
 
-  const isAsset = ASSETS.includes(url.pathname)
+  if (event.request.mode === 'navigate') return
 
-  if (isAsset) {
-    event.respondWith(caches.match(event.request).then(cached => cached ?? fetch(event.request)))
-  } else {
+  if (IMMUTABLE.has(url.pathname)) {
     event.respondWith(
-      fetch(event.request)
-        .then(response => {
-          if (response.status === 200) {
-            const clone = response.clone()
-            caches.open(CACHE).then(cache => cache.put(event.request, clone))
-          }
-          return response
+      caches.match(event.request).then(cached => {
+        if (cached) return cached
+        return fetch(event.request).catch(() => {
+          sw.clients.matchAll().then(clients => {
+            for (const client of clients) {
+              client.postMessage({ type: 'RELOAD' })
+            }
+          })
+          return new Response('Asset not found', { status: 404 })
         })
-        .catch(() => caches.match(event.request).then(cached => cached ?? new Response('Offline', { status: 503 }))),
+      }),
     )
   }
 })

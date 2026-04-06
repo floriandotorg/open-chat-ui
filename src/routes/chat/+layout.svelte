@@ -138,7 +138,7 @@ const userInitial = $derived(userName[0]?.toUpperCase() ?? 'U')
       class="{isMobile ? `fixed inset-y-0 left-0 z-50 w-[280px] shadow-xl transition-transform duration-200 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}` : 'relative shrink-0'} flex flex-col bg-gray-50 dark:bg-neutral-900"
       style={isMobile ? undefined : `width: ${sidebarWidth}px`}
     >
-      <div class="flex items-center justify-between px-4 py-3">
+      <div class="flex items-center justify-between px-4 py-3" style="padding-top: max(0.75rem, env(safe-area-inset-top))">
         <div class="flex items-center gap-2">
           <svg class="h-6 w-6 text-blue-500" viewBox="0 0 192 192" fill="none">
             <rect width="192" height="192" rx="32" fill="currentColor"/>
@@ -196,7 +196,7 @@ const userInitial = $derived(userName[0]?.toUpperCase() ?? 'U')
   {/if}
 
   <main class="flex flex-1 flex-col overflow-hidden">
-    <header class="flex items-center justify-between gap-3 px-4 py-2.5">
+    <header class="flex items-center justify-between gap-3 px-4 py-2.5" style="padding-top: max(0.625rem, env(safe-area-inset-top))">
       <div class="flex items-center gap-3">
         {#if !sidebarOpen || isMobile}
           <button onclick={() => sidebarOpen = !sidebarOpen} aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'} class="rounded-lg p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700">

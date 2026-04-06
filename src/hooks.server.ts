@@ -23,7 +23,13 @@ const handleBetterAuth: Handle = async ({ event, resolve }) => {
     throw redirect(303, '/login')
   }
 
-  return svelteKitHandler({ event, resolve, auth, building })
+  const response = await svelteKitHandler({ event, resolve, auth, building })
+
+  if (response.headers.get('content-type')?.includes('text/html')) {
+    response.headers.set('cache-control', 'no-cache, no-store, must-revalidate')
+  }
+
+  return response
 }
 
 export const handle: Handle = handleBetterAuth
