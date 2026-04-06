@@ -2,9 +2,9 @@ import type { BranchMap } from '$lib/message-tree'
 import { resolveAndAnnotate } from '$lib/message-tree'
 import type { ChatStreamEvent, CodeExecutionBlock, FileAttachment, ImageAttachment, Message, ThinkingEffort, ToolCallInfo } from '$lib/types'
 
-export const createChatStore = () => {
-  let allMessages = $state<Message[]>([])
-  let activeBranches = $state<BranchMap>({})
+export const createChatStore = (initialData?: { allMessages: Message[]; activeBranches: BranchMap }) => {
+  let allMessages = $state<Message[]>(initialData?.allMessages ?? [])
+  let activeBranches = $state<BranchMap>(initialData?.activeBranches ?? {})
   const messages = $derived<(Message & { siblingIndex: number; siblingCount: number })[]>(resolveAndAnnotate(allMessages, activeBranches))
   let streamingText = $state('')
   let streamingThinking = $state('')

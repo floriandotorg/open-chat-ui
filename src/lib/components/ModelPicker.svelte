@@ -4,9 +4,13 @@ import type { ModelInfo, ProviderInfo } from '$lib/types'
 let {
   providers,
   selectedModel = $bindable(''),
+  modelNameHint = '',
+  onmodelchange,
 }: {
   providers: ProviderInfo[]
   selectedModel: string
+  modelNameHint?: string
+  onmodelchange?: (id: string, name: string) => void
 } = $props()
 
 let models = $state<ModelInfo[]>([])
@@ -33,7 +37,13 @@ $effect(() => {
 })
 
 const selected = $derived(models.find(m => m.id === selectedModel))
-const label = $derived(selected?.name ?? 'Select model')
+const label = $derived(selected?.name ?? (modelNameHint || 'Select model'))
+
+$effect(() => {
+  if (selected && onmodelchange) {
+    onmodelchange(selected.id, selected.name)
+  }
+})
 
 const select = (id: string) => {
   selectedModel = id

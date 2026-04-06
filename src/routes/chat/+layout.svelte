@@ -17,27 +17,22 @@ let { data, children }: { data: LayoutData; children: Snippet } = $props()
 const SIDEBAR_MIN = 200
 const SIDEBAR_MAX = 500
 const SIDEBAR_DEFAULT = 260
-const STORAGE_KEY = 'sidebar-width'
-const THINKING_EFFORT_KEY = 'thinking-effort'
-const VALID_EFFORTS = new Set(['none', 'low', 'medium', 'high', 'max'])
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 365
+
+const setCookie = (name: string, value: string) => {
+  document.cookie = `${name}=${value}; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=Lax`
+}
 
 let sidebarOpen = $state(true)
-let selectedModel = $state('')
-let thinkingEffort = $state<ThinkingEffort>('none')
-let sidebarWidth = $state(SIDEBAR_DEFAULT)
+let selectedModel = $state(data.selectedModel ?? '')
+let selectedModelName = $state(data.selectedModelName ?? '')
+let thinkingEffort = $state<ThinkingEffort>((data.thinkingEffort as ThinkingEffort) ?? 'none')
+let sidebarWidth = $state(data.sidebarWidth ?? SIDEBAR_DEFAULT)
 let isResizing = $state(false)
 let isMobile = $state(false)
 let currentSystemPromptId = $state<string | null>(null)
 
 onMount(() => {
-  const stored = localStorage.getItem(STORAGE_KEY)
-  if (stored) sidebarWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Number(stored)))
-
-  const storedEffort = localStorage.getItem(THINKING_EFFORT_KEY)
-  if (storedEffort && VALID_EFFORTS.has(storedEffort)) {
-    thinkingEffort = storedEffort as ThinkingEffort
-  }
-
   const mql = window.matchMedia('(max-width: 767px)')
   isMobile = mql.matches
   if (isMobile) sidebarOpen = false
@@ -51,7 +46,7 @@ onMount(() => {
 })
 
 $effect(() => {
-  localStorage.setItem(THINKING_EFFORT_KEY, thinkingEffort)
+  setCookie('thinking-effort', thinkingEffort)
 })
 
 const startResize = (e: MouseEvent) => {
@@ -62,7 +57,7 @@ const startResize = (e: MouseEvent) => {
   }
   const onMouseUp = () => {
     isResizing = false
-    localStorage.setItem(STORAGE_KEY, String(sidebarWidth))
+    setCookie('sidebar-width', String(sidebarWidth))
     window.removeEventListener('mousemove', onMouseMove)
     window.removeEventListener('mouseup', onMouseUp)
   }
@@ -130,6 +125,12 @@ const newChat = async () => {
   })
   const conv: Conversation = await res.json()
   await goto(resolve(`/chat/${conv.id}`))
+}
+
+const handleModelChange = (id: string, name: string) => {
+  setCookie('selected-model', id)
+  setCookie('selected-model-name', name)
+  selectedModelName = name
 }
 
 const userName = $derived(data.user?.name ?? data.user?.email ?? 'User')
@@ -220,7 +221,7 @@ const userInitial = $derived(userName[0]?.toUpperCase() ?? 'U')
             </svg>
           </button>
         {/if}
-        <ModelPicker providers={data.providers} bind:selectedModel />
+        <ModelPicker providers={data.providers} bind:selectedModel modelNameHint={selectedModelName} onmodelchange={handleModelChange} />
       </div>
       <div class="flex items-center gap-1">
         {#if currentConversationId}

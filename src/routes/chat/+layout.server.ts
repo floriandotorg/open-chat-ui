@@ -6,8 +6,17 @@ import { listProviders } from '$lib/server/providers'
 import type { LayoutServerLoad } from './$types'
 import { asc, desc, eq } from 'drizzle-orm'
 
-export const load: LayoutServerLoad = async ({ locals }) => {
+const VALID_EFFORTS = new Set(['none', 'low', 'medium', 'high', 'max'])
+
+export const load: LayoutServerLoad = async ({ locals, cookies }) => {
   const userId = requireUser(locals.user).id
+
+  const rawWidth = Number(cookies.get('sidebar-width'))
+  const sidebarWidth = rawWidth >= 200 && rawWidth <= 500 ? rawWidth : undefined
+  const rawEffort = cookies.get('thinking-effort')
+  const thinkingEffort = rawEffort && VALID_EFFORTS.has(rawEffort) ? rawEffort : undefined
+  const selectedModel = cookies.get('selected-model') ?? undefined
+  const selectedModelName = cookies.get('selected-model-name') ?? undefined
 
   const [convos, userKeys, prompts] = await Promise.all([
     db.select().from(conversations).where(eq(conversations.userId, userId)).orderBy(desc(conversations.updatedAt)),
@@ -28,5 +37,9 @@ export const load: LayoutServerLoad = async ({ locals }) => {
     })),
     providers,
     systemPrompts: prompts,
+    sidebarWidth,
+    thinkingEffort,
+    selectedModel,
+    selectedModelName,
   }
 }

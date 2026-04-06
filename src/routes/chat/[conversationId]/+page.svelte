@@ -12,7 +12,30 @@ import { getContext, onMount, tick, untrack } from 'svelte'
 let { data }: { data: PageData } = $props()
 
 const ctx: { selectedModel: string; thinkingEffort: ThinkingEffort; generatingConversationId: string | null } = getContext('chat-provider')
-const chat = createChatStore()
+
+const mapServerMessages = (serverMsgs: typeof data.allMessages, existing: Message[] = []): Message[] => {
+  const thinkingByContent = new Map<string, { thinking?: string; thinkingDuration?: number }>()
+  for (const m of existing) {
+    if (m.thinking) {
+      thinkingByContent.set(`${m.role}:${m.content}`, { thinking: m.thinking, thinkingDuration: m.thinkingDuration })
+    }
+  }
+  return serverMsgs.map(m => {
+    const cached = thinkingByContent.get(`${m.role}:${m.content}`)
+    return {
+      ...m,
+      role: m.role as Message['role'],
+      createdAt: new Date(m.createdAt),
+      thinking: cached?.thinking,
+      thinkingDuration: cached?.thinkingDuration,
+    } as Message
+  })
+}
+
+const chat = createChatStore({
+  allMessages: mapServerMessages(data.allMessages),
+  activeBranches: data.activeBranches,
+})
 
 let messageContainer: HTMLDivElement | undefined = $state()
 let stickToBottom = $state(true)
@@ -25,13 +48,12 @@ const SCROLL_THRESHOLD = 40
 
 const onScroll = () => {
   if (!messageContainer) return
-  const { scrollTop, scrollHeight, clientHeight } = messageContainer
-  stickToBottom = scrollHeight - scrollTop - clientHeight < SCROLL_THRESHOLD
+  stickToBottom = messageContainer.scrollTop >= -SCROLL_THRESHOLD
 }
 
 const scrollToBottom = () => {
   if (messageContainer) {
-    messageContainer.scrollTop = messageContainer.scrollHeight
+    messageContainer.scrollTop = 0
   }
 }
 
@@ -61,26 +83,8 @@ $effect(() => {
     untrack(() => chat.stopStreaming())
   }
 
-  const thinkingByContent = new Map<string, { thinking?: string; thinkingDuration?: number }>()
-  for (const m of existing) {
-    if (m.thinking) {
-      thinkingByContent.set(`${m.role}:${m.content}`, { thinking: m.thinking, thinkingDuration: m.thinkingDuration })
-    }
-  }
-
-  const mapped: Message[] = serverAllMessages.map((m: (typeof serverAllMessages)[number]) => {
-    const cached = thinkingByContent.get(`${m.role}:${m.content}`)
-    return {
-      ...m,
-      role: m.role as Message['role'],
-      createdAt: new Date(m.createdAt),
-      thinking: cached?.thinking,
-      thinkingDuration: cached?.thinkingDuration,
-    } as Message
-  })
-
   if (untrack(() => chat.isStreaming)) return
-  chat.allMessages = mapped
+  chat.allMessages = mapServerMessages(serverAllMessages, existing)
   chat.activeBranches = serverBranches
 })
 
@@ -210,7 +214,7 @@ const autoResizeEdit = () => {
 </script>
 
 <div class="flex h-full flex-col">
-  <div bind:this={messageContainer} onscroll={onScroll} class="flex-1 overflow-y-auto px-4 py-6">
+  <div bind:this={messageContainer} onscroll={onScroll} class="flex flex-1 flex-col-reverse overflow-y-auto px-4 py-6">
     <div class="mx-auto max-w-7xl space-y-6">
       {#each chat.messages as message (message.id)}
         <ChatMessage
