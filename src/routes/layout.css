@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+@import "katex/dist/katex.min.css" layer(katex);
 @import "highlight.js/styles/github.css" layer(hljs);
 @import "highlight.js/styles/github-dark.css" layer(hljs) (prefers-color-scheme: dark);
 

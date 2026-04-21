@@ -1,5 +1,7 @@
 export const stripMarkdown = (md: string): string =>
   md
+    .replace(/\$\$([\s\S]+?)\$\$/g, '$1')
+    .replace(/(?<![\\$\w])\$(?!\s)(?!\d)([^\n$]+?)(?<!\s)\$(?!\d)(?![$\w])/g, '$1')
     .replace(/```[\s\S]*?```/g, '')
     .replace(/`([^`]+)`/g, '$1')
     .replace(/!\[.*?\]\(.*?\)/g, '')
@@ -9,8 +11,8 @@ export const stripMarkdown = (md: string): string =>
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/^[>\s]*[-*_]{3,}\s*$/gm, '')
     .replace(/^>\s?/gm, '')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\*\*((?:[^*]|\*(?!\*))*)\*\*/g, '$1')
+    .replace(/__((?:[^_]|_(?!_))*)__/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
     .replace(/_([^_]+)_/g, '$1')
     .replace(/~~([^~]+)~~/g, '$1')

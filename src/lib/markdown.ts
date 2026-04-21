@@ -1,4 +1,5 @@
 import hljs from 'highlight.js'
+import katex from 'katex'
 import { Marked, type Token, type Tokens } from 'marked'
 
 const escapeHtml = (str: string) => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -35,4 +36,41 @@ const sanitizeTokenUrls = (token: Token) => {
 marked.use({ renderer, walkTokens: sanitizeTokenUrls })
 marked.setOptions({ gfm: true, breaks: true })
 
-export const renderMarkdown = (text: string): string => marked.parse(text) as string
+const PH_OPEN = 'KATEX_PH'
+const PH_CLOSE = 'KATEX_END'
+const PH_RE = /KATEX_PH(\d+)KATEX_END/g
+
+const renderKatex = (latex: string, displayMode: boolean): string => {
+  try {
+    return katex.renderToString(latex, { displayMode, throwOnError: false, strict: false })
+  } catch {
+    return escapeHtml(latex)
+  }
+}
+
+const extractMath = (text: string): { text: string; mathBlocks: string[] } => {
+  const mathBlocks: string[] = []
+  let result = text
+
+  result = result.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
+    const index = mathBlocks.length
+    mathBlocks.push(renderKatex(math.trim(), true))
+    return `${PH_OPEN}${index}${PH_CLOSE}`
+  })
+
+  result = result.replace(/(?<![\\$\w])\$(?!\s)(?!\d)([^\n$]+?)(?<!\s)\$(?!\d)(?![$\w])/g, (_, math) => {
+    const index = mathBlocks.length
+    mathBlocks.push(renderKatex(math, false))
+    return `${PH_OPEN}${index}${PH_CLOSE}`
+  })
+
+  return { text: result, mathBlocks }
+}
+
+const restoreMath = (html: string, mathBlocks: string[]): string => html.replace(PH_RE, (_, index) => mathBlocks[Number(index)])
+
+export const renderMarkdown = (text: string): string => {
+  const { text: textWithoutMath, mathBlocks } = extractMath(text)
+  const html = marked.parse(textWithoutMath) as string
+  return restoreMath(html, mathBlocks)
+}
