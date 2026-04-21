@@ -17,6 +17,8 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
   const thinkingEffort = rawEffort && VALID_EFFORTS.has(rawEffort) ? rawEffort : undefined
   const selectedModel = cookies.get('selected-model') ?? undefined
   const selectedModelName = cookies.get('selected-model-name') ?? undefined
+  const rawTtsSpeed = Number(cookies.get('tts-speed'))
+  const ttsSpeed = [1, 1.25, 1.5, 1.75, 2].includes(rawTtsSpeed) ? rawTtsSpeed : undefined
 
   const [convos, userKeys, prompts] = await Promise.all([
     db.select().from(conversations).where(eq(conversations.userId, userId)).orderBy(desc(conversations.updatedAt)),
@@ -41,5 +43,6 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
     thinkingEffort,
     selectedModel,
     selectedModelName,
+    ttsSpeed,
   }
 }

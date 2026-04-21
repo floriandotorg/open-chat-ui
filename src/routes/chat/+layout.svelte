@@ -51,6 +51,10 @@ $effect(() => {
   setCookie('thinking-effort', thinkingEffort)
 })
 
+$effect(() => {
+  setCookie('tts-speed', String(ttsPlayer.speed))
+})
+
 const startResize = (e: MouseEvent) => {
   e.preventDefault()
   isResizing = true
@@ -98,7 +102,7 @@ afterNavigate(() => {
 
 let generatingConversationId = $state<string | null>(null)
 
-const ttsPlayer = createTtsPlayer()
+const ttsPlayer = createTtsPlayer(data.ttsSpeed ?? 1)
 setContext('tts-player', ttsPlayer)
 
 setContext('chat-provider', {

@@ -1,4 +1,4 @@
-export const createTtsPlayer = () => {
+export const createTtsPlayer = (initialSpeed = 1) => {
   let audio: HTMLAudioElement | undefined = $state()
   let objectUrl = $state<string>()
   let visible = $state(false)
@@ -8,7 +8,7 @@ export const createTtsPlayer = () => {
   let duration = $state(0)
   let messagePreview = $state('')
   let errorMessage = $state('')
-  let speed = $state(1)
+  let speed = $state(initialSpeed)
   let abortController: AbortController | undefined
 
   const SPEEDS = [1, 1.25, 1.5, 1.75, 2] as const
