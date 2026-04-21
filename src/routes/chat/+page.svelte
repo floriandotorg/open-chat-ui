@@ -7,7 +7,7 @@ import { resolve } from '$app/paths'
 import { page } from '$app/state'
 import { getContext } from 'svelte'
 
-const ctx: { selectedModel: string } = getContext('chat-provider')
+const ctx: { selectedModel: string; currentSystemPromptId: string | null } = getContext('chat-provider')
 
 let queryHandled = false
 
@@ -16,7 +16,7 @@ const handleSubmit = async (content: string, images?: ImageAttachment[], files?:
   const res = await fetch('/api/conversations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
+    body: JSON.stringify({ systemPromptId: ctx.currentSystemPromptId }),
   })
   const conv: Conversation = await res.json()
   await goto(resolve(`/chat/${conv.id}`))

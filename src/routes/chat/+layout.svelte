@@ -120,6 +120,9 @@ setContext('chat-provider', {
   set generatingConversationId(v: string | null) {
     generatingConversationId = v
   },
+  get currentSystemPromptId() {
+    return currentSystemPromptId
+  },
 })
 
 let newChatError = $state('')
@@ -130,7 +133,7 @@ const newChat = async () => {
     const res = await fetch('/api/conversations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ systemPromptId: currentSystemPromptId }),
     })
     if (!res.ok) {
       newChatError = 'Failed to create conversation'
@@ -249,13 +252,11 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
         <ModelPicker providers={data.providers} bind:selectedModel modelNameHint={selectedModelName} onmodelchange={handleModelChange} />
       </div>
       <div class="flex items-center gap-1">
-        {#if currentConversationId}
-          <SystemPromptPicker
-            prompts={data.systemPrompts}
-            bind:selectedId={currentSystemPromptId}
-            onchange={changeSystemPrompt}
-          />
-        {/if}
+        <SystemPromptPicker
+          prompts={data.systemPrompts}
+          bind:selectedId={currentSystemPromptId}
+          onchange={changeSystemPrompt}
+        />
         <ThinkingEffortPicker bind:thinkingEffort />
       </div>
     </header>
