@@ -122,14 +122,25 @@ setContext('chat-provider', {
   },
 })
 
+let newChatError = $state('')
+
 const newChat = async () => {
-  const res = await fetch('/api/conversations', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  })
-  const conv: Conversation = await res.json()
-  await goto(resolve(`/chat/${conv.id}`))
+  newChatError = ''
+  try {
+    const res = await fetch('/api/conversations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    if (!res.ok) {
+      newChatError = 'Failed to create conversation'
+      return
+    }
+    const conv: Conversation = await res.json()
+    await goto(resolve(`/chat/${conv.id}`))
+  } catch {
+    newChatError = 'Failed to create conversation'
+  }
 }
 
 const handleModelChange = (id: string, name: string) => {
@@ -144,7 +155,7 @@ const userInitial = $derived(userName[0]?.toUpperCase() ?? 'U')
 const handleGlobalKeydown = (e: KeyboardEvent) => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
     e.preventDefault()
-    newChat()
+    void newChat()
   }
 }
 </script>
@@ -249,6 +260,9 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
       </div>
     </header>
 
+    {#if newChatError}
+      <div class="mx-4 mt-1 rounded-lg bg-red-50 px-3 py-1.5 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">{newChatError}</div>
+    {/if}
     <div class="flex-1 overflow-hidden">
       {@render children()}
     </div>
