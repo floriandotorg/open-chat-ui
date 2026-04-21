@@ -28,14 +28,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const client = new Mistral({ apiKey })
 
   const response = await client.chat.complete({
-    model: 'voxtral-small-latest',
+    model: 'voxtral-mini-latest',
     messages: [
       {
         role: 'user',
-        content: [
-          { type: 'input_audio' as const, inputAudio: audio },
-          { type: 'text' as const, text: 'Transcribe this audio exactly as spoken in its original language. Do not translate it to another language.' },
-        ],
+        content: [{ type: 'input_audio' as const, inputAudio: audio }, { type: 'text' as const, text: 'Transcribe this audio exactly as spoken in its original language. Do not translate it to another language.' }],
       },
     ],
   })
