@@ -140,8 +140,16 @@ const handleModelChange = (id: string, name: string) => {
 
 const userName = $derived(data.user?.name ?? data.user?.email ?? 'User')
 const userInitial = $derived(userName[0]?.toUpperCase() ?? 'U')
+
+const handleGlobalKeydown = (e: KeyboardEvent) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+    e.preventDefault()
+    newChat()
+  }
+}
 </script>
 
+<svelte:window onkeydown={handleGlobalKeydown} />
 <TtsPlayer />
 <div class="flex h-dvh bg-white text-gray-900 dark:bg-neutral-800 dark:text-gray-100" class:select-none={isResizing}>
   {#if isMobile && sidebarOpen}
