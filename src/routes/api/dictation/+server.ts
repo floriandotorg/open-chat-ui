@@ -32,7 +32,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     messages: [
       {
         role: 'user',
-        content: [{ type: 'input_audio' as const, inputAudio: audio }, { type: 'text' as const, text: 'Transcribe this audio exactly as spoken in its original language. Do not translate it to another language.' }],
+        content: [
+          { type: 'input_audio' as const, inputAudio: audio },
+          { type: 'text' as const, text: 'Transcribe this audio exactly as spoken in its original language. Do not translate it to another language.' },
+        ],
       },
     ],
   })
