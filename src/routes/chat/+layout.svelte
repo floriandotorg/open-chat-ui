@@ -3,6 +3,8 @@ import ConversationList from '$lib/components/ConversationList.svelte'
 import ModelPicker from '$lib/components/ModelPicker.svelte'
 import SystemPromptPicker from '$lib/components/SystemPromptPicker.svelte'
 import ThinkingEffortPicker from '$lib/components/ThinkingEffortPicker.svelte'
+import TtsPlayer from '$lib/components/TtsPlayer.svelte'
+import { createTtsPlayer } from '$lib/stores/tts-player.svelte'
 import type { Conversation, ThinkingEffort } from '$lib/types'
 import { afterNavigate, goto, invalidateAll } from '$app/navigation'
 import { resolve } from '$app/paths'
@@ -96,6 +98,9 @@ afterNavigate(() => {
 
 let generatingConversationId = $state<string | null>(null)
 
+const ttsPlayer = createTtsPlayer()
+setContext('tts-player', ttsPlayer)
+
 setContext('chat-provider', {
   get selectedModel() {
     return selectedModel
@@ -137,6 +142,7 @@ const userName = $derived(data.user?.name ?? data.user?.email ?? 'User')
 const userInitial = $derived(userName[0]?.toUpperCase() ?? 'U')
 </script>
 
+<TtsPlayer />
 <div class="flex h-dvh bg-white text-gray-900 dark:bg-neutral-800 dark:text-gray-100" class:select-none={isResizing}>
   {#if isMobile && sidebarOpen}
     <button class="fixed inset-0 z-40 bg-black/50" onclick={() => sidebarOpen = false} aria-label="Close sidebar" tabindex="-1" transition:fade={{ duration: 200 }}></button>
