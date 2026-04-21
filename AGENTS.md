@@ -1,9 +1,8 @@
----
-description: Project overview and architecture for Open Chat UI
-alwaysApply: true
----
+# Open Chat UI — agent instructions
 
-# Open Chat UI
+This repository follows the [AGENTS.md](https://agents.md/) convention: root plus nested files; the closest `AGENTS.md` to edited files applies.
+
+## Project overview
 
 Self-hosted, multi-provider LLM chat application with built-in tools, code execution, and vision support.
 
@@ -16,7 +15,7 @@ Self-hosted, multi-provider LLM chat application with built-in tools, code execu
 - Biome for linting/formatting
 - Vitest for testing (browser tests via Playwright, server tests via Node)
 
-## Directory Layout
+## Directory layout
 
 ```
 src/lib/server/providers/     # LLM provider adapters (Anthropic, Mistral)
@@ -39,7 +38,7 @@ src/routes/api/               # JSON + SSE API endpoints
 scripts/add-user.ts           # CLI user creation script
 ```
 
-## Key Patterns
+## Key patterns
 
 - **Provider abstraction**: `LLMProvider` interface in `providers/types.ts`. Each provider is a factory function registered in `providers/index.ts`. Adding a provider = one new file + one registry line.
 - **Tools**: Tools in `server/tools/` implement `ToolDefinition`. The chat API runs a tool loop (max 10 rounds) when the model requests tool use. Tool API keys (Kagi, Jina) are stored alongside provider keys.
@@ -51,8 +50,22 @@ scripts/add-user.ts           # CLI user creation script
 - **Code execution**: Anthropic provider supports sandboxed code execution with file output. Container IDs are persisted on conversations for session continuity.
 - **Model management**: Users can enable/disable specific models per provider and set a dedicated title-generation model via the `provider_models` table and settings.
 
-## Testing
+## Testing and quality
 
-The default username is test@example.com and the default password is test.
+The default username is `test@example.com` and the default password is `test`.
 
-Run lint (`bun run lint -- --fix`) and type checking (`bun run check`) after every finished feature.
+After substantive changes, run `bun run lint -- --fix` and `bun run check`.
+
+## Nested AGENTS.md
+
+| Path | Topic |
+|------|--------|
+| `src/AGENTS.md` | Svelte 5 components |
+| `src/routes/api/AGENTS.md` | API route conventions |
+| `src/lib/server/providers/AGENTS.md` | LLM provider adapters |
+| `src/lib/server/db/AGENTS.md` | Drizzle / SQLite migrations |
+| `drizzle/AGENTS.md` | Generated SQL migrations (safety pointer) |
+
+## Optional agent skills
+
+Scripts and guides for doc lookup and web research live under `.agents/skills/` (Context7, Jina Reader, Kagi Search, frontend design).

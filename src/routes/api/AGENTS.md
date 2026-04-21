@@ -1,10 +1,4 @@
----
-description: API route conventions for server endpoints
-globs: src/routes/api/**/*.ts
-alwaysApply: false
----
-
-# API Route Conventions
+# API route conventions
 
 ## Auth
 
@@ -22,7 +16,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 ## Endpoints
 
 | Route | Methods | Purpose |
-|---|---|---|
+|-------|---------|---------|
 | `/api/chat` | POST | Stream LLM response (SSE) with tool loop |
 | `/api/chat/title` | POST | Generate conversation title via LLM |
 | `/api/conversations` | GET, POST | List/create conversations |

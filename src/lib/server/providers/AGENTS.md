@@ -1,12 +1,6 @@
----
-description: LLM provider abstraction layer conventions
-globs: src/lib/server/providers/**/*.ts
-alwaysApply: false
----
+# Provider abstraction
 
-# Provider Abstraction
-
-## Adding a New Provider
+## Adding a new provider
 
 1. Create `src/lib/server/providers/<name>.ts`
 2. Implement the `LLMProvider` interface via a factory function
@@ -32,7 +26,7 @@ type ProviderFactory = (apiKey: string) => LLMProvider
 
 `ChatRequest` includes: `model`, `messages`, `systemPrompt`, `maxTokens`, `temperature`, `thinkingEffort` (`none` | `low` | `medium` | `high` | `max`), `signal` (AbortSignal), `tools` (ToolSchema[]), `codeExecution` (boolean), `container` (string).
 
-## ChatStreamEvent Types
+## ChatStreamEvent types
 
 `text_delta`, `thinking_delta`, `tool_call`, `tool_result`, `code_execution_start`, `code_execution_delta`, `code_execution_result`, `code_execution_files`, `raw_assistant_content`, `usage`, `done`, `error`.
 

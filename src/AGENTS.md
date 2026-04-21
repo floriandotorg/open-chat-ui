@@ -1,10 +1,4 @@
----
-description: Svelte 5 component conventions
-globs: src/**/*.svelte
-alwaysApply: false
----
-
-# Svelte Components
+# Svelte components
 
 ## Runes
 
@@ -17,7 +11,7 @@ let derived = $derived(value.toUpperCase())
 </script>
 ```
 
-## Event Handlers
+## Event handlers
 
 Use `onclick`, `onsubmit`, etc. (not `on:click`).
 
@@ -33,7 +27,7 @@ Chat context is shared from `chat/+layout.svelte` via `setContext('chat-provider
 
 Tailwind CSS 4 utility classes. Use `dark:` variants for dark mode support. Icon-only buttons must include `aria-label`.
 
-## Key Components
+## Key components
 
 - `ChatMessage` — Renders user/assistant message bubbles with markdown, images, files, tool blocks, code execution, thinking, and citations.
 - `ChatInput` — Message input with file/image attachments and submit handling.
