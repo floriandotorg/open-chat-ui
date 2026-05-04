@@ -11,6 +11,7 @@ const TOOL_SERVICES = [
   { id: 'kagi', name: 'Kagi Search', capabilities: [] as string[] },
   { id: 'jina', name: 'Jina Reader', capabilities: [] as string[] },
   { id: 'scraperapi', name: 'ScraperAPI', capabilities: [] as string[] },
+  { id: 'openalex', name: 'OpenAlex (email for polite pool, optional)', capabilities: [] as string[] },
   { id: 'elevenlabs', name: 'ElevenLabs TTS (API Key)', capabilities: [] as string[] },
   { id: 'elevenlabs-voice-id', name: 'ElevenLabs TTS (Voice ID)', capabilities: [] as string[] },
 ]
