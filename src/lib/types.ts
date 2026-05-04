@@ -79,7 +79,7 @@ export interface SystemPrompt {
 }
 
 export interface ChatStreamEvent {
-  type: 'text_delta' | 'thinking_delta' | 'usage' | 'done' | 'error' | 'tool_call' | 'tool_result' | 'code_execution_start' | 'code_execution_delta' | 'code_execution_result' | 'code_execution_files'
+  type: 'text_delta' | 'thinking_delta' | 'usage' | 'done' | 'error' | 'tool_call' | 'tool_result' | 'code_execution_start' | 'code_execution_delta' | 'code_execution_result' | 'code_execution_files' | 'stream_meta' | 'stream_end'
   text?: string
   thinking?: string
   inputTokens?: number
@@ -88,6 +88,8 @@ export interface ChatStreamEvent {
   toolCall?: { id: string; name: string; arguments: Record<string, unknown> }
   toolResult?: { toolCallId: string; toolName: string; result: string }
   messageId?: string
+  parentId?: string
+  assistantMsgId?: string
   stopReason?: 'end' | 'tool_use'
   codeExecution?: { id: string; name: string }
   codeExecutionDelta?: { id: string; partialInput: string }

@@ -59,100 +59,154 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     return resolved.length > 0 ? resolved[resolved.length - 1].id : null
   }
 
-  const processStream = async (response: Response, conversationId: string, parentId: string | null) => {
-    const reader = response.body?.getReader()
-    if (!reader) {
-      throw new Error('Response body is not readable')
-    }
-    const decoder = new TextDecoder()
-    let buffer = ''
+  const processStream = async (initialResponse: Response, conversationId: string, initialParentId: string | null, controller: AbortController) => {
     const codeExecRawInputs = new Map<string, string>()
     let thinkingStartTime: number | null = null
+    let parentId: string | null = initialParentId
+    let cursor = 0
+    let completed = false
 
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
+    const handleEvent = (event: ChatStreamEvent) => {
+      if (event.type === 'stream_meta') {
+        if (event.parentId) parentId = event.parentId
+        return
+      }
+      if (event.type === 'stream_end') {
+        completed = true
+        return
+      }
+      if (event.type === 'thinking_delta') {
+        if (!thinkingStartTime) {
+          thinkingStartTime = Date.now()
+          isThinking = true
+        }
+        streamingThinking += event.thinking ?? ''
+      }
+      if (event.type === 'text_delta') {
+        if (isThinking) {
+          isThinking = false
+          thinkingDuration = thinkingStartTime ? Math.round((Date.now() - thinkingStartTime) / 1000) : null
+        }
+        streamingText += event.text ?? ''
+      }
+      if (event.type === 'tool_call' && event.toolCall) {
+        streamingToolCalls = [...streamingToolCalls, { ...event.toolCall, textOffset: streamingText.length }]
+      }
+      if (event.type === 'tool_result' && event.toolResult) {
+        streamingToolCalls = streamingToolCalls.map(tc => (tc.id === event.toolResult?.toolCallId ? { ...tc, result: event.toolResult.result } : tc))
+      }
+      if (event.type === 'code_execution_start' && event.codeExecution) {
+        streamingCodeExecutions = [
+          ...streamingCodeExecutions,
+          {
+            id: event.codeExecution.id,
+            name: event.codeExecution.name,
+            input: {},
+            textOffset: streamingText.length,
+          },
+        ]
+      }
+      if (event.type === 'code_execution_delta' && event.codeExecutionDelta) {
+        const { id, partialInput } = event.codeExecutionDelta
+        const raw = (codeExecRawInputs.get(id) ?? '') + partialInput
+        codeExecRawInputs.set(id, raw)
+        let input: Record<string, unknown>
+        try {
+          input = JSON.parse(raw)
+        } catch {
+          input = { _raw: raw }
+        }
+        streamingCodeExecutions = streamingCodeExecutions.map(ce => (ce.id === id ? { ...ce, input } : ce))
+      }
+      if (event.type === 'code_execution_result' && event.codeExecutionResult) {
+        const { id, ...result } = event.codeExecutionResult
+        streamingCodeExecutions = streamingCodeExecutions.map(ce => (ce.id === id ? { ...ce, ...result } : ce))
+      }
+      if (event.type === 'code_execution_files' && event.codeExecutionFiles) {
+        const { id, files } = event.codeExecutionFiles
+        streamingCodeExecutions = streamingCodeExecutions.map(ce => (ce.id === id ? { ...ce, files } : ce))
+      }
+      if (event.type === 'error') {
+        throw new Error(event.error ?? 'Stream error')
+      }
+      if (event.type === 'done') {
+        if (isThinking) {
+          isThinking = false
+          thinkingDuration = thinkingStartTime ? Math.round((Date.now() - thinkingStartTime) / 1000) : null
+        }
+        const assistantMsg = buildMessage(conversationId, parentId)
+        if (event.messageId) {
+          assistantMsg.id = event.messageId
+        }
+        allMessages = [...allMessages, assistantMsg]
+        if (parentId) {
+          activeBranches = { ...activeBranches, [parentId]: assistantMsg.id }
+        }
+        resetStreamingState()
+      }
+    }
 
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n\n')
-      buffer = lines.pop() ?? ''
+    const consumeResponse = async (response: Response) => {
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('Response body is not readable')
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) return
+        buffer += decoder.decode(value, { stream: true })
+        const blocks = buffer.split('\n\n')
+        buffer = blocks.pop() ?? ''
+        for (const block of blocks) {
+          if (abortController !== controller) {
+            reader.cancel().catch(() => {})
+            return
+          }
+          let idLine: string | undefined
+          let dataLine: string | undefined
+          for (const line of block.split('\n')) {
+            if (line.startsWith('id: ')) idLine = line.slice(4)
+            else if (line.startsWith('data: ')) dataLine = line.slice(6)
+          }
+          if (!dataLine) continue
+          const event: ChatStreamEvent = JSON.parse(dataLine)
+          handleEvent(event)
+          if (idLine !== undefined) cursor = Number(idLine) + 1
+          if (completed) return
+        }
+      }
+    }
 
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        if (activeConversationId !== conversationId) return
+    try {
+      await consumeResponse(initialResponse)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw err
+      if (completed || abortController !== controller) throw err
+    }
 
-        const event: ChatStreamEvent = JSON.parse(line.slice(6))
-
-        if (event.type === 'thinking_delta') {
-          if (!thinkingStartTime) {
-            thinkingStartTime = Date.now()
-            isThinking = true
-          }
-          streamingThinking += event.thinking ?? ''
-        }
-        if (event.type === 'text_delta') {
-          if (isThinking) {
-            isThinking = false
-            thinkingDuration = thinkingStartTime ? Math.round((Date.now() - thinkingStartTime) / 1000) : null
-          }
-          streamingText += event.text ?? ''
-        }
-        if (event.type === 'tool_call' && event.toolCall) {
-          streamingToolCalls = [...streamingToolCalls, { ...event.toolCall, textOffset: streamingText.length }]
-        }
-        if (event.type === 'tool_result' && event.toolResult) {
-          streamingToolCalls = streamingToolCalls.map(tc => (tc.id === event.toolResult?.toolCallId ? { ...tc, result: event.toolResult.result } : tc))
-        }
-        if (event.type === 'code_execution_start' && event.codeExecution) {
-          streamingCodeExecutions = [
-            ...streamingCodeExecutions,
-            {
-              id: event.codeExecution.id,
-              name: event.codeExecution.name,
-              input: {},
-              textOffset: streamingText.length,
-            },
-          ]
-        }
-        if (event.type === 'code_execution_delta' && event.codeExecutionDelta) {
-          const { id, partialInput } = event.codeExecutionDelta
-          const raw = (codeExecRawInputs.get(id) ?? '') + partialInput
-          codeExecRawInputs.set(id, raw)
-          let input: Record<string, unknown>
-          try {
-            input = JSON.parse(raw)
-          } catch {
-            input = { _raw: raw }
-          }
-          streamingCodeExecutions = streamingCodeExecutions.map(ce => (ce.id === id ? { ...ce, input } : ce))
-        }
-        if (event.type === 'code_execution_result' && event.codeExecutionResult) {
-          const { id, ...result } = event.codeExecutionResult
-          streamingCodeExecutions = streamingCodeExecutions.map(ce => (ce.id === id ? { ...ce, ...result } : ce))
-        }
-        if (event.type === 'code_execution_files' && event.codeExecutionFiles) {
-          const { id, files } = event.codeExecutionFiles
-          streamingCodeExecutions = streamingCodeExecutions.map(ce => (ce.id === id ? { ...ce, files } : ce))
-        }
-        if (event.type === 'error') {
-          resetStreamingState()
-          throw new Error(event.error ?? 'Stream error')
-        }
-        if (event.type === 'done') {
-          if (isThinking) {
-            isThinking = false
-            thinkingDuration = thinkingStartTime ? Math.round((Date.now() - thinkingStartTime) / 1000) : null
-          }
-          const assistantMsg = buildMessage(conversationId, parentId)
-          if (event.messageId) {
-            assistantMsg.id = event.messageId
-          }
-          allMessages = [...allMessages, assistantMsg]
-          if (parentId) {
-            activeBranches = { ...activeBranches, [parentId]: assistantMsg.id }
-          }
-          resetStreamingState()
-        }
+    while (!completed && abortController === controller) {
+      let reconnect: Response
+      try {
+        reconnect = await fetch(`/api/chat/stream/${conversationId}?cursor=${cursor}`, {
+          signal: controller.signal,
+        })
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') throw err
+        await new Promise(r => setTimeout(r, 500))
+        continue
+      }
+      if (reconnect.status === 404) {
+        return
+      }
+      if (!reconnect.ok) {
+        throw new Error('Failed to reconnect to stream')
+      }
+      try {
+        await consumeResponse(reconnect)
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') throw err
+        if (completed) return
+        await new Promise(r => setTimeout(r, 500))
       }
     }
   }
@@ -182,7 +236,8 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     thinkingDuration = null
     streamingToolCalls = []
     streamingCodeExecutions = []
-    abortController = new AbortController()
+    const ctrl = new AbortController()
+    abortController = ctrl
 
     const parentId = getLastMessageId()
 
@@ -215,39 +270,44 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
           parentId,
           userMsgId: userMsg.id,
         }),
-        signal: abortController.signal,
+        signal: ctrl.signal,
       })
 
       if (!response.ok) {
-        const err = await response.json()
-        resetStreamingState()
+        const err = await response.json().catch(() => ({}))
         throw new Error(err.message ?? 'Request failed')
       }
 
-      await processStream(response, conversationId, userMsg.id)
+      await processStream(response, conversationId, userMsg.id, ctrl)
 
       if (isFirstMessage && onFirstReply) {
         onFirstReply(conversationId)
       }
     } catch (err) {
+      const isMine = abortController === ctrl
       if (err instanceof DOMException && err.name === 'AbortError') {
-        if (streamingText && activeConversationId === conversationId) {
+        if (isMine && streamingText) {
           const assistantMsg = buildMessage(conversationId, userMsg.id)
           allMessages = [...allMessages, assistantMsg]
           if (userMsg.id) {
             activeBranches = { ...activeBranches, [userMsg.id]: assistantMsg.id }
           }
         }
-        resetStreamingState()
-        abortController = null
+        if (isMine) {
+          resetStreamingState()
+          abortController = null
+        }
         return
       }
-      resetStreamingState()
-      messageQueue = []
-      abortController = null
+      if (isMine) {
+        resetStreamingState()
+        messageQueue = []
+        abortController = null
+      }
       throw err
     }
 
+    if (abortController !== ctrl) return
     abortController = null
     if (messageQueue.length > 0) {
       const [next, ...rest] = messageQueue
@@ -267,7 +327,8 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     thinkingDuration = null
     streamingToolCalls = []
     streamingCodeExecutions = []
-    abortController = new AbortController()
+    const ctrl = new AbortController()
+    abortController = ctrl
 
     const targetMsg = allMessages.find(m => m.id === messageId)
     const userParentId = targetMsg?.parentId ?? null
@@ -282,35 +343,39 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
           model: selectedModel,
           thinkingEffort,
         }),
-        signal: abortController.signal,
+        signal: ctrl.signal,
       })
 
       if (!response.ok) {
-        const err = await response.json()
-        resetStreamingState()
+        const err = await response.json().catch(() => ({}))
         throw new Error(err.message ?? 'Request failed')
       }
 
-      await processStream(response, conversationId, userParentId)
+      await processStream(response, conversationId, userParentId, ctrl)
     } catch (err) {
+      const isMine = abortController === ctrl
       if (err instanceof DOMException && err.name === 'AbortError') {
-        if (streamingText && activeConversationId === conversationId) {
+        if (isMine && streamingText) {
           const assistantMsg = buildMessage(conversationId, userParentId)
           allMessages = [...allMessages, assistantMsg]
           if (userParentId) {
             activeBranches = { ...activeBranches, [userParentId]: assistantMsg.id }
           }
         }
-        resetStreamingState()
-        abortController = null
+        if (isMine) {
+          resetStreamingState()
+          abortController = null
+        }
         return
       }
-      resetStreamingState()
-      abortController = null
+      if (isMine) {
+        resetStreamingState()
+        abortController = null
+      }
       throw err
     }
 
-    abortController = null
+    if (abortController === ctrl) abortController = null
   }
 
   const editMessage = async (conversationId: string, messageId: string, newContent: string) => {
@@ -352,7 +417,8 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     thinkingDuration = null
     streamingToolCalls = []
     streamingCodeExecutions = []
-    abortController = new AbortController()
+    const ctrl = new AbortController()
+    abortController = ctrl
 
     try {
       const response = await fetch('/api/chat', {
@@ -369,33 +435,37 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
           userMsgId: newMessageId,
           skipUserInsert: true,
         }),
-        signal: abortController.signal,
+        signal: ctrl.signal,
       })
 
       if (!response.ok) {
-        const err = await response.json()
-        resetStreamingState()
+        const err = await response.json().catch(() => ({}))
         throw new Error(err.message ?? 'Request failed')
       }
 
-      await processStream(response, conversationId, newMessageId)
+      await processStream(response, conversationId, newMessageId, ctrl)
     } catch (err) {
+      const isMine = abortController === ctrl
       if (err instanceof DOMException && err.name === 'AbortError') {
-        if (streamingText && activeConversationId === conversationId) {
+        if (isMine && streamingText) {
           const assistantMsg = buildMessage(conversationId, newMessageId)
           allMessages = [...allMessages, assistantMsg]
           activeBranches = { ...activeBranches, [newMessageId]: assistantMsg.id }
         }
-        resetStreamingState()
-        abortController = null
+        if (isMine) {
+          resetStreamingState()
+          abortController = null
+        }
         return
       }
-      resetStreamingState()
-      abortController = null
+      if (isMine) {
+        resetStreamingState()
+        abortController = null
+      }
       throw err
     }
 
-    abortController = null
+    if (abortController === ctrl) abortController = null
   }
 
   const switchBranch = async (conversationId: string, parentKey: string, targetMessageId: string) => {
@@ -410,7 +480,58 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
 
   const stopStreaming = () => {
     messageQueue = []
+    const convId = activeConversationId
     abortController?.abort()
+    if (convId) {
+      fetch(`/api/chat/stream/${convId}`, { method: 'DELETE' }).catch(() => {})
+    }
+  }
+
+  const detachStream = () => {
+    abortController?.abort()
+    abortController = null
+    activeConversationId = null
+    resetStreamingState()
+  }
+
+  const resumeStream = async (conversationId: string) => {
+    if (isStreaming && activeConversationId === conversationId) return
+    activeConversationId = conversationId
+    isStreaming = true
+    isThinking = false
+    streamingText = ''
+    streamingThinking = ''
+    thinkingDuration = null
+    streamingToolCalls = []
+    streamingCodeExecutions = []
+    const ctrl = new AbortController()
+    abortController = ctrl
+    try {
+      const response = await fetch(`/api/chat/stream/${conversationId}?cursor=0`, {
+        signal: ctrl.signal,
+      })
+      if (!response.ok) {
+        if (abortController === ctrl) {
+          resetStreamingState()
+          abortController = null
+        }
+        return
+      }
+      await processStream(response, conversationId, null, ctrl)
+    } catch {
+      if (abortController === ctrl) {
+        resetStreamingState()
+        abortController = null
+      }
+      return
+    }
+    if (abortController !== ctrl) return
+    abortController = null
+    if (messageQueue.length > 0) {
+      const [next, ...rest] = messageQueue
+      messageQueue = rest
+      await sendMessage(next.conversationId, next.content, next.systemPrompt, next.images, next.files)
+    }
   }
 
   const editQueuedMessage = (id: string, content: string) => {
@@ -487,6 +608,8 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     editMessage,
     switchBranch,
     stopStreaming,
+    detachStream,
+    resumeStream,
     editQueuedMessage,
     deleteQueuedMessage,
     processQueue: () => {

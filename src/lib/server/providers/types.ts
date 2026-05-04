@@ -76,7 +76,7 @@ export interface CodeExecutionResultEvent {
 }
 
 export interface ChatStreamEvent {
-  type: 'text_delta' | 'thinking_delta' | 'usage' | 'done' | 'error' | 'tool_call' | 'tool_result' | 'code_execution_start' | 'code_execution_delta' | 'code_execution_result' | 'code_execution_files' | 'raw_assistant_content'
+  type: 'text_delta' | 'thinking_delta' | 'usage' | 'done' | 'error' | 'tool_call' | 'tool_result' | 'code_execution_start' | 'code_execution_delta' | 'code_execution_result' | 'code_execution_files' | 'raw_assistant_content' | 'stream_meta' | 'stream_end'
   text?: string
   thinking?: string
   inputTokens?: number
@@ -84,6 +84,9 @@ export interface ChatStreamEvent {
   error?: string
   toolCall?: ToolCallInfo
   toolResult?: { toolCallId: string; toolName: string; result: string }
+  messageId?: string
+  parentId?: string
+  assistantMsgId?: string
   stopReason?: 'end' | 'tool_use'
   codeExecution?: CodeExecutionStartEvent
   codeExecutionDelta?: CodeExecutionDeltaEvent
