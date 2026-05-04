@@ -51,12 +51,6 @@ const onScroll = () => {
   stickToBottom = messageContainer.scrollTop >= -SCROLL_THRESHOLD
 }
 
-const scrollToBottom = () => {
-  if (messageContainer) {
-    messageContainer.scrollTop = 0
-  }
-}
-
 chat.onFirstReply = async (conversationId: string) => {
   const res = await fetch('/api/chat/title', {
     method: 'POST',
@@ -134,8 +128,8 @@ $effect(() => {
   void chat.streamingText
   void chat.streamingThinking
   void chat.messageQueue.length
-  if (stickToBottom) {
-    scrollToBottom()
+  if (stickToBottom && messageContainer) {
+    messageContainer.scrollTop = 0
   }
 })
 
