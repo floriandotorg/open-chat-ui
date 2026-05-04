@@ -69,3 +69,7 @@ After substantive changes, run `bun run lint -- --fix` and `bun run check`.
 ## Optional agent skills
 
 Scripts and guides for doc lookup and web research live under `.agents/skills/` (Context7, Jina Reader, Kagi Search, frontend design).
+
+## Dev Server
+
+The dev server running at http://localhost:5179/ (if not, ask the user to start it). The user is test@example.com and the password is "test".
