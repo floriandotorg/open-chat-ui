@@ -105,8 +105,8 @@ const speedLabel = $derived(tts.speed === 1 ? '1x' : `${tts.speed}x`)
   }
   .tts-glass {
     background: rgba(30, 30, 32, 0.45);
-    backdrop-filter: blur(50px) saturate(1.8) brightness(1.1);
     -webkit-backdrop-filter: blur(50px) saturate(1.8) brightness(1.1);
+    backdrop-filter: blur(50px) saturate(1.8) brightness(1.1);
     border: 1px solid rgba(255, 255, 255, 0.12);
     box-shadow:
       0 0 0 0.5px rgba(255, 255, 255, 0.08),
