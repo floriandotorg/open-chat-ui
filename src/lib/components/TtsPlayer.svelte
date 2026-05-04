@@ -109,11 +109,11 @@ const speedLabel = $derived(tts.speed === 1 ? '1x' : `${tts.speed}x`)
     backdrop-filter: blur(50px) saturate(1.8) brightness(1.1);
     border: 1px solid rgba(255, 255, 255, 0.12);
     box-shadow:
-      0 0 0 0.5px rgba(255, 255, 255, 0.08),
-      0 8px 40px rgba(0, 0, 0, 0.35),
-      0 2px 12px rgba(0, 0, 0, 0.2),
-      inset 0 1px 0 rgba(255, 255, 255, 0.1),
-      inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+      0 0 0 0.5px rgba(255, 255, 255, 0.06),
+      0 6px 28px rgba(0, 0, 0, 0.25),
+      0 2px 8px rgba(0, 0, 0, 0.14),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.08);
   }
   .skip-btn {
     position: relative;

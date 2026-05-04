@@ -121,18 +121,18 @@ const confirmDelete = async () => {
 }
 </script>
 
-<nav class="flex-1 overflow-y-auto px-2.5 pt-[calc(env(safe-area-inset-top)+6.5rem)] pb-[calc(env(safe-area-inset-bottom)+3.75rem)]">
+<nav class="no-scrollbar flex-1 overflow-y-auto px-2.5 pt-[calc(env(safe-area-inset-top)+6.5rem)] pb-[calc(env(safe-area-inset-bottom)+3.75rem)]">
   {#if isSearching}
     {#if searchResults === null && searching}
       <div class="px-3 py-8 text-center text-sm text-gray-400 dark:text-neutral-500">Searching…</div>
     {:else if searchResults && searchResults.length > 0}
-      <div class="px-2 pb-1 pt-3 text-xs font-medium text-gray-400 dark:text-neutral-500">
+      <div class="convo-section-label">
         {searchResults.length} result{searchResults.length === 1 ? '' : 's'}
       </div>
       {#each searchResults as hit (hit.id)}
         <a
           href={resolve(`/chat/${hit.id}`)}
-          class="group block rounded-xl px-3 py-2 text-sm transition-colors {hit.id === currentId ? 'bg-black/10 dark:bg-white/15' : 'hover:bg-black/5 dark:hover:bg-white/8'}"
+          class="convo-item group block rounded-xl px-3 py-2 text-sm {hit.id === currentId ? 'convo-item-active' : ''}"
         >
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0 flex-1">
@@ -178,14 +178,12 @@ const confirmDelete = async () => {
     {/if}
   {:else}
     {#each groupedConversations as [label, items] (label)}
-      <div class="mb-1">
-        <div class="px-2 pb-1 pt-3 text-xs font-medium text-gray-400 dark:text-neutral-500">{label}</div>
+      <div class="mb-0.5">
+        <div class="convo-section-label">{label}</div>
         {#each items as conv (conv.id)}
           <a
             href={resolve(`/chat/${conv.id}`)}
-            class="group flex items-center justify-between rounded-xl px-3 py-2 text-sm transition-colors {conv.id === currentId
-              ? 'bg-black/10 dark:bg-white/15'
-              : 'hover:bg-black/5 dark:hover:bg-white/8'}"
+            class="convo-item group flex items-center justify-between rounded-xl px-3 py-2 text-sm {conv.id === currentId ? 'convo-item-active' : ''}"
           >
             <span class="truncate">{conv.title}</span>
             {#if conv.generating || conv.id === generatingConversationId}

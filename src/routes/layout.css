@@ -59,11 +59,11 @@
     backdrop-filter: blur(40px) saturate(1.8);
     border: 1px solid rgba(255, 255, 255, 0.5);
     box-shadow:
-      0 0 0 0.5px rgba(0, 0, 0, 0.04),
-      0 8px 32px rgba(0, 0, 0, 0.1),
-      0 2px 8px rgba(0, 0, 0, 0.05),
-      inset 0 1px 0 rgba(255, 255, 255, 0.7),
-      inset 0 -1px 0 rgba(0, 0, 0, 0.04);
+      0 0 0 0.5px rgba(0, 0, 0, 0.03),
+      0 6px 22px rgba(0, 0, 0, 0.07),
+      0 2px 6px rgba(0, 0, 0, 0.035),
+      inset 0 1px 0 rgba(255, 255, 255, 0.55),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.03);
   }
 
   @media (prefers-color-scheme: dark) {
@@ -73,11 +73,11 @@
       backdrop-filter: blur(40px) saturate(1.8) brightness(1.1);
       border-color: rgba(255, 255, 255, 0.1);
       box-shadow:
-        0 0 0 0.5px rgba(255, 255, 255, 0.06),
-        0 8px 32px rgba(0, 0, 0, 0.4),
-        0 2px 8px rgba(0, 0, 0, 0.2),
-        inset 0 1px 0 rgba(255, 255, 255, 0.08),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.15);
+        0 0 0 0.5px rgba(255, 255, 255, 0.05),
+        0 6px 22px rgba(0, 0, 0, 0.28),
+        0 2px 6px rgba(0, 0, 0, 0.14),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.1);
     }
   }
 
@@ -92,22 +92,22 @@
     background: rgba(255, 255, 255, 0.5);
     -webkit-backdrop-filter: blur(40px) saturate(1.8);
     backdrop-filter: blur(40px) saturate(1.8);
-    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.07);
     box-shadow:
-      0 6px 16px -8px rgba(0, 0, 0, 0.18),
-      0 1px 0 rgba(0, 0, 0, 0.04),
-      inset 0 1px 0 rgba(255, 255, 255, 0.7);
+      0 4px 12px -8px rgba(0, 0, 0, 0.12),
+      0 1px 0 rgba(0, 0, 0, 0.03),
+      inset 0 1px 0 rgba(255, 255, 255, 0.55);
   }
 
   .liquid-glass-bar-bottom {
     background: rgba(255, 255, 255, 0.5);
     -webkit-backdrop-filter: blur(40px) saturate(1.8);
     backdrop-filter: blur(40px) saturate(1.8);
-    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    border-top: 1px solid rgba(0, 0, 0, 0.07);
     box-shadow:
-      0 -6px 16px -8px rgba(0, 0, 0, 0.18),
-      0 -1px 0 rgba(0, 0, 0, 0.04),
-      inset 0 1px 0 rgba(255, 255, 255, 0.7);
+      0 -4px 12px -8px rgba(0, 0, 0, 0.12),
+      0 -1px 0 rgba(0, 0, 0, 0.03),
+      inset 0 1px 0 rgba(255, 255, 255, 0.55);
   }
 
   @media (prefers-color-scheme: dark) {
@@ -118,18 +118,18 @@
       backdrop-filter: blur(40px) saturate(1.8) brightness(1.1);
     }
     .liquid-glass-bar-top {
-      border-bottom-color: rgba(255, 255, 255, 0.08);
+      border-bottom-color: rgba(255, 255, 255, 0.07);
       box-shadow:
-        0 6px 16px -8px rgba(0, 0, 0, 0.5),
-        0 1px 0 rgba(0, 0, 0, 0.3),
-        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        0 4px 12px -8px rgba(0, 0, 0, 0.35),
+        0 1px 0 rgba(0, 0, 0, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
     .liquid-glass-bar-bottom {
-      border-top-color: rgba(255, 255, 255, 0.08);
+      border-top-color: rgba(255, 255, 255, 0.07);
       box-shadow:
-        0 -6px 16px -8px rgba(0, 0, 0, 0.5),
-        0 -1px 0 rgba(0, 0, 0, 0.3),
-        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        0 -4px 12px -8px rgba(0, 0, 0, 0.35),
+        0 -1px 0 rgba(0, 0, 0, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
   }
 
@@ -137,18 +137,75 @@
    * Sidebar surface — opaque-ish backdrop that hosts inner glass bars.
    * Deliberately has NO backdrop-filter so children's `backdrop-filter`
    * is not weakened by a parent containing-block. Use only on the
-   * sidebar shell (`<aside>`).
+   * sidebar shell (`<aside>`). The vertical wash + soft radial accent
+   * at the top give the inner glass bars something to refract so they
+   * don't read as flat tinted rectangles when the list is at rest.
    */
   .sidebar-surface {
-    background-color: rgb(249, 250, 251);
-    border-right: 1px solid rgba(0, 0, 0, 0.06);
+    background-color: rgb(247, 248, 252);
+    background-image: radial-gradient(120% 60% at 0% 0%, rgba(99, 102, 241, 0.07) 0%, transparent 60%), radial-gradient(120% 60% at 100% 100%, rgba(16, 185, 129, 0.05) 0%, transparent 60%), linear-gradient(180deg, rgb(244, 246, 251) 0%, rgb(248, 249, 252) 50%, rgb(245, 247, 250) 100%);
+    border-right: 1px solid rgba(0, 0, 0, 0.07);
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.4);
   }
 
   @media (prefers-color-scheme: dark) {
     .sidebar-surface {
-      background-color: rgb(23, 23, 23);
-      border-right-color: rgba(255, 255, 255, 0.06);
+      background-color: rgb(22, 22, 26);
+      background-image: radial-gradient(120% 60% at 0% 0%, rgba(99, 102, 241, 0.12) 0%, transparent 60%), radial-gradient(120% 60% at 100% 100%, rgba(16, 185, 129, 0.08) 0%, transparent 60%), linear-gradient(180deg, rgb(26, 26, 32) 0%, rgb(20, 20, 24) 50%, rgb(24, 24, 28) 100%);
+      border-right-color: rgba(255, 255, 255, 0.07);
+      box-shadow: none;
     }
+  }
+
+  /*
+   * Conversation list — iOS-style: small-caps section headers, soft
+   * translucent active fill, no scrollbar.
+   */
+  .convo-section-label {
+    padding: 1.125rem 0.875rem 0.375rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: rgb(132, 136, 146);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .convo-section-label {
+      color: rgb(132, 134, 142);
+    }
+  }
+
+  .convo-item {
+    transition: background-color 0.12s ease;
+  }
+
+  .convo-item:hover {
+    background-color: rgba(0, 0, 0, 0.035);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .convo-item:hover {
+      background-color: rgba(255, 255, 255, 0.05);
+    }
+  }
+
+  .convo-item-active,
+  .convo-item-active:hover {
+    background-color: rgba(0, 0, 0, 0.075);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .convo-item-active,
+    .convo-item-active:hover {
+      background-color: rgba(255, 255, 255, 0.11);
+    }
+  }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 
   .prose :first-child {

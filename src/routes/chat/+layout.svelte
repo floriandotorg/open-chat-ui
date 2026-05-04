@@ -191,7 +191,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
       style={isMobile ? undefined : `width: ${sidebarWidth}px`}
     >
       <div class="liquid-glass-bar-top absolute inset-x-0 top-0 z-10" style="padding-top: max(0.75rem, env(safe-area-inset-top))">
-        <div class="flex items-center justify-between px-4 pb-2">
+        <div class="flex items-center justify-between px-3.5 pb-2.5">
           <div class="flex items-center gap-2">
             <svg class="h-6 w-6 text-blue-500" viewBox="0 0 192 192" fill="none">
               <rect width="192" height="192" rx="32" fill="currentColor"/>
@@ -200,22 +200,22 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
               <circle cx="96" cy="92" r="6" fill="currentColor"/>
               <circle cx="112" cy="92" r="6" fill="currentColor"/>
             </svg>
-            <span class="text-sm font-semibold">Open Chat UI</span>
+            <span class="text-[13px] font-semibold tracking-tight">Open Chat UI</span>
           </div>
           <div class="flex items-center gap-0.5">
-            <button onclick={newChat} aria-label="New chat" class="rounded-lg p-1.5 transition-colors hover:bg-black/10 dark:hover:bg-white/10">
+            <button onclick={newChat} aria-label="New chat" class="rounded-lg p-1.5 transition-colors hover:bg-black/8 dark:hover:bg-white/10">
               <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
             </button>
-            <button onclick={() => sidebarOpen = false} aria-label="Close sidebar" class="rounded-lg p-1.5 transition-colors hover:bg-black/10 dark:hover:bg-white/10">
+            <button onclick={() => sidebarOpen = false} aria-label="Close sidebar" class="rounded-lg p-1.5 transition-colors hover:bg-black/8 dark:hover:bg-white/10">
               <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
               </svg>
             </button>
           </div>
         </div>
-        <div class="px-2.5 pb-2">
+        <div class="px-2.5 pb-2.5">
           <div class="relative">
             <svg class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -224,13 +224,13 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
               type="text"
               bind:value={sidebarSearchQuery}
               placeholder="Search chats and messages"
-              class="w-full rounded-lg bg-black/8 py-1.5 pl-8 pr-8 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-black/10 dark:bg-white/10 dark:text-white dark:placeholder-neutral-500 dark:focus:ring-white/20"
+              class="w-full rounded-full bg-black/[0.04] py-1.5 pl-8 pr-8 text-sm text-gray-900 placeholder-gray-400 outline-none transition focus:bg-white/80 focus:ring-2 focus:ring-blue-500/25 dark:bg-white/[0.06] dark:text-white dark:placeholder-neutral-500 dark:focus:bg-white/10 dark:focus:ring-blue-400/30"
             />
             {#if sidebarSearchQuery}
               <button
                 onclick={clearSidebarSearch}
                 aria-label="Clear search"
-                class="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-gray-400 transition hover:bg-black/10 hover:text-gray-600 dark:text-neutral-500 dark:hover:bg-white/10 dark:hover:text-neutral-300"
+                class="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-gray-400 transition hover:bg-black/10 hover:text-gray-600 dark:text-neutral-500 dark:hover:bg-white/10 dark:hover:text-neutral-300"
               >
                 <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" />
@@ -243,21 +243,19 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
 
       <ConversationList conversations={data.conversations} currentId={currentConversationId} {generatingConversationId} bind:searchQuery={sidebarSearchQuery} />
 
-      <div class="liquid-glass-bar-bottom absolute inset-x-0 bottom-0 z-10 p-2.5" style="padding-bottom: max(0.625rem, env(safe-area-inset-bottom))">
-        <div class="flex items-center justify-between rounded-xl px-2 py-1.5">
-          <div class="flex items-center gap-2.5">
-            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-sm font-medium text-white">
-              {userInitial}
-            </div>
-            <span class="truncate text-sm font-medium">{userName}</span>
-          </div>
-          <a href={resolve('/settings')} aria-label="Settings" class="rounded-lg p-1.5 transition-colors hover:bg-black/5 dark:hover:bg-white/10">
+      <div class="liquid-glass-bar-bottom absolute inset-x-0 bottom-0 z-10 p-2" style="padding-bottom: max(0.5rem, env(safe-area-inset-bottom))">
+        <a href={resolve('/settings')} class="group flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-black/5 dark:hover:bg-white/10">
+          <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-sm font-medium text-white">
+            {userInitial}
+          </span>
+          <span class="min-w-0 flex-1 truncate text-sm font-medium">{userName}</span>
+          <span aria-label="Settings" class="rounded-lg p-1.5 text-gray-500 transition-colors group-hover:text-gray-900 dark:text-neutral-400 dark:group-hover:text-white">
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
-          </a>
-        </div>
+          </span>
+        </a>
       </div>
       {#if !isMobile}
         <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -303,7 +301,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
     </header>
 
     {#if newChatError}
-      <div class="absolute inset-x-4 top-14 z-30 rounded-lg bg-red-50 px-3 py-1.5 text-sm text-red-600 shadow-lg dark:bg-red-900/40 dark:text-red-400">{newChatError}</div>
+      <div class="absolute inset-x-4 top-14 z-30 rounded-lg bg-red-50 px-3 py-1.5 text-sm text-red-600 shadow-md dark:bg-red-900/40 dark:text-red-400">{newChatError}</div>
     {/if}
     <div class="flex-1 overflow-hidden">
       {@render children()}
