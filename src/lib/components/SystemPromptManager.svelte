@@ -7,6 +7,7 @@ let {
   initial?: SystemPrompt[]
 } = $props()
 
+// svelte-ignore state_referenced_locally
 let prompts = $state<SystemPrompt[]>([...initial])
 let editingId = $state<string | null>(null)
 let editTitle = $state('')

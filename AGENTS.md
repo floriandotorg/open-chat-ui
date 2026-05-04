@@ -54,7 +54,7 @@ scripts/add-user.ts           # CLI user creation script
 
 The default username is `test@example.com` and the default password is `test`.
 
-After substantive changes, run `bun run lint -- --fix` and `bun run check`.
+Before considering a task finished, `bun run lint` and `bun run check` must both pass with zero errors and zero warnings. Run `bun run lint -- --fix` to auto-fix where possible.
 
 ## Nested AGENTS.md
 

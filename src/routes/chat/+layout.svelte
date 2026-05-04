@@ -22,13 +22,18 @@ const SIDEBAR_DEFAULT = 260
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 
 const setCookie = (name: string, value: string) => {
+  // biome-ignore lint/suspicious/noDocumentCookie: Cookie Store API lacks Safari/Firefox support
   document.cookie = `${name}=${value}; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=Lax`
 }
 
 let sidebarOpen = $state(true)
+// svelte-ignore state_referenced_locally
 let selectedModel = $state(data.selectedModel ?? '')
+// svelte-ignore state_referenced_locally
 let selectedModelName = $state(data.selectedModelName ?? '')
+// svelte-ignore state_referenced_locally
 let thinkingEffort = $state<ThinkingEffort>((data.thinkingEffort as ThinkingEffort) ?? 'none')
+// svelte-ignore state_referenced_locally
 let sidebarWidth = $state(data.sidebarWidth ?? SIDEBAR_DEFAULT)
 let isResizing = $state(false)
 let isMobile = $state(false)
@@ -102,6 +107,7 @@ afterNavigate(() => {
 
 let generatingConversationId = $state<string | null>(null)
 
+// svelte-ignore state_referenced_locally
 const ttsPlayer = createTtsPlayer(data.ttsSpeed ?? 1)
 setContext('tts-player', ttsPlayer)
 

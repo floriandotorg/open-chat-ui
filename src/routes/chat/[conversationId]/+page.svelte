@@ -33,7 +33,9 @@ const mapServerMessages = (serverMsgs: typeof data.allMessages, existing: Messag
 }
 
 const chat = createChatStore({
+  // svelte-ignore state_referenced_locally
   allMessages: mapServerMessages(data.allMessages),
+  // svelte-ignore state_referenced_locally
   activeBranches: data.activeBranches,
 })
 
