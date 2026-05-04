@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { FileAttachment, ImageAttachment } from '$lib/types'
-import { page } from '$app/state'
+import { afterNavigate } from '$app/navigation'
 import { tick } from 'svelte'
 
 let {
@@ -149,8 +149,10 @@ const handleAttachClick = () => {
   fileInput?.click()
 }
 
+const isCoarsePointer = () => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
+
 const handleKeydown = (e: KeyboardEvent) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !isCoarsePointer()) {
     e.preventDefault()
     submit()
   }
@@ -171,15 +173,9 @@ const submit = () => {
   }
 }
 
-$effect(() => {
-  page.url.pathname
-  if (textarea && !disabled) {
-    tick().then(() => {
-      if (textarea && !disabled) {
-        textarea.focus()
-      }
-    })
-  }
+afterNavigate(async () => {
+  await tick()
+  if (textarea && !disabled) textarea.focus()
 })
 
 const autoResize = () => {
@@ -482,6 +478,9 @@ const cancelRecording = () => {
           onpaste={handlePaste}
           placeholder="Send a Message"
           rows="1"
+          autocapitalize="off"
+          spellcheck="false"
+          {...{ autocorrect: 'off' }}
           disabled={disabled}
           class="flex-1 resize-none bg-transparent py-1.5 text-sm outline-none placeholder:text-gray-400 disabled:opacity-50 dark:text-white dark:placeholder:text-neutral-400"
         ></textarea>
@@ -504,7 +503,7 @@ const cancelRecording = () => {
             disabled={disabled}
             class="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-neutral-600 dark:hover:text-white"
           >
-            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 -0.5 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-14 0m7 7v4m-4 0h8M12 1a3 3 0 00-3 3v7a3 3 0 006 0V4a3 3 0 00-3-3z" />
             </svg>
           </button>

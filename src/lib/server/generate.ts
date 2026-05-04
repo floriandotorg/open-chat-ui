@@ -4,7 +4,7 @@ import { getDecryptedKey } from '$lib/server/api-key'
 import { decrypt } from '$lib/server/crypto'
 import { db } from '$lib/server/db'
 import { apiKeys, conversations, messages, systemPrompts, userSettings } from '$lib/server/db/schema'
-import { getPostSystemPrompt } from '$lib/server/prompts'
+import { formatCurrentDate, getPostSystemPrompt } from '$lib/server/prompts'
 import { getProviderFactory } from '$lib/server/providers'
 import type { ChatMessage, ChatMessageImage, ToolCallInfo } from '$lib/server/providers/types'
 import { createHub, emit, finishHub, getHub, type StreamHub } from '$lib/server/stream-hub'
@@ -127,7 +127,8 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
     baseSystemPrompt = conversation.systemPrompt ?? settings?.defaultSystemPrompt ?? undefined
   }
   const postSystemPrompt = getPostSystemPrompt(provider)
-  const resolvedSystemPrompt = baseSystemPrompt ? `${baseSystemPrompt}\n\n${postSystemPrompt}` : postSystemPrompt
+  const combinedSystemPrompt = baseSystemPrompt ? `${baseSystemPrompt}\n\n${postSystemPrompt}` : postSystemPrompt
+  const resolvedSystemPrompt = combinedSystemPrompt.replaceAll('{CURRENT_DATE}', formatCurrentDate())
 
   const anthropicClient = provider === 'anthropic' ? new Anthropic({ apiKey: decryptedKey }) : null
   const allFileIds: string[] = []

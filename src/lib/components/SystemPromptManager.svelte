@@ -110,6 +110,9 @@ const deletePrompt = async (id: string) => {
                 placeholder="You are a helpful assistant..."
                 class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
               ></textarea>
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                Use <code class="rounded bg-gray-100 px-1 py-0.5 font-mono text-[11px] dark:bg-gray-800">{'{CURRENT_DATE}'}</code> to insert the current date and time at request time.
+              </p>
               <div class="flex gap-2">
                 <button
                   onclick={saveEdit}
