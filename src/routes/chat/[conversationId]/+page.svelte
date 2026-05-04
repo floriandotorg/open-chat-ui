@@ -116,11 +116,14 @@ $effect(() => {
   chat.thinkingEffort = ctx.thinkingEffort
 })
 
+let prevStreaming = false
 $effect(() => {
-  ctx.generatingConversationId = chat.isStreaming ? data.conversation.id : null
-  if (!chat.isStreaming) {
+  const streaming = chat.isStreaming
+  ctx.generatingConversationId = streaming ? data.conversation.id : null
+  if (prevStreaming && !streaming) {
     invalidateAll()
   }
+  prevStreaming = streaming
 })
 
 $effect(() => {

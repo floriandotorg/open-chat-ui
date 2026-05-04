@@ -15,6 +15,7 @@ let {
 
 let models = $state<ModelInfo[]>([])
 let open = $state(false)
+let modelsLoaded = false
 
 const fetchAllModels = async () => {
   const available = providers.filter(p => p.hasKey)
@@ -28,25 +29,31 @@ const fetchAllModels = async () => {
   models = results.flat()
 
   if (models.length > 0 && !models.find(m => m.id === selectedModel)) {
-    selectedModel = models[0].id
+    const first = models[0]
+    selectedModel = first.id
+    onmodelchange?.(first.id, first.name)
+  } else {
+    const current = models.find(m => m.id === selectedModel)
+    if (current && current.name !== modelNameHint) {
+      onmodelchange?.(current.id, current.name)
+    }
   }
 }
 
-$effect(() => {
-  fetchAllModels()
-})
-
-const selected = $derived(models.find(m => m.id === selectedModel))
-const label = $derived(selected?.name ?? (modelNameHint || 'Select model'))
-
-$effect(() => {
-  if (selected && onmodelchange) {
-    onmodelchange(selected.id, selected.name)
+const toggleOpen = () => {
+  open = !open
+  if (open && !modelsLoaded) {
+    modelsLoaded = true
+    fetchAllModels()
   }
-})
+}
+
+const label = $derived(models.find(m => m.id === selectedModel)?.name ?? (modelNameHint || 'Select model'))
 
 const select = (id: string) => {
   selectedModel = id
+  const found = models.find(m => m.id === id)
+  if (found) onmodelchange?.(found.id, found.name)
   open = false
 }
 
@@ -63,7 +70,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 <div class="relative">
   <button
-    onclick={() => open = !open}
+    onclick={toggleOpen}
     class="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700 dark:text-white"
     title={label}
     aria-label="Model: {label}"
