@@ -18,7 +18,8 @@ let {
 let content = $state('')
 let textarea: HTMLTextAreaElement | undefined = $state()
 let fileInput: HTMLInputElement | undefined = $state()
-let dictationState = $state<'idle' | 'recording' | 'transcribing'>('idle')
+let dictationState = $state<'idle' | 'recording' | 'transcribing' | 'error'>('idle')
+let dictationError = $state('')
 let recordingSeconds = $state(0)
 let waveformBars = $state<number[]>([])
 let mediaRecorder: MediaRecorder | undefined
@@ -290,17 +291,33 @@ const transcribeAudio = async () => {
     if (!res.ok) {
       const err = await res.json().catch(() => ({ message: 'Dictation failed' }))
       console.error('Dictation error:', err.message ?? err)
-    } else {
-      const { text } = await res.json()
-      if (text) {
-        content += (content && !content.endsWith(' ') ? ' ' : '') + text
-      }
+      dictationError = err.message ?? 'Dictation failed'
+      dictationState = 'error'
+      return
     }
+    const { text } = await res.json()
+    if (text) {
+      content += (content && !content.endsWith(' ') ? ' ' : '') + text
+    }
+    audioChunks = []
+    dictationState = 'idle'
   } catch (err) {
     console.error('Dictation error:', err)
-  } finally {
-    dictationState = 'idle'
+    dictationError = err instanceof Error ? err.message : 'Dictation failed'
+    dictationState = 'error'
   }
+}
+
+const retryTranscription = () => {
+  if (dictationState !== 'error' || !audioChunks.length) return
+  dictationError = ''
+  transcribeAudio()
+}
+
+const discardRecording = () => {
+  audioChunks = []
+  dictationError = ''
+  dictationState = 'idle'
 }
 
 let activeStream: MediaStream | undefined
@@ -412,6 +429,35 @@ const cancelRecording = () => {
         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
       </svg>
       <span class="text-sm text-gray-500 dark:text-neutral-400">Transcribing…</span>
+    </div>
+  {:else if dictationState === 'error'}
+    <div class="mx-auto flex max-w-3xl items-center gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-900 dark:bg-red-950/40">
+      <button
+        onclick={discardRecording}
+        aria-label="Discard recording"
+        class="shrink-0 rounded-full bg-gray-200 p-2 text-gray-600 transition-colors hover:bg-gray-300 dark:bg-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-600"
+      >
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+
+      <div class="flex min-w-0 flex-1 items-center gap-2">
+        <svg class="h-4 w-4 shrink-0 text-red-500 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M4.93 19h14.14a2 2 0 001.74-3l-7.07-12.25a2 2 0 00-3.48 0L3.19 16a2 2 0 001.74 3z" />
+        </svg>
+        <span class="min-w-0 flex-1 truncate text-sm text-red-700 dark:text-red-300" title={dictationError}>
+          {dictationError || 'Transcription failed'}
+        </span>
+      </div>
+
+      <button
+        onclick={retryTranscription}
+        aria-label="Retry transcription"
+        class="shrink-0 rounded-full bg-blue-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+      >
+        Retry
+      </button>
     </div>
   {:else}
     <div
