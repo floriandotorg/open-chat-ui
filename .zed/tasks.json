@@ -1,0 +1,7 @@
+[
+  {
+    "label": "Start dev server",
+    "command": "bun --bun start",
+    "reveal": "never"
+  }
+]
