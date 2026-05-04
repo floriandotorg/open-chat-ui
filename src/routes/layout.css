@@ -82,6 +82,30 @@
   }
 
   /*
+   * iOS PWA standalone fix. In `display-mode: standalone` on iOS, WebKit
+   * fails to paint `backdrop-filter` on elements that are
+   * `position: absolute|fixed` inside an `overflow: hidden` ancestor (which
+   * describes every glass surface in this app — the chat header, input bar,
+   * sidebar header, sidebar footer, popovers). The surface degrades to its
+   * flat semi-transparent fill with no blur, only in installed-PWA mode.
+   * `will-change: backdrop-filter` nudges WebKit to promote the element to
+   * its own compositing layer so the filter has a source to sample. Scoped
+   * to iOS (`-webkit-touch-callout`) and standalone so desktop browsers
+   * don't pay the GPU layer cost. Don't replace with `transform: translateZ`
+   * — it would clobber the Tailwind translate utilities on the mobile
+   * sidebar slide-in.
+   */
+  @supports (-webkit-touch-callout: none) {
+    @media (display-mode: standalone) {
+      .liquid-glass,
+      .liquid-glass-bar-top,
+      .liquid-glass-bar-bottom {
+        will-change: backdrop-filter;
+      }
+    }
+  }
+
+  /*
    * Edge bar variants — for top/bottom bars that hug a screen edge or float
    * above scrolling content (chat header, chat input bar, sidebar header,
    * sidebar footer). Same backdrop-filter recipe as `.liquid-glass`, with
