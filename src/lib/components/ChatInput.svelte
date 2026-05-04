@@ -382,7 +382,7 @@ const cancelRecording = () => {
       </button>
 
       <div class="flex min-w-0 flex-1 items-center gap-2">
-        <div class="flex flex-1 items-center justify-center gap-[2px]" style="height: 32px;">
+        <div class="flex min-w-0 flex-1 items-center justify-center gap-[2px] overflow-hidden" style="height: 32px;">
           {#each waveformBars as bar}
             <div
               class="w-[3px] rounded-full bg-blue-500 transition-all duration-75 dark:bg-blue-400"
