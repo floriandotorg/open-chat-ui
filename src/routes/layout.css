@@ -82,27 +82,26 @@
   }
 
   /*
-   * iOS PWA standalone fix. In `display-mode: standalone` on iOS, WebKit
-   * fails to paint `backdrop-filter` on elements that are
-   * `position: absolute|fixed` inside an `overflow: hidden` ancestor (which
-   * describes every glass surface in this app — the chat header, input bar,
-   * sidebar header, sidebar footer, popovers). The surface degrades to its
-   * flat semi-transparent fill with no blur, only in installed-PWA mode.
-   * `will-change: backdrop-filter` nudges WebKit to promote the element to
-   * its own compositing layer so the filter has a source to sample. Scoped
-   * to iOS (`-webkit-touch-callout`) and standalone so desktop browsers
-   * don't pay the GPU layer cost. Don't replace with `transform: translateZ`
-   * — it would clobber the Tailwind translate utilities on the mobile
-   * sidebar slide-in.
+   * iOS PWA standalone fix — applied unconditionally because it's a no-op on
+   * engines that already paint correctly. WebKit (Mobile Safari standalone
+   * and older iOS Safari) fails to paint `backdrop-filter` on elements that
+   * are `position: absolute|fixed` inside an `overflow: hidden` ancestor
+   * — which describes every glass surface in this app. The element renders
+   * its translucent fill but skips the blur, so the surface reads as a flat
+   * tinted gauze instead of glass. Forcing the element onto its own GPU
+   * compositing layer gives the filter a source to sample.
+   *
+   * Tailwind v4 uses the CSS `translate` property (not `transform`) for the
+   * translate-x utilities, and `transition-transform` covers both, so adding
+   * `transform: translateZ(0)` here does NOT clash with the mobile sidebar
+   * slide animation. Don't switch to `will-change: backdrop-filter` — only
+   * the explicit transform is strong enough to fix iOS PWA standalone.
    */
-  @supports (-webkit-touch-callout: none) {
-    @media (display-mode: standalone) {
-      .liquid-glass,
-      .liquid-glass-bar-top,
-      .liquid-glass-bar-bottom {
-        will-change: backdrop-filter;
-      }
-    }
+  .liquid-glass,
+  .liquid-glass-bar-top,
+  .liquid-glass-bar-bottom {
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
   }
 
   /*
