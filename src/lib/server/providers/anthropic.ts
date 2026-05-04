@@ -147,7 +147,7 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
     }
 
     if (useThinking) {
-      params.thinking = { type: 'adaptive' }
+      params.thinking = { type: 'adaptive', display: 'summarized' }
       params.output_config = { effort: request.thinkingEffort }
     }
 
