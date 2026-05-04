@@ -68,19 +68,21 @@ const createMistralAdapter = (apiKey: string): LLMProvider => ({
   listModels: async () => {
     const client = new Mistral({ apiKey })
     const response = await client.models.list()
-    const models: ModelInfo[] = []
+    const seen = new Map<string, ModelInfo>()
     for (const model of response.data ?? []) {
       if (!('id' in model) || !('capabilities' in model)) continue
       if (!model.capabilities.completionChat) continue
-      models.push({
-        id: formatModelRef('mistral', model.id),
+      const id = formatModelRef('mistral', model.id)
+      if (seen.has(id)) continue
+      seen.set(id, {
+        id,
         name: ('name' in model ? model.name : null) ?? model.id,
         contextWindow: model.maxContextLength ?? 128_000,
         maxOutputTokens: 4096,
         capabilities: mapCapabilities(model.capabilities),
       })
     }
-    return models
+    return [...seen.values()]
   },
 
   async *chat(request: ChatRequest): AsyncGenerator<ChatStreamEvent> {
