@@ -5,7 +5,17 @@ import { goto, invalidateAll } from '$app/navigation'
 import { resolve } from '$app/paths'
 import ConfirmDialog from './ConfirmDialog.svelte'
 
-let { conversations, currentId, generatingConversationId }: { conversations: Conversation[]; currentId?: string; generatingConversationId?: string | null } = $props()
+let {
+  conversations,
+  currentId,
+  generatingConversationId,
+  searchQuery = $bindable(''),
+}: {
+  conversations: Conversation[]
+  currentId?: string
+  generatingConversationId?: string | null
+  searchQuery?: string
+} = $props()
 
 interface SearchHit {
   id: string
@@ -18,7 +28,6 @@ interface SearchHit {
   score: number
 }
 
-let searchQuery = $state('')
 let showDeleteDialog = $state(false)
 let deleteTarget = $state<{ id: string; title: string } | null>(null)
 let searchResults = $state<SearchHit[] | null>(null)
@@ -110,38 +119,9 @@ const confirmDelete = async () => {
   }
   await invalidateAll()
 }
-
-const clearSearch = () => {
-  searchQuery = ''
-}
 </script>
 
-<div class="px-2.5 pb-2 pt-1">
-  <div class="relative">
-    <svg class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-    </svg>
-    <input
-      type="text"
-      bind:value={searchQuery}
-      placeholder="Search chats and messages"
-      class="w-full rounded-lg bg-gray-100 py-1.5 pl-8 pr-8 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-1 focus:ring-gray-300 dark:bg-neutral-800 dark:text-white dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
-    />
-    {#if searchQuery}
-      <button
-        onclick={clearSearch}
-        aria-label="Clear search"
-        class="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-gray-400 transition hover:bg-gray-200 hover:text-gray-600 dark:text-neutral-500 dark:hover:bg-neutral-700 dark:hover:text-neutral-300"
-      >
-        <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-    {/if}
-  </div>
-</div>
-
-<nav class="flex-1 overflow-y-auto px-2.5">
+<nav class="flex-1 overflow-y-auto px-2.5 pt-[calc(env(safe-area-inset-top)+6.5rem)] pb-[calc(env(safe-area-inset-bottom)+3.75rem)]">
   {#if isSearching}
     {#if searchResults === null && searching}
       <div class="px-3 py-8 text-center text-sm text-gray-400 dark:text-neutral-500">Searching…</div>
@@ -152,7 +132,7 @@ const clearSearch = () => {
       {#each searchResults as hit (hit.id)}
         <a
           href={resolve(`/chat/${hit.id}`)}
-          class="group block rounded-xl px-3 py-2 text-sm transition-colors {hit.id === currentId ? 'bg-gray-200 dark:bg-neutral-700/70' : 'hover:bg-gray-100 dark:hover:bg-neutral-800'}"
+          class="group block rounded-xl px-3 py-2 text-sm transition-colors {hit.id === currentId ? 'bg-black/10 dark:bg-white/15' : 'hover:bg-black/5 dark:hover:bg-white/8'}"
         >
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0 flex-1">
@@ -169,7 +149,7 @@ const clearSearch = () => {
               </div>
               {#if hit.snippet}
                 <div class="mt-1 line-clamp-2 text-xs leading-snug text-gray-500 dark:text-neutral-400">
-                  <span class="mr-1 inline-block rounded bg-gray-200 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-gray-500 dark:bg-neutral-700 dark:text-neutral-400">{hit.snippetRole === 'user' ? 'You' : 'AI'}</span>
+                  <span class="mr-1 inline-block rounded bg-black/10 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-gray-500 dark:bg-white/10 dark:text-neutral-400">{hit.snippetRole === 'user' ? 'You' : 'AI'}</span>
                   {#each splitByTerms(hit.snippet, searchTerms) as seg, n (n)}{#if seg.match}<mark class="rounded-sm bg-yellow-200/80 px-0.5 text-gray-900 dark:bg-yellow-400/30 dark:text-yellow-50">{seg.text}</mark>{:else}{seg.text}{/if}{/each}
                 </div>
               {/if}
@@ -184,7 +164,7 @@ const clearSearch = () => {
             <button
               onclick={(e) => promptDelete(e, hit.id, hit.title)}
               aria-label="Delete conversation"
-              class="shrink-0 rounded-lg p-1 opacity-0 transition hover:bg-gray-300 dark:hover:bg-neutral-600 group-hover:opacity-100"
+              class="shrink-0 rounded-lg p-1 opacity-0 transition hover:bg-black/15 dark:hover:bg-white/15 group-hover:opacity-100"
             >
               <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -204,8 +184,8 @@ const clearSearch = () => {
           <a
             href={resolve(`/chat/${conv.id}`)}
             class="group flex items-center justify-between rounded-xl px-3 py-2 text-sm transition-colors {conv.id === currentId
-              ? 'bg-gray-200 dark:bg-neutral-700/70'
-              : 'hover:bg-gray-100 dark:hover:bg-neutral-800'}"
+              ? 'bg-black/10 dark:bg-white/15'
+              : 'hover:bg-black/5 dark:hover:bg-white/8'}"
           >
             <span class="truncate">{conv.title}</span>
             {#if conv.generating || conv.id === generatingConversationId}
@@ -217,7 +197,7 @@ const clearSearch = () => {
               <button
                 onclick={(e) => promptDelete(e, conv.id, conv.title)}
                 aria-label="Delete conversation"
-                class="shrink-0 rounded-lg p-1 opacity-0 transition hover:bg-gray-300 dark:hover:bg-neutral-600 group-hover:opacity-100"
+                class="shrink-0 rounded-lg p-1 opacity-0 transition hover:bg-black/15 dark:hover:bg-white/15 group-hover:opacity-100"
               >
                 <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

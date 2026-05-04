@@ -82,11 +82,11 @@ const handleKeydown = (e: KeyboardEvent) => {
   </button>
 
   {#if open}
-    <div class="absolute left-0 top-full z-50 mt-1 min-w-[240px] max-w-[320px] max-h-[400px] overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-neutral-700 dark:bg-neutral-800">
+    <div class="liquid-glass absolute left-0 top-full z-50 mt-1 min-w-[240px] max-w-[320px] max-h-[400px] overflow-y-auto rounded-xl py-1">
       {#each models as model (model.id)}
         <button
           onclick={() => select(model.id)}
-          class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700 {selectedModel === model.id ? 'text-blue-600 dark:text-blue-400 font-medium' : ''}"
+          class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-black/5 dark:hover:bg-white/10 {selectedModel === model.id ? 'text-blue-600 dark:text-blue-400 font-medium' : ''}"
         >
           <span class="flex-1 truncate">{model.name}</span>
           {#if selectedModel === model.id}

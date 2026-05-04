@@ -54,15 +54,15 @@ const handleKeydown = (e: KeyboardEvent) => {
     </button>
 
     {#if open}
-      <div class="absolute right-0 top-full z-50 mt-1 min-w-[200px] max-w-[280px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-neutral-700 dark:bg-neutral-800">
+      <div class="liquid-glass absolute right-0 top-full z-50 mt-1 min-w-[200px] max-w-[280px] rounded-xl py-1">
         {#each prompts as prompt (prompt.id)}
           <button
             onclick={() => select(prompt.id)}
-            class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700 {selectedId === prompt.id ? 'text-blue-600 dark:text-blue-400 font-medium' : ''}"
+            class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-black/5 dark:hover:bg-white/10 {selectedId === prompt.id ? 'text-blue-600 dark:text-blue-400 font-medium' : ''}"
           >
             <span class="flex-1 truncate">{prompt.title}</span>
             {#if prompt.isDefault}
-              <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-neutral-700 dark:text-gray-400">default</span>
+              <span class="shrink-0 rounded bg-black/5 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-white/10 dark:text-gray-400">default</span>
             {/if}
             {#if selectedId === prompt.id}
               <svg class="h-4 w-4 shrink-0 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">

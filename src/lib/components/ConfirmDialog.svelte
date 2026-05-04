@@ -55,7 +55,7 @@ const handleBackdropClick = (e: MouseEvent) => {
   onclose={handleClose}
   onkeydown={handleKeydown}
   onclick={handleBackdropClick}
-  class="m-auto max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-xl backdrop:bg-black/40 dark:border-neutral-700 dark:bg-neutral-800"
+  class="liquid-glass m-auto max-w-sm rounded-2xl p-6 backdrop:bg-black/40 backdrop:backdrop-blur-sm"
 >
   <h3 class="text-base font-semibold text-gray-900 dark:text-white">{title}</h3>
   {#if description}
@@ -64,7 +64,7 @@ const handleBackdropClick = (e: MouseEvent) => {
   <div class="mt-5 flex justify-end gap-2">
     <button
       onclick={handleClose}
-      class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 dark:text-neutral-300 dark:hover:bg-neutral-700"
+      class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-black/5 dark:text-neutral-300 dark:hover:bg-white/10"
     >{cancelLabel}</button>
     <button
       onclick={handleConfirm}

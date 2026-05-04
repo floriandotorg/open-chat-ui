@@ -220,8 +220,8 @@ const autoResizeEdit = () => {
 }
 </script>
 
-<div class="flex h-full flex-col">
-  <div bind:this={messageContainer} onscroll={onScroll} class="flex flex-1 flex-col-reverse overflow-y-auto px-4 py-6 lg:px-8">
+<div class="relative flex h-full flex-col">
+  <div bind:this={messageContainer} onscroll={onScroll} class="flex flex-1 flex-col-reverse overflow-y-auto px-4 pt-16 pb-32 lg:px-8">
     <div class="w-full space-y-6">
       {#each chat.messages as message (message.id)}
         <ChatMessage
@@ -305,10 +305,12 @@ const autoResizeEdit = () => {
     </div>
   </div>
 
-  <ChatInput
-    onsubmit={handleSubmit}
-    disabled={!ctx.selectedModel}
-    isStreaming={chat.isStreaming}
-    onstop={chat.stopStreaming}
-  />
+  <div class="absolute inset-x-0 bottom-0 z-10">
+    <ChatInput
+      onsubmit={handleSubmit}
+      disabled={!ctx.selectedModel}
+      isStreaming={chat.isStreaming}
+      onstop={chat.stopStreaming}
+    />
+  </div>
 </div>

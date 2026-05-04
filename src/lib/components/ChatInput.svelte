@@ -387,7 +387,7 @@ const cancelRecording = () => {
 
 <div class="px-4 pt-2 lg:px-8" style="padding-bottom: max(1rem, env(safe-area-inset-bottom))">
   {#if dictationState === 'recording'}
-    <div class="mx-auto flex max-w-3xl items-center gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-800 dark:bg-blue-950/40">
+    <div class="liquid-glass mx-auto flex max-w-3xl items-center gap-3 rounded-2xl px-4 py-3">
       <button
         onclick={cancelRecording}
         aria-label="Cancel recording"
@@ -423,7 +423,7 @@ const cancelRecording = () => {
       </button>
     </div>
   {:else if dictationState === 'transcribing'}
-    <div class="mx-auto flex max-w-3xl items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3.5 dark:border-neutral-600 dark:bg-neutral-700">
+    <div class="liquid-glass mx-auto flex max-w-3xl items-center justify-center gap-2 rounded-2xl px-4 py-3.5">
       <svg class="h-4 w-4 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -431,7 +431,7 @@ const cancelRecording = () => {
       <span class="text-sm text-gray-500 dark:text-neutral-400">Transcribing…</span>
     </div>
   {:else if dictationState === 'error'}
-    <div class="mx-auto flex max-w-3xl items-center gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-900 dark:bg-red-950/40">
+    <div class="liquid-glass mx-auto flex max-w-3xl items-center gap-3 rounded-2xl px-4 py-3 ring-1 ring-red-400/40 dark:ring-red-500/30">
       <button
         onclick={discardRecording}
         aria-label="Discard recording"
@@ -461,7 +461,7 @@ const cancelRecording = () => {
     </div>
   {:else}
     <div
-      class="rounded-2xl border bg-gray-50 transition-colors dark:bg-neutral-700 {isDragging ? 'border-blue-400 bg-blue-50 dark:border-blue-500 dark:bg-blue-950/30' : 'border-gray-200 dark:border-neutral-600'}"
+      class="liquid-glass mx-auto max-w-3xl rounded-2xl transition-colors {isDragging ? 'ring-2 ring-blue-400 dark:ring-blue-500' : ''}"
     >
       {#if pendingImages.length > 0 || pendingFiles.length > 0 || uploadingCount > 0}
         <div class="flex flex-wrap gap-2 px-4 pt-3">
@@ -585,7 +585,7 @@ const cancelRecording = () => {
 
 {#if isDragging}
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-blue-500/10 backdrop-blur-[2px]">
-    <div class="pointer-events-none flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-blue-400 bg-white/80 px-16 py-10 shadow-lg dark:border-blue-500 dark:bg-neutral-800/80">
+    <div class="liquid-glass pointer-events-none flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed !border-blue-400 px-16 py-10 dark:!border-blue-500">
       <svg class="h-10 w-10 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
       </svg>

@@ -56,11 +56,11 @@ const barCount = (effort: ThinkingEffort): number => ({ none: 0, low: 1, medium:
   </button>
 
   {#if open}
-    <div class="absolute right-0 top-full z-50 mt-1 min-w-[140px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-neutral-700 dark:bg-neutral-800">
+    <div class="liquid-glass absolute right-0 top-full z-50 mt-1 min-w-[140px] rounded-xl py-1">
       {#each efforts as effort (effort)}
         <button
           onclick={() => select(effort)}
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700 {thinkingEffort === effort ? 'text-violet-600 dark:text-violet-400 font-medium' : ''}"
+          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-black/5 dark:hover:bg-white/10 {thinkingEffort === effort ? 'text-violet-600 dark:text-violet-400 font-medium' : ''}"
         >
           <div class="flex items-end gap-0.5 w-5">
             {#each { length: 4 } as _, n (n)}

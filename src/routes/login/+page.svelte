@@ -5,8 +5,8 @@ import type { ActionData } from './$types'
 let { form }: { form: ActionData } = $props()
 </script>
 
-<div class="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-950">
-  <div class="w-full max-w-sm space-y-6 rounded-xl bg-white p-8 shadow-lg dark:bg-gray-900">
+<div class="login-bg flex min-h-screen items-center justify-center px-4">
+  <div class="liquid-glass w-full max-w-sm space-y-6 rounded-2xl p-8">
     <div class="text-center">
       <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Open Chat UI</h1>
       <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Sign in to your account</p>
@@ -47,3 +47,22 @@ let { form }: { form: ActionData } = $props()
     {/if}
   </div>
 </div>
+
+<style>
+  .login-bg {
+    background:
+      radial-gradient(at 20% 20%, rgba(99, 102, 241, 0.35), transparent 50%),
+      radial-gradient(at 80% 0%, rgba(236, 72, 153, 0.25), transparent 50%),
+      radial-gradient(at 80% 80%, rgba(14, 165, 233, 0.3), transparent 50%),
+      linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  }
+  @media (prefers-color-scheme: dark) {
+    .login-bg {
+      background:
+        radial-gradient(at 20% 20%, rgba(99, 102, 241, 0.4), transparent 50%),
+        radial-gradient(at 80% 0%, rgba(236, 72, 153, 0.25), transparent 50%),
+        radial-gradient(at 80% 80%, rgba(14, 165, 233, 0.3), transparent 50%),
+        linear-gradient(180deg, #0b0f1a 0%, #1a1530 100%);
+    }
+  }
+</style>

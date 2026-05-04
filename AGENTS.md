@@ -50,6 +50,50 @@ scripts/add-user.ts           # CLI user creation script
 - **Code execution**: Anthropic provider supports sandboxed code execution with file output. Container IDs are persisted on conversations for session continuity.
 - **Model management**: Users can enable/disable specific models per provider and set a dedicated title-generation model via the `provider_models` table and settings.
 
+## Style guide
+
+The app uses an iOS-style **liquid glass** aesthetic on every surface that floats over content. Solid surfaces (page bodies, message bubbles, sidebar entries, settings cards) stay opaque so the glass surfaces have something to refract.
+
+### Liquid glass utilities (defined in `src/routes/layout.css`)
+
+| Class | Use for |
+|-------|---------|
+| `.liquid-glass` | Floating cards, popovers, dialogs, dropdown panels, the chat input bar, the mobile sidebar overlay. Pair with a `rounded-*` utility. Auto-adapts to color scheme. |
+| `.liquid-glass-bar-top` | Top edge bars hugging the viewport / parent top (chat header, sidebar header). Hairline divider + soft drop shadow on the bottom edge. |
+| `.liquid-glass-bar-bottom` | Bottom edge bars hugging the viewport / parent bottom (sidebar footer). Hairline divider + soft drop shadow on the top edge. |
+| `.sidebar-surface` | Opaque host for inner glass bars on the desktop sidebar. Provides the contrast the bars need to read as glass. **Has no `backdrop-filter` on purpose** — see the nesting rule below. |
+| `.tts-glass` (scoped, `TtsPlayer.svelte`) | Always-dark glass for the TTS player which renders white-on-dark in both color schemes. Don't reuse — prefer `.liquid-glass`. |
+
+All glass variants use `backdrop-filter: blur(40-50px) saturate(1.8)` plus a multi-layer box-shadow stack: a 0.5px outline, a soft drop shadow, an inner top highlight, and an inner bottom shadow. Never override the shadow or `backdrop-filter`; if you need a different look, add a new utility instead of forking values.
+
+**Nesting rule (important).** A `backdrop-filter` parent creates a containing block that weakens any child `backdrop-filter`. If you want inner glass bars (e.g. a sidebar header that the list scrolls behind), the parent must NOT have `backdrop-filter`. That's why the desktop sidebar uses `.sidebar-surface` (solid background) instead of `.liquid-glass` — the inner `.liquid-glass-bar-top` / `.liquid-glass-bar-bottom` need an opaque-ish backdrop to read as proper glass. Mobile sidebar still uses `.liquid-glass` because it overlays chat content; the inner bars there are intentionally subtler.
+
+### Layering rules
+
+1. **Floating bars sit absolute over scrollable content.** The chat header (`absolute inset-x-0 top-0 z-20`) and the chat input bar (`absolute inset-x-0 bottom-0 z-10`) overlay the message scroll viewport. The viewport gets matching `pt-*` / `pb-*` padding so messages don't sit permanently behind the bars but still scroll under them, which is what makes glass feel alive.
+2. **Popovers are `.liquid-glass` with `rounded-xl`.** All three pickers (`ModelPicker`, `SystemPromptPicker`, `ThinkingEffortPicker`) follow the same template: a hover overlay backdrop button (`fixed inset-0 z-40`), a `.liquid-glass` panel (`absolute z-50`), and item hover states using `hover:bg-black/5 dark:hover:bg-white/10` (translucent so the blur stays visible).
+3. **Modals dim and blur the page.** `ConfirmDialog` uses `backdrop:bg-black/40 backdrop:backdrop-blur-sm` to fog the page, and the dialog itself is `.liquid-glass`.
+4. **Sidebar layering.** Desktop sidebar uses `.sidebar-surface` for the shell (solid, with a hairline right border), `.liquid-glass-bar-top` for the header (logo + actions + search), and `.liquid-glass-bar-bottom` for the footer (user + settings). The conversation list is the sole scroll viewport; its `<nav>` carries `pt-[calc(env(safe-area-inset-top)+6.5rem)]` and `pb-[calc(env(safe-area-inset-bottom)+3.75rem)]` so items can slide behind both bars instead of stopping at them. The resize handle's static divider is transparent (the surface's right border serves it) and turns blue on hover/drag. Mobile sidebar uses `.liquid-glass` for the shell so the chat blurs through it when it slides in.
+5. **Login page** uses a multi-radial-gradient page background to give the glass card something colorful to refract.
+
+### Tints and hover states on glass
+
+Never stack `bg-white` / `bg-gray-*` / `dark:bg-neutral-*` on top of `.liquid-glass` — it cancels the blur. Use translucent tints instead:
+
+- Item hover: `hover:bg-black/5 dark:hover:bg-white/10`
+- Active tab pill: `bg-white/80 dark:bg-white/10`
+- Chips/badges on glass: `bg-black/5 dark:bg-white/10`
+
+### Typography and color
+
+- Default text colors stay the same as the rest of the app (`text-gray-900 dark:text-gray-100`). Glass is light enough in light mode and dark enough in dark mode that body text stays legible without overrides.
+- Accent colors are: blue-500/600 (primary action), violet-500/600 (thinking), emerald-500/600 (files, success), red-500/600 (destructive). Avoid introducing new accent hues.
+
+### When NOT to use glass
+
+- Message bubbles, conversation list rows, settings cards, form fields, buttons inside cards. These are content, not chrome.
+- Anything that doesn't overlay other content — glass on a solid background just looks like a tinted box and adds GPU cost.
+
 ## Testing and quality
 
 The default username is `test@example.com` and the default password is `test`.

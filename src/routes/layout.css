@@ -47,6 +47,110 @@
 }
 
 @layer components {
+  /*
+   * Liquid glass — translucent, frosted surfaces that float over content.
+   * Adapts to the active color scheme. Use for any surface that overlays
+   * scrolling/scrollable content (top bars, input bars, popovers, dialogs,
+   * floating panels). Pair with a border-radius utility on the element.
+   */
+  .liquid-glass {
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(40px) saturate(1.8);
+    -webkit-backdrop-filter: blur(40px) saturate(1.8);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow:
+      0 0 0 0.5px rgba(0, 0, 0, 0.04),
+      0 8px 32px rgba(0, 0, 0, 0.1),
+      0 2px 8px rgba(0, 0, 0, 0.05),
+      inset 0 1px 0 rgba(255, 255, 255, 0.7),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.04);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .liquid-glass {
+      background: rgba(30, 30, 32, 0.55);
+      backdrop-filter: blur(40px) saturate(1.8) brightness(1.1);
+      -webkit-backdrop-filter: blur(40px) saturate(1.8) brightness(1.1);
+      border-color: rgba(255, 255, 255, 0.1);
+      box-shadow:
+        0 0 0 0.5px rgba(255, 255, 255, 0.06),
+        0 8px 32px rgba(0, 0, 0, 0.4),
+        0 2px 8px rgba(0, 0, 0, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.15);
+    }
+  }
+
+  /*
+   * Edge bar variants — for top/bottom bars that hug a screen edge or float
+   * above scrolling content (chat header, chat input bar, sidebar header,
+   * sidebar footer). Same backdrop-filter recipe as `.liquid-glass`, with
+   * three of four borders dropped and the drop-shadow projected only on the
+   * inward edge so the bar reads as a layered surface above the scroll.
+   */
+  .liquid-glass-bar-top {
+    background: rgba(255, 255, 255, 0.5);
+    backdrop-filter: blur(40px) saturate(1.8);
+    -webkit-backdrop-filter: blur(40px) saturate(1.8);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow:
+      0 6px 16px -8px rgba(0, 0, 0, 0.18),
+      0 1px 0 rgba(0, 0, 0, 0.04),
+      inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  }
+
+  .liquid-glass-bar-bottom {
+    background: rgba(255, 255, 255, 0.5);
+    backdrop-filter: blur(40px) saturate(1.8);
+    -webkit-backdrop-filter: blur(40px) saturate(1.8);
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow:
+      0 -6px 16px -8px rgba(0, 0, 0, 0.18),
+      0 -1px 0 rgba(0, 0, 0, 0.04),
+      inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .liquid-glass-bar-top,
+    .liquid-glass-bar-bottom {
+      background: rgba(30, 30, 32, 0.55);
+      backdrop-filter: blur(40px) saturate(1.8) brightness(1.1);
+      -webkit-backdrop-filter: blur(40px) saturate(1.8) brightness(1.1);
+    }
+    .liquid-glass-bar-top {
+      border-bottom-color: rgba(255, 255, 255, 0.08);
+      box-shadow:
+        0 6px 16px -8px rgba(0, 0, 0, 0.5),
+        0 1px 0 rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    }
+    .liquid-glass-bar-bottom {
+      border-top-color: rgba(255, 255, 255, 0.08);
+      box-shadow:
+        0 -6px 16px -8px rgba(0, 0, 0, 0.5),
+        0 -1px 0 rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    }
+  }
+
+  /*
+   * Sidebar surface — opaque-ish backdrop that hosts inner glass bars.
+   * Deliberately has NO backdrop-filter so children's `backdrop-filter`
+   * is not weakened by a parent containing-block. Use only on the
+   * sidebar shell (`<aside>`).
+   */
+  .sidebar-surface {
+    background-color: rgb(249, 250, 251);
+    border-right: 1px solid rgba(0, 0, 0, 0.06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .sidebar-surface {
+      background-color: rgb(23, 23, 23);
+      border-right-color: rgba(255, 255, 255, 0.06);
+    }
+  }
+
   .prose :first-child {
     margin-top: 0;
   }
