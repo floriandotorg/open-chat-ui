@@ -17,11 +17,10 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "auth:schema": "bun --bun better-auth generate --config src/lib/server/auth.ts --output src/lib/server/db/auth.schema.ts --yes",
+    "auth:schema": "bunx --bun @better-auth/cli@latest generate --config src/lib/server/auth.ts --output src/lib/server/db/auth.schema.ts --yes",
     "user:add": "bun scripts/add-user.ts"
   },
   "devDependencies": {
-    "@better-auth/cli": "~1.4.21",
     "@biomejs/biome": "2.4.14",
     "@sveltejs/kit": "^2.59.0",
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
