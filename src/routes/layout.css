@@ -82,27 +82,26 @@
   }
 
   /*
-   * iOS PWA standalone fix — applied unconditionally because it's a no-op on
-   * engines that already paint correctly. WebKit (Mobile Safari standalone
-   * and older iOS Safari) fails to paint `backdrop-filter` on elements that
-   * are `position: absolute|fixed` inside an `overflow: hidden` ancestor
-   * — which describes every glass surface in this app. The element renders
-   * its translucent fill but skips the blur, so the surface reads as a flat
-   * tinted gauze instead of glass. Forcing the element onto its own GPU
-   * compositing layer gives the filter a source to sample.
+   * iOS Safari notes for `backdrop-filter`. WebKit silently drops the blur
+   * (renders only the translucent fill) in two situations that this app's
+   * structure has historically tripped over. Both are addressed structurally
+   * — don't try to paper over them with `transform: translateZ(0)` or
+   * `will-change`; those don't fix either case on iOS Safari.
    *
-   * Tailwind v4 uses the CSS `translate` property (not `transform`) for the
-   * translate-x utilities, and `transition-transform` covers both, so adding
-   * `transform: translateZ(0)` here does NOT clash with the mobile sidebar
-   * slide animation. Don't switch to `will-change: backdrop-filter` — only
-   * the explicit transform is strong enough to fix iOS PWA standalone.
+   *  1. NESTED backdrop-filter. A parent with `backdrop-filter` becomes a
+   *     stacking context whose children's `backdrop-filter` can only sample
+   *     the parent's already-blurred output, which iOS Safari 18 collapses
+   *     to nothing. Fix: never put a `.liquid-glass*` element inside another
+   *     `.liquid-glass*` element. The sidebar shell uses `.sidebar-surface`
+   *     (no backdrop-filter) so the inner `.liquid-glass-bar-*` bars work.
+   *
+   *  2. `overflow: hidden` ANCESTOR. backdrop-filter cannot reach past an
+   *     ancestor's clipping context, so any glass element inside an
+   *     `overflow: hidden` chain renders as a flat gauze on iOS. Fix: keep
+   *     the chat layout's outer wrappers `overflow: visible` (use `min-h-0`
+   *     where flex children need to shrink) and let only the actual scroll
+   *     viewport own the clipping. See `src/routes/chat/+layout.svelte`.
    */
-  .liquid-glass,
-  .liquid-glass-bar-top,
-  .liquid-glass-bar-bottom {
-    -webkit-transform: translateZ(0);
-    transform: translateZ(0);
-  }
 
   /*
    * Edge bar variants — for top/bottom bars that hug a screen edge or float

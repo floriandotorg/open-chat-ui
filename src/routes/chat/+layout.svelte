@@ -187,7 +187,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
 
   {#if sidebarOpen || isMobile}
     <aside
-      class="{isMobile ? `fixed inset-y-0 left-0 z-50 w-[280px] liquid-glass transition-transform duration-200 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}` : 'sidebar-surface relative shrink-0'} flex flex-col"
+      class="sidebar-surface flex flex-col {isMobile ? `fixed inset-y-0 left-0 z-50 w-[280px] transition-transform duration-200 ease-in-out ${sidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}` : 'relative shrink-0'}"
       style={isMobile ? undefined : `width: ${sidebarWidth}px`}
     >
       <div class="liquid-glass-bar-top absolute inset-x-0 top-0 z-10" style="padding-top: max(0.75rem, env(safe-area-inset-top))">
@@ -271,7 +271,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
     </aside>
   {/if}
 
-  <main class="relative flex flex-1 flex-col overflow-hidden">
+  <main class="relative flex min-h-0 flex-1 flex-col">
     <header class="liquid-glass-bar-top absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 px-4 py-2.5" style="padding-top: max(0.625rem, env(safe-area-inset-top))">
       <div class="flex items-center gap-3">
         {#if !sidebarOpen || isMobile}
@@ -303,7 +303,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
     {#if newChatError}
       <div class="absolute inset-x-4 top-14 z-30 rounded-lg bg-red-50 px-3 py-1.5 text-sm text-red-600 shadow-md dark:bg-red-900/40 dark:text-red-400">{newChatError}</div>
     {/if}
-    <div class="flex-1 overflow-hidden">
+    <div class="min-h-0 flex-1">
       {@render children()}
     </div>
   </main>
