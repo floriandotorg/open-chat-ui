@@ -10,6 +10,7 @@ const toSettings = (row: typeof userSettings.$inferSelect) => ({
   defaultSystemPrompt: row.defaultSystemPrompt,
   defaultModel: normalizeModelRef(row.defaultProvider, row.defaultModel),
   titleModel: row.titleModel,
+  dictationProvider: row.dictationProvider ?? 'mistral',
 })
 
 export const GET: RequestHandler = async ({ locals }) => {
@@ -24,6 +25,7 @@ export const GET: RequestHandler = async ({ locals }) => {
           defaultSystemPrompt: null,
           defaultModel: null,
           titleModel: null,
+          dictationProvider: 'mistral',
         },
   )
 }
@@ -41,6 +43,7 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
         ...(body.defaultSystemPrompt !== undefined && { defaultSystemPrompt: body.defaultSystemPrompt }),
         ...(body.defaultModel !== undefined && { defaultModel: body.defaultModel }),
         ...(body.titleModel !== undefined && { titleModel: body.titleModel }),
+        ...(body.dictationProvider !== undefined && { dictationProvider: body.dictationProvider }),
         updatedAt: new Date(),
       })
       .where(eq(userSettings.userId, userId))
@@ -55,6 +58,7 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
       defaultSystemPrompt: body.defaultSystemPrompt ?? null,
       defaultModel: body.defaultModel ?? null,
       titleModel: body.titleModel ?? null,
+      dictationProvider: body.dictationProvider ?? 'mistral',
     })
     .returning()
 

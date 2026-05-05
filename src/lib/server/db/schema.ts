@@ -131,6 +131,7 @@ export const userSettings = sqliteTable('user_settings', {
   defaultProvider: text('default_provider'),
   defaultModel: text('default_model'),
   titleModel: text('title_model'),
+  dictationProvider: text('dictation_provider').default('mistral'),
   updatedAt: integer('updated_at', { mode: 'timestamp' })
     .notNull()
     .$defaultFn(() => new Date()),

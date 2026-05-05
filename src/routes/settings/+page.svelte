@@ -13,6 +13,19 @@ type Tab = (typeof TABS)[number]
 
 let { data, form }: { data: PageData; form: ActionData } = $props()
 let titleModel = $state('')
+let dictationProvider = $state<'mistral' | 'elevenlabs'>('mistral')
+let savingDictationProvider = $state(false)
+
+const saveDictationProvider = async (value: 'mistral' | 'elevenlabs') => {
+  savingDictationProvider = true
+  dictationProvider = value
+  await fetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dictationProvider: value }),
+  })
+  savingDictationProvider = false
+}
 
 const activeTab = $derived.by<Tab>(() => {
   const tab = page.url.searchParams.get('tab')
@@ -27,6 +40,10 @@ const setTab = (tab: Tab) => {
 
 $effect(() => {
   titleModel = data.settings?.titleModel ?? ''
+})
+
+$effect(() => {
+  dictationProvider = (data.settings?.dictationProvider as 'mistral' | 'elevenlabs') ?? 'mistral'
 })
 </script>
 
@@ -64,6 +81,28 @@ $effect(() => {
       <p class="text-sm text-gray-500 dark:text-gray-400">
         Configure API keys for tools that models can use during conversations.
       </p>
+
+      <div class="rounded-lg border border-gray-200 p-4 dark:border-gray-800">
+        <h3 class="mb-1 text-sm font-medium">Dictation Provider</h3>
+        <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+          Service used to transcribe voice input from the chat composer. Requires a configured API key.
+        </p>
+        <div class="flex gap-2">
+          {#each [['mistral', 'Mistral Voxtral'], ['elevenlabs', 'ElevenLabs Scribe']] as const as [id, label] (id)}
+            <button
+              type="button"
+              onclick={() => saveDictationProvider(id)}
+              disabled={savingDictationProvider}
+              class="flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 {dictationProvider === id
+                ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-300'
+                : 'border-gray-300 hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800'}"
+            >
+              {label}
+            </button>
+          {/each}
+        </div>
+      </div>
+
       {#each data.toolServices as provider (provider.id)}
         <ApiKeyForm {provider} />
       {/each}
