@@ -48,9 +48,11 @@ let queueMounted = $state(false)
 
 const SCROLL_THRESHOLD = 40
 
+const distanceFromBottom = (el: HTMLElement) => el.scrollHeight - el.clientHeight - el.scrollTop
+
 const onScroll = () => {
   if (!messageContainer) return
-  stickToBottom = messageContainer.scrollTop >= -SCROLL_THRESHOLD
+  stickToBottom = distanceFromBottom(messageContainer) <= SCROLL_THRESHOLD
 }
 
 chat.onFirstReply = async (conversationId: string) => {
@@ -134,7 +136,7 @@ $effect(() => {
   void chat.streamingThinking
   void chat.messageQueue.length
   if (stickToBottom && messageContainer) {
-    messageContainer.scrollTop = 0
+    messageContainer.scrollTop = messageContainer.scrollHeight
   }
 })
 
@@ -221,8 +223,8 @@ const autoResizeEdit = () => {
 </script>
 
 <div class="relative flex h-full flex-col">
-  <div bind:this={messageContainer} onscroll={onScroll} class="flex flex-1 flex-col-reverse overflow-y-auto px-4 pt-16 pb-32 lg:px-8">
-    <div class="w-full space-y-6">
+  <div bind:this={messageContainer} onscroll={onScroll} class="flex flex-1 flex-col overflow-y-auto px-4 pt-16 pb-32 lg:px-8">
+    <div class="mt-auto w-full space-y-6">
       {#each chat.messages as message (message.id)}
         <ChatMessage
           {message}
