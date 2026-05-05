@@ -10,3 +10,4 @@ services:
       - ORIGIN=http://localhost:3000
       - BETTER_AUTH_SECRET=change-me
       - ENCRYPTION_SECRET=change-me-too
+      - IDLE_TIMEOUT=120

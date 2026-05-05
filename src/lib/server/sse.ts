@@ -1,9 +1,22 @@
 import { type StreamHub, subscribe } from '$lib/server/stream-hub'
 
+const HEARTBEAT_MS = 15000
+
 export const hubToSSE = (hub: StreamHub, cursor = 0): Response => {
   const encoder = new TextEncoder()
+  const heartbeatBytes = encoder.encode(': keepalive\n\n')
   let unsubscribe: (() => void) | null = null
+  let heartbeat: ReturnType<typeof setInterval> | null = null
   let closed = false
+
+  const teardown = () => {
+    if (heartbeat) {
+      clearInterval(heartbeat)
+      heartbeat = null
+    }
+    unsubscribe?.()
+    unsubscribe = null
+  }
 
   const stream = new ReadableStream({
     start(controller) {
@@ -13,15 +26,26 @@ export const hubToSSE = (hub: StreamHub, cursor = 0): Response => {
           controller.enqueue(encoder.encode(`id: ${index}\ndata: ${JSON.stringify(event)}\n\n`))
         } catch {
           closed = true
-          unsubscribe?.()
+          teardown()
         }
       }
+      controller.enqueue(heartbeatBytes)
+      heartbeat = setInterval(() => {
+        if (closed) return
+        try {
+          controller.enqueue(heartbeatBytes)
+        } catch {
+          closed = true
+          teardown()
+        }
+      }, HEARTBEAT_MS)
       unsubscribe = subscribe(hub, {
         cursor,
         onEvent: send,
         onClose: () => {
           if (closed) return
           closed = true
+          teardown()
           try {
             controller.close()
           } catch {}
@@ -30,7 +54,7 @@ export const hubToSSE = (hub: StreamHub, cursor = 0): Response => {
     },
     cancel() {
       closed = true
-      unsubscribe?.()
+      teardown()
     },
   })
 
