@@ -387,7 +387,7 @@ const cancelRecording = () => {
 
 <div class="px-4 pt-2 lg:px-8" style="padding-bottom: max(1rem, env(safe-area-inset-bottom))">
   {#if dictationState === 'recording'}
-    <div class="liquid-glass mx-auto flex max-w-3xl items-center gap-3 rounded-2xl px-4 py-3">
+    <div class="liquid-glass mx-auto flex w-full max-w-3xl items-center gap-3 rounded-2xl px-4 py-3">
       <button
         onclick={cancelRecording}
         aria-label="Cancel recording"
@@ -423,7 +423,7 @@ const cancelRecording = () => {
       </button>
     </div>
   {:else if dictationState === 'transcribing'}
-    <div class="liquid-glass mx-auto flex max-w-3xl items-center justify-center gap-2 rounded-2xl px-4 py-3.5">
+    <div class="liquid-glass mx-auto flex w-full max-w-3xl items-center justify-center gap-2 rounded-2xl px-4 py-3.5">
       <svg class="h-4 w-4 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -431,7 +431,7 @@ const cancelRecording = () => {
       <span class="text-sm text-gray-500 dark:text-neutral-400">Transcribing…</span>
     </div>
   {:else if dictationState === 'error'}
-    <div class="liquid-glass mx-auto flex max-w-3xl items-center gap-3 rounded-2xl px-4 py-3 ring-1 ring-red-400/40 dark:ring-red-500/30">
+    <div class="liquid-glass mx-auto flex w-full max-w-3xl items-center gap-3 rounded-2xl px-4 py-3 ring-1 ring-red-400/40 dark:ring-red-500/30">
       <button
         onclick={discardRecording}
         aria-label="Discard recording"
