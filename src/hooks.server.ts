@@ -1,8 +1,15 @@
 import { auth } from '$lib/server/auth'
+import { reapStaleGenerations } from '$lib/server/reaper'
 import { building, dev } from '$app/environment'
 import type { Handle, HandleServerError } from '@sveltejs/kit'
 import { redirect } from '@sveltejs/kit'
 import { svelteKitHandler } from 'better-auth/svelte-kit'
+
+if (!building) {
+  reapStaleGenerations().catch(err => {
+    console.error('[reaper] startup reap failed:', err)
+  })
+}
 
 export const handleError: HandleServerError = ({ error, event, status, message }) => {
   if (status >= 500) {

@@ -33,8 +33,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     throw error(404, 'Conversation not found')
   }
 
-  if (getHub(conversationId)) {
-    throw error(409, 'Conversation is already generating')
+  const existingHub = getHub(conversationId)
+  if (existingHub) {
+    if (existingHub.userId !== userId) {
+      throw error(403, 'Forbidden')
+    }
+    return hubToSSE(existingHub)
   }
 
   const allMsgs = await db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt))
@@ -49,8 +53,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const ancestorPath = getAncestorPath(userParentId, allMsgs)
   const historyIds = ancestorPath.map(m => m.id)
-
-  await db.update(conversations).set({ generating: true }).where(eq(conversations.id, conversationId))
 
   const assistantMsgId = crypto.randomUUID()
   const hub = startGeneration({

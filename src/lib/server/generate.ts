@@ -81,14 +81,19 @@ export const startGeneration = (params: GenerationParams): StreamHub => {
   const existing = getHub(params.conversationId)
   if (existing) return existing
   const hub = createHub(params.conversationId, params.userId)
-  runGeneration(hub, params).catch(async err => {
-    const msg = err instanceof Error ? err.message : 'Generation error'
-    emit(hub, { type: 'error', error: msg })
+  ;(async () => {
     try {
-      await db.update(conversations).set({ generating: false }).where(eq(conversations.id, params.conversationId))
-    } catch {}
-    finishHub(hub)
-  })
+      await db.update(conversations).set({ generating: true }).where(eq(conversations.id, params.conversationId))
+      await runGeneration(hub, params)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Generation error'
+      emit(hub, { type: 'error', error: msg })
+      try {
+        await db.update(conversations).set({ generating: false }).where(eq(conversations.id, params.conversationId))
+      } catch {}
+      finishHub(hub)
+    }
+  })()
   return hub
 }
 
