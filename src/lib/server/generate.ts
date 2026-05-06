@@ -309,8 +309,6 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
     await db
       .update(conversations)
       .set({
-        defaultProvider: provider,
-        defaultModel: modelRef,
         updatedAt: new Date(),
         activeBranches: JSON.stringify(existingBranches),
         generating: false,

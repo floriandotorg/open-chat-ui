@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { ModelInfo, ProviderInfo } from '$lib/types'
+import { onMount } from 'svelte'
 
 let {
   providers,
@@ -14,8 +15,8 @@ let {
 } = $props()
 
 let models = $state<ModelInfo[]>([])
+let loaded = $state(false)
 let open = $state(false)
-let modelsLoaded = false
 
 const fetchAllModels = async () => {
   const available = providers.filter(p => p.hasKey)
@@ -27,28 +28,28 @@ const fetchAllModels = async () => {
     }),
   )
   models = results.flat()
+  loaded = true
 
-  if (models.length > 0 && !models.find(m => m.id === selectedModel)) {
-    const first = models[0]
-    selectedModel = first.id
-    onmodelchange?.(first.id, first.name)
-  } else {
-    const current = models.find(m => m.id === selectedModel)
-    if (current && current.name !== modelNameHint) {
-      onmodelchange?.(current.id, current.name)
-    }
+  const current = models.find(m => m.id === selectedModel)
+  if (selectedModel && !current) {
+    selectedModel = ''
+    onmodelchange?.('', '')
+    return
+  }
+  if (current && current.name !== modelNameHint) {
+    onmodelchange?.(current.id, current.name)
   }
 }
+
+onMount(() => {
+  fetchAllModels()
+})
 
 const toggleOpen = () => {
   open = !open
-  if (open && !modelsLoaded) {
-    modelsLoaded = true
-    fetchAllModels()
-  }
 }
 
-const label = $derived(models.find(m => m.id === selectedModel)?.name ?? (modelNameHint || 'Select model'))
+const label = $derived(models.find(m => m.id === selectedModel)?.name ?? (selectedModel ? modelNameHint || 'Select model' : 'Select model'))
 
 const select = (id: string) => {
   selectedModel = id
@@ -96,8 +97,10 @@ const handleKeydown = (e: KeyboardEvent) => {
           {/if}
         </button>
       {/each}
-      {#if models.length === 0}
+      {#if loaded && models.length === 0}
         <div class="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">No API keys configured</div>
+      {:else if !loaded}
+        <div class="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">Loading models...</div>
       {/if}
     </div>
   {/if}

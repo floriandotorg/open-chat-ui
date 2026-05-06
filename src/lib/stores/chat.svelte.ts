@@ -13,7 +13,7 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
   let isThinking = $state(false)
   let streamingToolCalls = $state<ToolCallInfo[]>([])
   let streamingCodeExecutions = $state<CodeExecutionBlock[]>([])
-  let selectedModel = $state('anthropic/claude-sonnet-4-20250514')
+  let selectedModel = $state('')
   let thinkingEffort = $state<ThinkingEffort>('none')
   let abortController = $state<AbortController | null>(null)
   let onFirstReply = $state<((conversationId: string) => void) | null>(null)

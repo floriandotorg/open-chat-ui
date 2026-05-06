@@ -1,8 +1,18 @@
 import { auth } from '$lib/server/auth'
 import { building, dev } from '$app/environment'
-import type { Handle } from '@sveltejs/kit'
+import type { Handle, HandleServerError } from '@sveltejs/kit'
 import { redirect } from '@sveltejs/kit'
 import { svelteKitHandler } from 'better-auth/svelte-kit'
+
+export const handleError: HandleServerError = ({ error, event, status, message }) => {
+  if (status >= 500) {
+    const stack = error instanceof Error ? error.stack : undefined
+    const detail = stack ?? (error instanceof Error ? error.message : JSON.stringify(error))
+    console.error(`[${status}] ${event.request.method} ${event.url.pathname}`)
+    console.error(detail)
+  }
+  return { message }
+}
 
 const protectedPrefixes = ['/chat', '/settings', '/api/']
 

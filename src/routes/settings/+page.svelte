@@ -11,12 +11,16 @@ import type { ActionData, PageData } from './$types'
 const TABS = ['keys', 'models', 'prompt', 'tools', 'account'] as const
 type Tab = (typeof TABS)[number]
 
+type DictationProvider = 'mistral' | 'elevenlabs'
+const DICTATION_PROVIDERS: DictationProvider[] = ['mistral', 'elevenlabs']
+const toDictationProvider = (value: unknown): DictationProvider => DICTATION_PROVIDERS.find(p => p === value) ?? 'mistral'
+
 let { data, form }: { data: PageData; form: ActionData } = $props()
 let titleModel = $state('')
-let dictationProvider = $state<'mistral' | 'elevenlabs'>('mistral')
+let dictationProvider = $state<DictationProvider>('mistral')
 let savingDictationProvider = $state(false)
 
-const saveDictationProvider = async (value: 'mistral' | 'elevenlabs') => {
+const saveDictationProvider = async (value: DictationProvider) => {
   savingDictationProvider = true
   dictationProvider = value
   await fetch('/api/settings', {
@@ -43,7 +47,7 @@ $effect(() => {
 })
 
 $effect(() => {
-  dictationProvider = (data.settings?.dictationProvider as 'mistral' | 'elevenlabs') ?? 'mistral'
+  dictationProvider = toDictationProvider(data.settings?.dictationProvider)
 })
 </script>
 

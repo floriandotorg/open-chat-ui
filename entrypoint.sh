@@ -1,4 +1,4 @@
 #!/bin/sh
 set -e
-bunx drizzle-kit push --force
+bun scripts/migrate-db.ts
 exec bun build/index.js

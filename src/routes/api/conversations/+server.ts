@@ -59,7 +59,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       title: body.title ?? 'New Chat',
       systemPrompt: systemPromptContent,
       systemPromptId,
-      defaultModel: body.model ?? null,
     })
     .returning()
 
