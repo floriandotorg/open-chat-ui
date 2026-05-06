@@ -5,7 +5,8 @@ import StreamingText from '$lib/components/StreamingText.svelte'
 import { createChatStore } from '$lib/stores/chat.svelte'
 import { consumePendingMessage } from '$lib/stores/pending-message'
 import type { Message, ThinkingEffort } from '$lib/types'
-import { invalidateAll } from '$app/navigation'
+import { invalidateAll, replaceState } from '$app/navigation'
+import { page } from '$app/state'
 import type { PageData } from './$types'
 import { getContext, tick, untrack } from 'svelte'
 
@@ -68,6 +69,18 @@ chat.onFirstReply = async (conversationId: string) => {
 
 let activeConvId: string | undefined
 
+const consumeQueryMessage = (): string | null => {
+  const q = page.url.searchParams.get('q')?.trim()
+  if (!q) return null
+  tick().then(() => {
+    const cleanUrl = new URL(page.url)
+    if (!cleanUrl.searchParams.has('q')) return
+    cleanUrl.searchParams.delete('q')
+    replaceState(cleanUrl, page.state)
+  })
+  return q
+}
+
 const attachToConversation = (convId: string, generating: boolean) => {
   const key = `chat-queue-${convId}`
   const stored = localStorage.getItem(key)
@@ -77,11 +90,18 @@ const attachToConversation = (convId: string, generating: boolean) => {
   const { message, images, files } = consumePendingMessage()
   if (message) {
     chat.sendMessage(convId, message, undefined, images ?? undefined, files ?? undefined)
-  } else if (generating) {
-    chat.resumeStream(convId).then(() => chat.processQueue())
-  } else {
-    chat.processQueue()
+    return
   }
+  if (generating) {
+    chat.resumeStream(convId).then(() => chat.processQueue())
+    return
+  }
+  const queryMessage = consumeQueryMessage()
+  if (queryMessage && data.allMessages.length === 0) {
+    chat.sendMessage(convId, queryMessage)
+    return
+  }
+  chat.processQueue()
 }
 
 $effect(() => {
