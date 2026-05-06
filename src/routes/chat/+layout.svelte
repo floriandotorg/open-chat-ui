@@ -271,7 +271,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
     </aside>
   {/if}
 
-  <main class="relative flex min-h-0 flex-1 flex-col">
+  <main class="relative flex min-h-0 min-w-0 flex-1 flex-col">
     <header class="liquid-glass-bar-top absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 px-4 py-2.5" style="padding-top: max(0.625rem, env(safe-area-inset-top))">
       <div class="flex items-center gap-3">
         {#if !sidebarOpen || isMobile}
@@ -303,7 +303,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
     {#if newChatError}
       <div class="absolute inset-x-4 top-14 z-30 rounded-lg bg-red-50 px-3 py-1.5 text-sm text-red-600 shadow-md dark:bg-red-900/40 dark:text-red-400">{newChatError}</div>
     {/if}
-    <div class="min-h-0 flex-1">
+    <div class="min-h-0 min-w-0 flex-1">
       {@render children()}
     </div>
   </main>
