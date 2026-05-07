@@ -186,6 +186,7 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
 
   emit(hub, { type: 'stream_meta', parentId, assistantMsgId })
 
+  let streamSucceeded = false
   try {
     const codeExecInputs = new Map<string, string>()
 
@@ -285,13 +286,15 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
     }
 
     emit(hub, { type: 'usage', inputTokens: totalUsage.inputTokens, outputTokens: totalUsage.outputTokens })
-    emit(hub, { type: 'done', messageId: assistantMsgId })
+    streamSucceeded = true
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Stream error'
     emit(hub, { type: 'error', error: msg })
   }
 
-  if (fullText || allToolCalls.length) {
+  const persisted = !!(fullText || allToolCalls.length)
+
+  if (persisted) {
     await db.insert(messages).values({
       id: assistantMsgId,
       conversationId,
@@ -320,12 +323,16 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
         ...(container ? { container } : {}),
       })
       .where(eq(conversations.id, conversationId))
-
-    if (titleOnFirst && conversation.title === 'New Chat') {
-      generateConversationTitle(userId, conversationId).catch(() => {})
-    }
   } else {
     await db.update(conversations).set({ generating: false }).where(eq(conversations.id, conversationId))
+  }
+
+  if (streamSucceeded) {
+    emit(hub, { type: 'done', messageId: persisted ? assistantMsgId : undefined })
+  }
+
+  if (persisted && titleOnFirst && conversation.title === 'New Chat') {
+    generateConversationTitle(userId, conversationId).catch(() => {})
   }
 
   finishHub(hub)
