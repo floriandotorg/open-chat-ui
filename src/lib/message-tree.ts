@@ -32,6 +32,12 @@ export const resolveAndAnnotate = <T extends { id: string; parentId?: string | n
   return path
 }
 
+export const preserveLocalOrphans = <S extends { id: string }, L extends { id: string }>(serverMessages: S[], localMessages: L[]): (S | L)[] => {
+  const serverIds = new Set(serverMessages.map(m => m.id))
+  const orphans = localMessages.filter(m => !serverIds.has(m.id))
+  return orphans.length ? [...serverMessages, ...orphans] : serverMessages
+}
+
 export const getAncestorPath = <T extends { id: string; parentId?: string | null }>(messageId: string, allMessages: T[]): T[] => {
   const byId = new Map(allMessages.map(m => [m.id, m]))
   const path: T[] = []

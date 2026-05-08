@@ -54,6 +54,7 @@ export interface Message {
   siblingIndex?: number
   siblingCount?: number
   createdAt: Date
+  sendError?: string
 }
 
 export interface Conversation {

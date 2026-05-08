@@ -2,6 +2,7 @@
 import ChatInput from '$lib/components/ChatInput.svelte'
 import ChatMessage from '$lib/components/ChatMessage.svelte'
 import StreamingText from '$lib/components/StreamingText.svelte'
+import { preserveLocalOrphans } from '$lib/message-tree'
 import { createChatStore } from '$lib/stores/chat.svelte'
 import { consumePendingMessage } from '$lib/stores/pending-message'
 import type { Message, ThinkingEffort } from '$lib/types'
@@ -21,7 +22,7 @@ const mapServerMessages = (serverMsgs: typeof data.allMessages, existing: Messag
       thinkingByContent.set(`${m.role}:${m.content}`, { thinking: m.thinking, thinkingDuration: m.thinkingDuration })
     }
   }
-  return serverMsgs.map(m => {
+  const mapped = serverMsgs.map(m => {
     const cached = thinkingByContent.get(`${m.role}:${m.content}`)
     return {
       ...m,
@@ -31,6 +32,7 @@ const mapServerMessages = (serverMsgs: typeof data.allMessages, existing: Messag
       thinkingDuration: cached?.thinkingDuration,
     } as Message
   })
+  return preserveLocalOrphans(mapped, existing)
 }
 
 const chat = createChatStore({
@@ -188,6 +190,15 @@ const handleEdit = (messageId: string, content: string) => {
   chat.editMessage(data.conversation.id, messageId, content)
 }
 
+const handleRetry = (messageId: string) => {
+  stickToBottom = true
+  chat.retryFailedMessage(data.conversation.id, messageId)
+}
+
+const handleDiscard = (messageId: string) => {
+  chat.discardFailedMessage(messageId)
+}
+
 const handleSwitchBranch = (messageId: string, direction: 'prev' | 'next') => {
   const msg = chat.messages.find(m => m.id === messageId)
   if (!msg) return
@@ -253,6 +264,8 @@ const autoResizeEdit = () => {
           onregenerate={handleRegenerate}
           onedit={handleEdit}
           onswitchbranch={handleSwitchBranch}
+          onretry={handleRetry}
+          ondiscard={handleDiscard}
         />
       {/each}
       <StreamingText

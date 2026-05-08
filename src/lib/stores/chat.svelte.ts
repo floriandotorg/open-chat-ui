@@ -301,11 +301,13 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
         return
       }
       if (isMine) {
+        const errorText = err instanceof Error ? err.message : 'Failed to send message'
+        allMessages = allMessages.map(m => (m.id === userMsg.id ? { ...m, sendError: errorText } : m))
         resetStreamingState()
         messageQueue = []
         abortController = null
       }
-      throw err
+      return
     }
 
     if (abortController !== ctrl) return
@@ -543,6 +545,22 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     messageQueue = messageQueue.filter(m => m.id !== id)
   }
 
+  const discardFailedMessage = (messageId: string) => {
+    allMessages = allMessages.filter(m => m.id !== messageId)
+    const newBranches: BranchMap = {}
+    for (const [k, v] of Object.entries(activeBranches)) {
+      if (v !== messageId) newBranches[k] = v
+    }
+    activeBranches = newBranches
+  }
+
+  const retryFailedMessage = async (conversationId: string, messageId: string) => {
+    const target = allMessages.find(m => m.id === messageId)
+    if (!target || target.role !== 'user' || !target.sendError) return
+    discardFailedMessage(messageId)
+    await sendMessage(conversationId, target.content, undefined, target.images, target.files)
+  }
+
   return {
     get messages() {
       return messages
@@ -607,6 +625,8 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     sendMessage,
     regenerateMessage,
     editMessage,
+    retryFailedMessage,
+    discardFailedMessage,
     switchBranch,
     stopStreaming,
     detachStream,
