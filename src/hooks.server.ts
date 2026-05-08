@@ -1,4 +1,5 @@
 import { auth } from '$lib/server/auth'
+import { authInit } from '$lib/server/auth-init'
 import { reapStaleGenerations } from '$lib/server/reaper'
 import { building, dev } from '$app/environment'
 import type { Handle, HandleServerError } from '@sveltejs/kit'
@@ -28,6 +29,7 @@ const handleBetterAuth: Handle = async ({ event, resolve }) => {
     return new Response(undefined, { status: 404 })
   }
 
+  await authInit
   const session = await auth.api.getSession({ headers: event.request.headers })
 
   if (session) {
