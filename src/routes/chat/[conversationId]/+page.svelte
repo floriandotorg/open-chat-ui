@@ -39,6 +39,8 @@ const chat = createChatStore({
   // svelte-ignore state_referenced_locally
   activeBranches: data.activeBranches,
 })
+chat.selectedModel = ctx.selectedModel
+chat.thinkingEffort = ctx.thinkingEffort
 
 let messageContainer: HTMLDivElement | undefined = $state()
 let stickToBottom = $state(true)

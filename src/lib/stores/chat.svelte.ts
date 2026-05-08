@@ -127,6 +127,7 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
         streamingCodeExecutions = streamingCodeExecutions.map(ce => (ce.id === id ? { ...ce, files } : ce))
       }
       if (event.type === 'error') {
+        completed = true
         throw new Error(event.error ?? 'Stream error')
       }
       if (event.type === 'done') {
