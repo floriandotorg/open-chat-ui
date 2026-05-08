@@ -11,7 +11,7 @@ import { resolve } from '$app/paths'
 import { page } from '$app/state'
 import type { LayoutData } from './$types'
 import type { Snippet } from 'svelte'
-import { onMount, setContext } from 'svelte'
+import { setContext } from 'svelte'
 import { fade } from 'svelte/transition'
 
 let { data, children }: { data: LayoutData; children: Snippet } = $props()
@@ -27,6 +27,7 @@ const setCookie = (name: string, value: string) => {
 }
 
 let sidebarOpen = $state(true)
+let mobileSidebarOpen = $state(false)
 // svelte-ignore state_referenced_locally
 let selectedModel = $state(data.selectedModel ?? '')
 // svelte-ignore state_referenced_locally
@@ -36,21 +37,25 @@ let thinkingEffort = $state<ThinkingEffort>((data.thinkingEffort as ThinkingEffo
 // svelte-ignore state_referenced_locally
 let sidebarWidth = $state(data.sidebarWidth ?? SIDEBAR_DEFAULT)
 let isResizing = $state(false)
-let isMobile = $state(false)
 let currentSystemPromptId = $state<string | null>(null)
 
-onMount(() => {
-  const mql = window.matchMedia('(max-width: 767px)')
-  isMobile = mql.matches
-  if (isMobile) sidebarOpen = false
+const isMobileViewport = () => window.matchMedia('(max-width: 767px)').matches
 
-  const onMediaChange = (e: MediaQueryListEvent) => {
-    isMobile = e.matches
-    if (e.matches) sidebarOpen = false
+const toggleSidebar = () => {
+  if (isMobileViewport()) {
+    mobileSidebarOpen = !mobileSidebarOpen
+  } else {
+    sidebarOpen = !sidebarOpen
   }
-  mql.addEventListener('change', onMediaChange)
-  return () => mql.removeEventListener('change', onMediaChange)
-})
+}
+
+const closeSidebar = () => {
+  if (isMobileViewport()) {
+    mobileSidebarOpen = false
+  } else {
+    sidebarOpen = false
+  }
+}
 
 $effect(() => {
   setCookie('thinking-effort', thinkingEffort)
@@ -102,7 +107,7 @@ const changeSystemPrompt = async (promptId: string | null) => {
 }
 
 afterNavigate(() => {
-  if (isMobile) sidebarOpen = false
+  mobileSidebarOpen = false
 })
 
 let generatingConversationId = $state<string | null>(null)
@@ -181,15 +186,14 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
 <svelte:window onkeydown={handleGlobalKeydown} />
 <TtsPlayer />
 <div class="flex h-dvh bg-white text-gray-900 dark:bg-neutral-800 dark:text-gray-100" class:select-none={isResizing}>
-  {#if isMobile && sidebarOpen}
-    <button class="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px]" onclick={() => sidebarOpen = false} aria-label="Close sidebar" tabindex="-1" transition:fade={{ duration: 200 }}></button>
+  {#if mobileSidebarOpen}
+    <button class="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px] md:hidden" onclick={() => (mobileSidebarOpen = false)} aria-label="Close sidebar" tabindex="-1" transition:fade={{ duration: 200 }}></button>
   {/if}
 
-  {#if sidebarOpen || isMobile}
-    <aside
-      class="sidebar-surface flex flex-col {isMobile ? `fixed inset-y-0 left-0 z-50 w-[280px] transition-transform duration-200 ease-in-out ${sidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}` : 'relative shrink-0'}"
-      style={isMobile ? undefined : `width: ${sidebarWidth}px`}
-    >
+  <aside
+    class="sidebar-surface flex flex-col max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:w-[280px] max-md:transition-transform max-md:duration-200 max-md:ease-in-out md:relative md:shrink-0 md:w-(--sidebar-width) {sidebarOpen ? '' : 'md:hidden'} {mobileSidebarOpen ? 'max-md:translate-x-0 max-md:shadow-2xl' : 'max-md:-translate-x-full'}"
+    style="--sidebar-width: {sidebarWidth}px"
+  >
       <div class="liquid-glass-bar-top absolute inset-x-0 top-0 z-10" style="padding-top: max(0.75rem, env(safe-area-inset-top))">
         <div class="flex items-center justify-between px-3.5 pb-2.5">
           <div class="flex items-center gap-2">
@@ -208,7 +212,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
             </button>
-            <button onclick={() => sidebarOpen = false} aria-label="Close sidebar" class="rounded-lg p-1.5 transition-colors hover:bg-black/8 dark:hover:bg-white/10">
+            <button onclick={closeSidebar} aria-label="Close sidebar" class="rounded-lg p-1.5 transition-colors hover:bg-black/8 dark:hover:bg-white/10">
               <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
               </svg>
@@ -257,37 +261,30 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
           </span>
         </a>
       </div>
-      {#if !isMobile}
-        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          onmousedown={startResize}
-          class="group absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize"
-        >
-          <div class="h-full w-px ml-auto bg-transparent transition-colors group-hover:w-full group-hover:bg-blue-400 dark:group-hover:bg-blue-500" class:!w-full={isResizing} class:!bg-blue-400={isResizing} class:dark:!bg-blue-500={isResizing}></div>
-        </div>
-      {/if}
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        onmousedown={startResize}
+        class="group absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize max-md:hidden"
+      >
+        <div class="h-full w-px ml-auto bg-transparent transition-colors group-hover:w-full group-hover:bg-blue-400 dark:group-hover:bg-blue-500" class:!w-full={isResizing} class:!bg-blue-400={isResizing} class:dark:!bg-blue-500={isResizing}></div>
+      </div>
     </aside>
-  {/if}
 
   <main class="relative flex min-h-0 min-w-0 flex-1 flex-col">
     <header class="liquid-glass-bar-top absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 px-4 py-2.5" style="padding-top: max(0.625rem, env(safe-area-inset-top))">
       <div class="flex items-center gap-3">
-        {#if !sidebarOpen || isMobile}
-          <button onclick={() => sidebarOpen = !sidebarOpen} aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'} class="rounded-lg p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700">
-            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
-        {/if}
-        {#if isMobile}
-          <button onclick={newChat} aria-label="New chat" class="-ml-1.5 rounded-lg p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700">
-            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
-          </button>
-        {/if}
+        <button onclick={toggleSidebar} aria-label="Open sidebar" class="rounded-lg p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700 {sidebarOpen ? 'md:hidden' : ''}">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+        <button onclick={newChat} aria-label="New chat" class="-ml-1.5 rounded-lg p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700 md:hidden">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+          </svg>
+        </button>
         <ModelPicker providers={data.providers} bind:selectedModel modelNameHint={selectedModelName} onmodelchange={handleModelChange} />
       </div>
       <div class="flex items-center gap-1">
