@@ -107,4 +107,24 @@ describe('renderMarkdown', () => {
     const html = renderMarkdown('$$\n\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}\n$$')
     expect(html).toContain('katex')
   })
+
+  it('does not render math inside fenced code blocks', () => {
+    const dollar = '$'
+    const src = ['```bash', `SRC="${dollar}(readlink -f "${dollar}{DIR}/last")"`, `cp "${dollar}SRC" "${dollar}{DIR}/snapshot_${dollar}{NAME}.txt"`, '```'].join('\n')
+    const html = renderMarkdown(src)
+    expect(html).not.toContain('katex')
+    expect(html).toContain('readlink')
+    expect(html).toContain('snapshot_')
+  })
+
+  it('does not render math inside inline code', () => {
+    const html = renderMarkdown('use `$x$ and $y$` literally')
+    expect(html).not.toContain('katex')
+  })
+
+  it('still renders math outside code blocks when code is present', () => {
+    const html = renderMarkdown('Before $a^2$\n```bash\necho $FOO\n```\nafter $b^2$')
+    expect(html).toContain('katex')
+    expect(html).toContain('echo $FOO')
+  })
 })

@@ -48,23 +48,77 @@ const renderKatex = (latex: string, displayMode: boolean): string => {
   }
 }
 
-const extractMath = (text: string): { text: string; mathBlocks: string[] } => {
-  const mathBlocks: string[] = []
-  let result = text
+const findCodeRegions = (text: string): Array<[number, number]> => {
+  const regions: Array<[number, number]> = []
+  let n = 0
+  while (n < text.length) {
+    const atLineStart = n === 0 || text[n - 1] === '\n'
+    if (atLineStart) {
+      const fence = /^([ \t]{0,3})(`{3,}|~{3,})/.exec(text.slice(n))
+      if (fence) {
+        const indent = fence[1].length
+        const marker = fence[2]
+        const afterFence = n + fence[0].length
+        const restNewline = text.indexOf('\n', afterFence)
+        const bodyStart = restNewline === -1 ? text.length : restNewline + 1
+        const closeRe = new RegExp(`(?:^|\\n)[ \\t]{0,${indent + 3}}${marker[0]}{${marker.length},}[ \\t]*(?=\\n|$)`)
+        const tail = text.slice(bodyStart)
+        const close = closeRe.exec(tail)
+        const end = close ? bodyStart + close.index + close[0].length : text.length
+        regions.push([n, end])
+        n = end
+        continue
+      }
+    }
+    if (text[n] === '`') {
+      const runStart = n
+      while (text[n] === '`') ++n
+      const runLen = n - runStart
+      const closeRe = new RegExp(`\`{${runLen}}(?!\`)`)
+      const close = closeRe.exec(text.slice(n))
+      if (close) {
+        const end = n + close.index + runLen
+        regions.push([runStart, end])
+        n = end
+        continue
+      }
+      n = runStart + 1
+      continue
+    }
+    ++n
+  }
+  return regions
+}
 
-  result = result.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
+const extractMathInSegment = (text: string, mathBlocks: string[]): string => {
+  let result = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
     const index = mathBlocks.length
     mathBlocks.push(renderKatex(math.trim(), true))
     return `${PH_OPEN}${index}${PH_CLOSE}`
   })
-
   result = result.replace(/(?<![\\$\w])\$(?!\s)(?!\d)([^\n$]+?)(?<!\s)\$(?!\d)(?![$\w])/g, (_, math) => {
     const index = mathBlocks.length
     mathBlocks.push(renderKatex(math, false))
     return `${PH_OPEN}${index}${PH_CLOSE}`
   })
+  return result
+}
 
-  return { text: result, mathBlocks }
+const extractMath = (text: string): { text: string; mathBlocks: string[] } => {
+  const mathBlocks: string[] = []
+  const regions = findCodeRegions(text)
+  if (regions.length === 0) {
+    return { text: extractMathInSegment(text, mathBlocks), mathBlocks }
+  }
+  let out = ''
+  let cursor = 0
+  for (const [start, end] of regions) {
+    out += extractMathInSegment(text.slice(cursor, start), mathBlocks)
+    out += text.slice(start, end)
+    cursor = end
+  }
+  out += extractMathInSegment(text.slice(cursor), mathBlocks)
+  return { text: out, mathBlocks }
 }
 
 const restoreMath = (html: string, mathBlocks: string[]): string => html.replace(PH_RE, (_, index) => mathBlocks[Number(index)])
