@@ -5,7 +5,7 @@ import SystemPromptPicker from '$lib/components/SystemPromptPicker.svelte'
 import ThinkingEffortPicker from '$lib/components/ThinkingEffortPicker.svelte'
 import TtsPlayer from '$lib/components/TtsPlayer.svelte'
 import { createTtsPlayer } from '$lib/stores/tts-player.svelte'
-import type { Conversation, ThinkingEffort } from '$lib/types'
+import type { ThinkingEffort } from '$lib/types'
 import { afterNavigate, goto, invalidateAll } from '$app/navigation'
 import { resolve } from '$app/paths'
 import { page } from '$app/state'
@@ -116,6 +116,8 @@ let generatingConversationId = $state<string | null>(null)
 const ttsPlayer = createTtsPlayer(data.ttsSpeed ?? 1)
 setContext('tts-player', ttsPlayer)
 
+let newChatFocusToken = $state(0)
+
 setContext('chat-provider', {
   get selectedModel() {
     return selectedModel
@@ -138,32 +140,20 @@ setContext('chat-provider', {
   get currentSystemPromptId() {
     return currentSystemPromptId
   },
+  get newChatFocusToken() {
+    return newChatFocusToken
+  },
 })
 
-let newChatError = $state('')
 let sidebarSearchQuery = $state('')
 
 const clearSidebarSearch = () => {
   sidebarSearchQuery = ''
 }
 
-const newChat = async () => {
-  newChatError = ''
-  try {
-    const res = await fetch('/api/conversations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ systemPromptId: currentSystemPromptId }),
-    })
-    if (!res.ok) {
-      newChatError = 'Failed to create conversation'
-      return
-    }
-    const conv: Conversation = await res.json()
-    await goto(resolve(`/chat/${conv.id}`))
-  } catch {
-    newChatError = 'Failed to create conversation'
-  }
+const goToNewChat = async () => {
+  await goto(resolve('/chat'))
+  ++newChatFocusToken
 }
 
 const handleModelChange = (id: string, name: string) => {
@@ -178,7 +168,7 @@ const userInitial = $derived(userName[0]?.toUpperCase() ?? 'U')
 const handleGlobalKeydown = (e: KeyboardEvent) => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
     e.preventDefault()
-    void newChat()
+    void goToNewChat()
   }
 }
 </script>
@@ -207,7 +197,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
             <span class="text-[13px] font-semibold tracking-tight">Open Chat UI</span>
           </div>
           <div class="flex items-center gap-0.5">
-            <button onclick={newChat} aria-label="New chat" class="rounded-lg p-1.5 transition-colors hover:bg-black/8 dark:hover:bg-white/10">
+            <button onclick={goToNewChat} aria-label="New chat" class="rounded-lg p-1.5 transition-colors hover:bg-black/8 dark:hover:bg-white/10">
               <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
@@ -280,7 +270,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <button onclick={newChat} aria-label="New chat" class="-ml-1.5 rounded-lg p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700 md:hidden">
+        <button onclick={goToNewChat} aria-label="New chat" class="-ml-1.5 rounded-lg p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700 md:hidden">
           <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
           </svg>
@@ -297,9 +287,6 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
       </div>
     </header>
 
-    {#if newChatError}
-      <div class="absolute inset-x-4 top-14 z-30 rounded-lg bg-red-50 px-3 py-1.5 text-sm text-red-600 shadow-md dark:bg-red-900/40 dark:text-red-400">{newChatError}</div>
-    {/if}
     <div class="min-h-0 min-w-0 flex-1">
       {@render children()}
     </div>

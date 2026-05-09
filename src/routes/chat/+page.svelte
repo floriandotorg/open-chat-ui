@@ -4,11 +4,17 @@ import { setPendingMessage } from '$lib/stores/pending-message'
 import type { Conversation, FileAttachment, ImageAttachment } from '$lib/types'
 import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
-import { getContext } from 'svelte'
+import { getContext, tick } from 'svelte'
 
-const ctx: { selectedModel: string; currentSystemPromptId: string | null } = getContext('chat-provider')
+const ctx: { selectedModel: string; currentSystemPromptId: string | null; newChatFocusToken: number } = getContext('chat-provider')
 
 let error = $state('')
+let textarea: HTMLTextAreaElement | undefined = $state()
+
+$effect(() => {
+  ctx.newChatFocusToken
+  tick().then(() => textarea?.focus())
+})
 
 const handleSubmit = async (content: string, images?: ImageAttachment[], files?: FileAttachment[]) => {
   error = ''
@@ -36,7 +42,7 @@ const handleSubmit = async (content: string, images?: ImageAttachment[], files?:
     <h2 class="text-xl font-semibold text-gray-900 dark:text-white">What can I help you with?</h2>
   </div>
   <div class="w-full">
-    <ChatInput onsubmit={handleSubmit} disabled={!ctx.selectedModel} />
+    <ChatInput onsubmit={handleSubmit} disabled={!ctx.selectedModel} bind:textarea />
     {#if error}
       <p class="mt-3 text-center text-sm text-red-600 dark:text-red-400">{error}</p>
     {/if}

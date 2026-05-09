@@ -8,15 +8,16 @@ let {
   disabled = false,
   isStreaming = false,
   onstop,
+  textarea = $bindable(),
 }: {
   onsubmit: (content: string, images?: ImageAttachment[], files?: FileAttachment[]) => void
   disabled?: boolean
   isStreaming?: boolean
   onstop?: () => void
+  textarea?: HTMLTextAreaElement
 } = $props()
 
 let content = $state('')
-let textarea: HTMLTextAreaElement | undefined = $state()
 let fileInput: HTMLInputElement | undefined = $state()
 let dictationState = $state<'idle' | 'recording' | 'transcribing' | 'error'>('idle')
 let dictationError = $state('')
