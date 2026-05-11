@@ -526,7 +526,7 @@ const cancelRecording = () => {
           placeholder="Send a Message"
           rows="1"
           autocapitalize="off"
-          spellcheck="false"
+          spellcheck="true"
           {...{ autocorrect: 'off' }}
           disabled={disabled}
           class="flex-1 resize-none bg-transparent py-1.5 text-sm outline-none placeholder:text-gray-400 disabled:opacity-50 dark:text-white dark:placeholder:text-neutral-400"
