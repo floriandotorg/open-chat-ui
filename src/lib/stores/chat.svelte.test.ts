@@ -9,6 +9,8 @@ const installFetch = (impl: (url: unknown, init?: RequestInit) => Promise<Respon
   return mock
 }
 
+const sseResponse = (body: string, init?: ResponseInit) => new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' }, ...init })
+
 describe('createChatStore.sendMessage failure handling', () => {
   let originalFetch: typeof fetch
 
@@ -83,6 +85,30 @@ describe('createChatStore.sendMessage failure handling', () => {
 
     expect(chat.allMessages.length).toBe(0)
     expect(Object.values(chat.activeBranches)).not.toContain(failedId)
+  })
+
+  it('resets streaming state when the stream drops mid-flight and reconnect returns 404 (server finished while we were backgrounded)', async () => {
+    let calls = 0
+    installFetch(async url => {
+      ++calls
+      if (calls === 1) {
+        return sseResponse('id: 0\ndata: {"type":"text_delta","text":"partial "}\n\n')
+      }
+      expect(String(url)).toContain('/api/chat/stream/')
+      return new Response('No active stream', { status: 404 })
+    })
+
+    const chat = createChatStore()
+    chat.selectedModel = 'anthropic/claude-test'
+
+    await chat.sendMessage('conv-1', 'hello')
+    await flush()
+
+    expect(calls).toBe(2)
+    expect(chat.isStreaming).toBe(false)
+    expect(chat.streamingText).toBe('')
+    expect(chat.allMessages.length).toBe(1)
+    expect(chat.allMessages[0].role).toBe('user')
   })
 
   it('retryFailedMessage discards the failed message and resends with the same content/images/files', async () => {

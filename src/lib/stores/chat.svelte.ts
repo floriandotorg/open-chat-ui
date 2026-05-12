@@ -197,6 +197,7 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
         continue
       }
       if (reconnect.status === 404) {
+        resetStreamingState()
         return
       }
       if (!reconnect.ok) {
