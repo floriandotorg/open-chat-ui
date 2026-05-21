@@ -1,4 +1,5 @@
 import { user } from './auth.schema'
+import { sql } from 'drizzle-orm'
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 export * from './auth.schema'
@@ -22,7 +23,7 @@ export const apiKeys = sqliteTable(
       .notNull()
       .$defaultFn(() => new Date()),
   },
-  table => [uniqueIndex('api_keys_user_provider_idx').on(table.userId, table.provider)],
+  table => [index('api_keys_user_provider_idx').on(table.userId, table.provider), uniqueIndex('api_keys_user_provider_single_idx').on(table.userId, table.provider).where(sql`${table.provider} <> 'scraperapi'`)],
 )
 
 export const conversations = sqliteTable(

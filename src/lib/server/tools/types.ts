@@ -12,4 +12,5 @@ export interface ToolDefinition {
 export interface ToolContext {
   userId: string
   getApiKey: (provider: string) => Promise<string | null>
+  getApiKeys: (provider: string) => Promise<string[]>
 }

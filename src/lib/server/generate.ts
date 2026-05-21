@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { parseModelRef } from '$lib/model-ref'
-import { getDecryptedKey } from '$lib/server/api-key'
+import { getDecryptedKey, getDecryptedKeys } from '$lib/server/api-key'
 import { decrypt } from '$lib/server/crypto'
 import { db } from '$lib/server/db'
 import { apiKeys, conversations, messages, systemPrompts, userSettings } from '$lib/server/db/schema'
@@ -176,6 +176,7 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
   const toolContext = {
     userId,
     getApiKey: (p: string) => getDecryptedKey(userId, p),
+    getApiKeys: (p: string) => getDecryptedKeys(userId, p),
   }
 
   let fullText = ''

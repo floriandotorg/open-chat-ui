@@ -1,3 +1,4 @@
+import { fetchWithScraperApiKeys } from './scraperapi-keys'
 import type { ToolContext, ToolDefinition } from './types'
 
 const BASE_URL = 'https://www.reddit.com'
@@ -79,18 +80,19 @@ const fetchRedditJsonViaScraper = async (url: string, apiKey: string): Promise<u
   }
 }
 
-const fetchRedditJson = async (url: string, scraperApiKey: string | null): Promise<unknown> => {
-  if (scraperApiKey) {
-    return fetchRedditJsonViaScraper(url, scraperApiKey)
-  }
-  return fetchRedditJsonDirect(url)
-}
+const fetchRedditJson = async (url: string, scraperApiKeys: string[], scope: string): Promise<unknown> =>
+  fetchWithScraperApiKeys(
+    scope,
+    scraperApiKeys,
+    () => fetchRedditJsonDirect(url),
+    key => fetchRedditJsonViaScraper(url, key),
+  )
 
-const fetchWithRetry = async (url: string, scraperApiKey: string | null, retries = 3): Promise<unknown> => {
+const fetchWithRetry = async (url: string, scraperApiKeys: string[], scope: string, retries = 3): Promise<unknown> => {
   let lastErr: Error | null = null
   for (let attempt = 0; attempt <= retries; ++attempt) {
     try {
-      return await fetchRedditJson(url, scraperApiKey)
+      return await fetchRedditJson(url, scraperApiKeys, scope)
     } catch (e) {
       lastErr = e instanceof Error ? e : new Error(String(e))
       const msg = lastErr.message
@@ -204,7 +206,7 @@ const keywordHits = (text: string, keywords: string[]) => {
 
 type Args = Record<string, unknown>
 
-const getScraperKey = (context: ToolContext) => context.getApiKey('scraperapi')
+const getScraperKeys = (context: ToolContext) => context.getApiKeys('scraperapi')
 
 const cmdPosts = async (args: Args, context: ToolContext) => {
   const subreddit = String(args.subreddit ?? '')
@@ -212,12 +214,12 @@ const cmdPosts = async (args: Args, context: ToolContext) => {
   const sort = String(args.sort ?? 'hot')
   const time = String(args.time ?? 'day')
   const limit = clamp(args.limit, 1, 100, 10)
-  const scraperKey = await getScraperKey(context)
+  const scraperKeys = await getScraperKeys(context)
 
   const qs = new URLSearchParams({ limit: String(limit) })
   if (sort === 'top' || sort === 'controversial') qs.set('t', time)
 
-  const listing = (await fetchWithRetry(buildUrl(`/r/${subreddit}/${sort}?${qs}`), scraperKey)) as Listing
+  const listing = (await fetchWithRetry(buildUrl(`/r/${subreddit}/${sort}?${qs}`), scraperKeys, context.userId)) as Listing
   const posts = (listing?.data?.children ?? []).filter(x => x.kind === 't3').map(normalisePost)
   return JSON.stringify({ subreddit, sort, limit, after: listing?.data?.after ?? null, posts })
 }
@@ -229,13 +231,13 @@ const cmdSearch = async (args: Args, context: ToolContext) => {
   const sort = String(args.sort ?? 'relevance')
   const time = String(args.time ?? 'all')
   const limit = clamp(args.limit, 1, 100, 10)
-  const scraperKey = await getScraperKey(context)
+  const scraperKeys = await getScraperKeys(context)
 
   const qs = new URLSearchParams({ q: query, sort, t: time, limit: String(limit) })
   if (scope !== 'all') qs.set('restrict_sr', 'on')
   const path = scope === 'all' ? `/search?${qs}` : `/r/${scope}/search?${qs}`
 
-  const listing = (await fetchWithRetry(buildUrl(path), scraperKey)) as Listing
+  const listing = (await fetchWithRetry(buildUrl(path), scraperKeys, context.userId)) as Listing
   const posts = (listing?.data?.children ?? []).filter(x => x.kind === 't3').map(normalisePost)
   return JSON.stringify({ scope, query, sort, time, limit, after: listing?.data?.after ?? null, posts })
 }
@@ -246,9 +248,9 @@ const cmdThread = async (args: Args, context: ToolContext) => {
   const limit = clamp(args.limit, 1, 500, 50)
   const maxDepth = clamp(args.depth, 0, 20, 8)
   const maxChars = clamp(args.max_chars, 50, 20000, DEFAULT_MAX_CHARS)
-  const scraperKey = await getScraperKey(context)
+  const scraperKeys = await getScraperKeys(context)
 
-  const data = (await fetchWithRetry(buildUrl(`/comments/${postId}?limit=${limit}`), scraperKey)) as [Listing, Listing]
+  const data = (await fetchWithRetry(buildUrl(`/comments/${postId}?limit=${limit}`), scraperKeys, context.userId)) as [Listing, Listing]
   const postChild = data[0]?.data?.children?.find(x => x.kind === 't3')
   const post = postChild ? normalisePost(postChild) : null
   const parsed = parseCommentsTree(data[1]?.data?.children ?? [], { maxDepth, maxChars })
@@ -266,7 +268,7 @@ const cmdFind = async (args: Args, context: ToolContext) => {
   const perSubLimit = clamp(args.per_subreddit_limit, 1, 100, 25)
   const maxResults = clamp(args.max_results, 1, 100, 10)
   const rank = String(args.rank ?? 'new')
-  const scraperKey = await getScraperKey(context)
+  const scraperKeys = await getScraperKeys(context)
 
   const collected: (ReturnType<typeof normalisePost> & { reason: string[]; match_score: number })[] = []
 
@@ -274,10 +276,10 @@ const cmdFind = async (args: Args, context: ToolContext) => {
     let posts: ReturnType<typeof normalisePost>[]
     if (query) {
       const qs = new URLSearchParams({ q: query, restrict_sr: 'on', sort: 'new', t: 'all', limit: String(perSubLimit) })
-      const listing = (await fetchWithRetry(buildUrl(`/r/${sub}/search?${qs}`), scraperKey)) as Listing
+      const listing = (await fetchWithRetry(buildUrl(`/r/${sub}/search?${qs}`), scraperKeys, context.userId)) as Listing
       posts = (listing?.data?.children ?? []).filter(x => x.kind === 't3').map(normalisePost)
     } else {
-      const listing = (await fetchWithRetry(buildUrl(`/r/${sub}/new?limit=${perSubLimit}`), scraperKey)) as Listing
+      const listing = (await fetchWithRetry(buildUrl(`/r/${sub}/new?limit=${perSubLimit}`), scraperKeys, context.userId)) as Listing
       posts = (listing?.data?.children ?? []).filter(x => x.kind === 't3').map(normalisePost)
     }
 

@@ -98,10 +98,18 @@ export interface ChatStreamEvent {
   codeExecutionFiles?: { id: string; files: CodeExecutionFile[] }
 }
 
+export interface ApiKeySummary {
+  id: string
+  label: string
+}
+
 export interface ProviderInfo {
   id: string
   name: string
   hasKey: boolean
+  keyCount?: number
+  multiple?: boolean
+  keys?: ApiKeySummary[]
 }
 
 export interface ModelInfo {
