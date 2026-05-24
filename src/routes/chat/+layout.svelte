@@ -146,6 +146,18 @@ setContext('chat-provider', {
 })
 
 let sidebarSearchQuery = $state('')
+let showFavoritesOnly = $state(false)
+
+const toggleCurrentConversationFavorite = async () => {
+  if (!currentConversation) return
+  const newFav = !currentConversation.favorite
+  await fetch(`/api/conversations/${currentConversation.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ favorite: newFav }),
+  })
+  await invalidateAll()
+}
 
 const clearSidebarSearch = () => {
   sidebarSearchQuery = ''
@@ -209,8 +221,8 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
             </button>
           </div>
         </div>
-        <div class="px-2.5 pb-2.5">
-          <div class="relative">
+        <div class="px-2.5 pb-2.5 flex items-center gap-1.5">
+          <div class="relative flex-1">
             <svg class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
@@ -232,10 +244,25 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
               </button>
             {/if}
           </div>
+          <button
+            onclick={() => (showFavoritesOnly = !showFavoritesOnly)}
+            aria-label={showFavoritesOnly ? "Show all chats" : "Show only favorites"}
+            class="rounded-full p-1.5 transition-colors shrink-0 {showFavoritesOnly ? 'bg-yellow-500/15 text-yellow-600 dark:bg-yellow-500/20 dark:text-yellow-400 ring-1 ring-yellow-500/30' : 'bg-black/[0.04] text-gray-400 hover:text-gray-700 dark:bg-white/[0.06] dark:text-neutral-400 dark:hover:text-white'}"
+          >
+            {#if showFavoritesOnly}
+              <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+              </svg>
+            {:else}
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+              </svg>
+            {/if}
+          </button>
         </div>
       </div>
 
-      <ConversationList conversations={data.conversations} currentId={currentConversationId} {generatingConversationId} bind:searchQuery={sidebarSearchQuery} />
+      <ConversationList conversations={data.conversations} currentId={currentConversationId} {generatingConversationId} bind:searchQuery={sidebarSearchQuery} showFavoritesOnly={showFavoritesOnly} />
 
       <div class="liquid-glass-bar-bottom absolute inset-x-0 bottom-0 z-10 p-2" style="padding-bottom: max(0.5rem, env(safe-area-inset-bottom))">
         <a href={resolve('/settings')} class="group flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-black/5 dark:hover:bg-white/10">
@@ -278,6 +305,23 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
         <ModelPicker providers={data.providers} bind:selectedModel modelNameHint={selectedModelName} onmodelchange={handleModelChange} />
       </div>
       <div class="flex items-center gap-1">
+        {#if currentConversation}
+          <button
+            onclick={toggleCurrentConversationFavorite}
+            aria-label={currentConversation.favorite ? "Unfavorite chat" : "Favorite chat"}
+            class="rounded-lg p-1.5 transition-colors {currentConversation.favorite ? 'text-yellow-500 hover:bg-yellow-500/10 dark:text-yellow-400 dark:hover:bg-yellow-400/10' : 'text-gray-400 hover:text-gray-900 hover:bg-gray-100 dark:text-neutral-500 dark:hover:text-white dark:hover:bg-neutral-700'}"
+          >
+            {#if currentConversation.favorite}
+              <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+              </svg>
+            {:else}
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+              </svg>
+            {/if}
+          </button>
+        {/if}
         <SystemPromptPicker
           prompts={data.systemPrompts}
           bind:selectedId={currentSystemPromptId}

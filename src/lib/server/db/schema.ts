@@ -43,6 +43,7 @@ export const conversations = sqliteTable(
     container: text('container'),
     activeBranches: text('active_branches'),
     generating: integer('generating', { mode: 'boolean' }).default(false),
+    favorite: integer('favorite', { mode: 'boolean' }).default(false),
     createdAt: integer('created_at', { mode: 'timestamp' })
       .notNull()
       .$defaultFn(() => new Date()),

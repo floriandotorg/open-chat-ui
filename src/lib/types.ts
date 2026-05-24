@@ -65,6 +65,7 @@ export interface Conversation {
   systemPromptId?: string | null
   defaultModel?: string | null
   generating?: boolean | null
+  favorite?: boolean | null
   createdAt: Date
   updatedAt: Date
 }

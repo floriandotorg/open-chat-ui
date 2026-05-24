@@ -10,11 +10,13 @@ let {
   currentId,
   generatingConversationId,
   searchQuery = $bindable(''),
+  showFavoritesOnly = false,
 }: {
   conversations: Conversation[]
   currentId?: string
   generatingConversationId?: string | null
   searchQuery?: string
+  showFavoritesOnly?: boolean
 } = $props()
 
 interface SearchHit {
@@ -24,6 +26,7 @@ interface SearchHit {
   snippet: string | null
   snippetRole: 'user' | 'assistant' | null
   messageMatchCount: number
+  favorite?: boolean | null
   updatedAt: string
   score: number
 }
@@ -36,6 +39,10 @@ let searching = $state(false)
 
 const trimmedQuery = $derived(searchQuery.trim())
 const isSearching = $derived(trimmedQuery.length >= 2)
+
+const filteredConversations = $derived(showFavoritesOnly ? conversations.filter(c => c.favorite) : conversations)
+
+const filteredSearchResults = $derived(showFavoritesOnly && searchResults ? searchResults.filter(r => r.favorite) : searchResults)
 
 const groupedConversations = $derived.by(() => {
   const now = new Date()
@@ -50,7 +57,7 @@ const groupedConversations = $derived.by(() => {
     ['Older', []],
   ]
 
-  for (const conv of conversations) {
+  for (const conv of filteredConversations) {
     const date = new Date(conv.updatedAt)
     if (date >= today) buckets[0][1].push(conv)
     else if (date >= yesterday) buckets[1][1].push(conv)
@@ -119,17 +126,29 @@ const confirmDelete = async () => {
   }
   await invalidateAll()
 }
+
+const toggleFavorite = async (e: Event, convId: string, currentFavorite: boolean) => {
+  e.stopPropagation()
+  e.preventDefault()
+  const newFavorite = !currentFavorite
+  await fetch(`/api/conversations/${convId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ favorite: newFavorite }),
+  })
+  await invalidateAll()
+}
 </script>
 
 <nav class="no-scrollbar flex-1 overflow-y-auto px-2.5 pt-[calc(env(safe-area-inset-top)+6.5rem)] pb-[calc(env(safe-area-inset-bottom)+3.75rem)]">
   {#if isSearching}
-    {#if searchResults === null && searching}
+    {#if filteredSearchResults === null && searching}
       <div class="px-3 py-8 text-center text-sm text-gray-400 dark:text-neutral-500">Searching…</div>
-    {:else if searchResults && searchResults.length > 0}
+    {:else if filteredSearchResults && filteredSearchResults.length > 0}
       <div class="convo-section-label">
-        {searchResults.length} result{searchResults.length === 1 ? '' : 's'}
+        {filteredSearchResults.length} result{filteredSearchResults.length === 1 ? '' : 's'}
       </div>
-      {#each searchResults as hit (hit.id)}
+      {#each filteredSearchResults as hit (hit.id)}
         <a
           href={resolve(`/chat/${hit.id}`)}
           class="convo-item group block rounded-xl px-3 py-2 text-sm {hit.id === currentId ? 'convo-item-active' : ''}"
@@ -161,19 +180,36 @@ const confirmDelete = async () => {
                 {/if}
               </div>
             </div>
-            <button
-              onclick={(e) => promptDelete(e, hit.id, hit.title)}
-              aria-label="Delete conversation"
-              class="shrink-0 rounded-lg p-1 opacity-0 transition hover:bg-black/15 dark:hover:bg-white/15 group-hover:opacity-100"
-            >
-              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
+            <div class="flex items-center gap-1 shrink-0 self-center">
+              <button
+                onclick={(e) => toggleFavorite(e, hit.id, !!hit.favorite)}
+                aria-label={hit.favorite ? "Unfavorite" : "Favorite"}
+                class="rounded-lg p-1 transition hover:bg-black/15 dark:hover:bg-white/15 {hit.favorite ? 'text-yellow-500 opacity-100' : 'opacity-0 group-hover:opacity-100'}"
+              >
+                {#if hit.favorite}
+                  <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                  </svg>
+                {:else}
+                  <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                  </svg>
+                {/if}
+              </button>
+              <button
+                onclick={(e) => promptDelete(e, hit.id, hit.title)}
+                aria-label="Delete conversation"
+                class="rounded-lg p-1 opacity-0 transition hover:bg-black/15 dark:hover:bg-white/15 group-hover:opacity-100"
+              >
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
           </div>
         </a>
       {/each}
-    {:else if searchResults}
+    {:else if filteredSearchResults}
       <div class="px-3 py-8 text-center text-sm text-gray-400 dark:text-neutral-500">No matches for &ldquo;{trimmedQuery}&rdquo;</div>
     {/if}
   {:else}
@@ -185,23 +221,40 @@ const confirmDelete = async () => {
             href={resolve(`/chat/${conv.id}`)}
             class="convo-item group flex items-center justify-between rounded-xl px-3 py-2 text-sm {conv.id === currentId ? 'convo-item-active' : ''}"
           >
-            <span class="truncate">{conv.title}</span>
-            {#if conv.generating || conv.id === generatingConversationId}
-              <svg class="h-3.5 w-3.5 shrink-0 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-              </svg>
-            {:else}
-              <button
-                onclick={(e) => promptDelete(e, conv.id, conv.title)}
-                aria-label="Delete conversation"
-                class="shrink-0 rounded-lg p-1 opacity-0 transition hover:bg-black/15 dark:hover:bg-white/15 group-hover:opacity-100"
-              >
-                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            <span class="truncate pr-2">{conv.title}</span>
+            <div class="flex items-center gap-1 shrink-0">
+              {#if conv.generating || conv.id === generatingConversationId}
+                <svg class="h-3.5 w-3.5 shrink-0 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                 </svg>
-              </button>
-            {/if}
+              {:else}
+                <button
+                  onclick={(e) => promptDelete(e, conv.id, conv.title)}
+                  aria-label="Delete conversation"
+                  class="rounded-lg p-1 opacity-0 transition hover:bg-black/15 dark:hover:bg-white/15 group-hover:opacity-100"
+                >
+                  <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+                <button
+                  onclick={(e) => toggleFavorite(e, conv.id, !!conv.favorite)}
+                  aria-label={conv.favorite ? "Unfavorite" : "Favorite"}
+                  class="rounded-lg p-1 transition hover:bg-black/15 dark:hover:bg-white/15 {conv.favorite ? 'text-yellow-500 opacity-100' : 'opacity-0 group-hover:opacity-100'}"
+                >
+                  {#if conv.favorite}
+                    <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                    </svg>
+                  {:else}
+                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                    </svg>
+                  {/if}
+                </button>
+              {/if}
+            </div>
           </a>
         {/each}
       </div>

@@ -13,6 +13,7 @@ const toConversation = (row: typeof conversations.$inferSelect) => ({
   systemPrompt: row.systemPrompt,
   systemPromptId: row.systemPromptId,
   defaultModel: normalizeModelRef(row.defaultProvider, row.defaultModel),
+  favorite: row.favorite,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 })

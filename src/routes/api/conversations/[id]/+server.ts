@@ -13,6 +13,7 @@ const toConversation = (row: typeof conversations.$inferSelect) => ({
   systemPrompt: row.systemPrompt,
   systemPromptId: row.systemPromptId,
   defaultModel: normalizeModelRef(row.defaultProvider, row.defaultModel),
+  favorite: row.favorite,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 })
@@ -35,6 +36,8 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
   const userId = requireUser(locals.user).id
   const body = await request.json()
 
+  const shouldUpdateTimestamp = body.title !== undefined || body.systemPrompt !== undefined || body.systemPromptId !== undefined || body.defaultModel !== undefined
+
   const [updated] = await db
     .update(conversations)
     .set({
@@ -42,7 +45,8 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
       ...(body.systemPrompt !== undefined && { systemPrompt: body.systemPrompt }),
       ...(body.systemPromptId !== undefined && { systemPromptId: body.systemPromptId }),
       ...(body.defaultModel !== undefined && { defaultModel: body.defaultModel }),
-      updatedAt: new Date(),
+      ...(body.favorite !== undefined && { favorite: body.favorite }),
+      ...(shouldUpdateTimestamp && { updatedAt: new Date() }),
     })
     .where(and(eq(conversations.id, params.id), eq(conversations.userId, userId)))
     .returning()

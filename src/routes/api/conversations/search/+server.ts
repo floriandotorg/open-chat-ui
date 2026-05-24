@@ -12,6 +12,7 @@ interface SearchHit {
   snippet: string | null
   snippetRole: 'user' | 'assistant' | null
   messageMatchCount: number
+  favorite: boolean | null
   updatedAt: Date
   score: number
 }
@@ -75,7 +76,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     sql` OR `,
   )
 
-  const allConvs = await db.select({ id: conversations.id, title: conversations.title, updatedAt: conversations.updatedAt }).from(conversations).where(eq(conversations.userId, userId))
+  const allConvs = await db.select({ id: conversations.id, title: conversations.title, favorite: conversations.favorite, updatedAt: conversations.updatedAt }).from(conversations).where(eq(conversations.userId, userId))
 
   if (allConvs.length === 0) return json({ terms, results: [] })
 
@@ -140,6 +141,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     hits.push({
       id: conv.id,
       title: conv.title,
+      favorite: conv.favorite,
       titleHasMatch: titleTerms.size > 0,
       snippet: bestMessage ? buildSnippet(bestMessage.content, terms) : null,
       snippetRole: bestMessage?.role ?? null,
