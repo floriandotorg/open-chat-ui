@@ -151,10 +151,10 @@ const handleAttachClick = () => {
   fileInput?.click()
 }
 
-const isCoarsePointer = () => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
+const isPhoneCoarsePointer = () => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches && window.screen.width < 800
 
 const handleKeydown = (e: KeyboardEvent) => {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !isCoarsePointer()) {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !isPhoneCoarsePointer()) {
     e.preventDefault()
     submit()
   }
