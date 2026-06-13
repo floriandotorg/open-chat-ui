@@ -43,7 +43,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const allMsgs = await db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt))
   const targetMsg = allMsgs.find(m => m.id === messageId)
-  if (!targetMsg || targetMsg.role !== 'assistant') {
+  if (targetMsg?.role !== 'assistant') {
     throw error(400, 'Invalid message for regeneration')
   }
   const userParentId = targetMsg.parentId

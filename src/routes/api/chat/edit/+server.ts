@@ -26,7 +26,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     .select()
     .from(messages)
     .where(and(eq(messages.id, messageId), eq(messages.conversationId, conversationId)))
-  if (!targetMsg || targetMsg.role !== 'user') {
+  if (targetMsg?.role !== 'user') {
     throw error(400, 'Can only edit user messages')
   }
 

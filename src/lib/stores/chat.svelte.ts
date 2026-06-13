@@ -386,7 +386,9 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     if (isStreaming) return
 
     const targetMsg = allMessages.find(m => m.id === messageId)
-    if (!targetMsg || targetMsg.role !== 'user') return
+    if (targetMsg?.role !== 'user') {
+      return
+    }
 
     const res = await fetch('/api/chat/edit', {
       method: 'POST',
@@ -557,7 +559,9 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
 
   const retryFailedMessage = async (conversationId: string, messageId: string) => {
     const target = allMessages.find(m => m.id === messageId)
-    if (!target || target.role !== 'user' || !target.sendError) return
+    if (target?.role !== 'user' || !target.sendError) {
+      return
+    }
     discardFailedMessage(messageId)
     await sendMessage(conversationId, target.content, undefined, target.images, target.files)
   }
