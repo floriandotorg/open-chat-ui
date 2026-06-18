@@ -45,6 +45,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
     "@better-auth/core": "~1.6.15",
+    "@decodo/sdk-ts": "^2.1.2",
     "@mistralai/mistralai": "^2.2.5",
     "@tailwindcss/typography": "^0.5.20",
     "highlight.js": "^11.11.1",

@@ -7,6 +7,7 @@
       "dependencies": {
         "@anthropic-ai/sdk": "^0.104.1",
         "@better-auth/core": "~1.6.15",
+        "@decodo/sdk-ts": "^2.1.2",
         "@mistralai/mistralai": "^2.2.5",
         "@tailwindcss/typography": "^0.5.20",
         "highlight.js": "^11.11.1",
@@ -80,6 +81,8 @@
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.4.16", "", { "os": "win32", "cpu": "x64" }, "sha512-Kp85jgoBHa05gix6UIRjfCDiUV3w/8VIdZ247VyyO2gEjaw12WEVhdIjlxp/AMzXxqxQwbxNTDVZ3Mwd2RG5rw=="],
 
     "@blazediff/core": ["@blazediff/core@1.9.1", "", {}, "sha512-ehg3jIkYKulZh+8om/O25vkvSsXXwC+skXmyA87FFx6A/45eqOkZsBltMw/TVteb0mloiGT8oGRTcjRAz66zaA=="],
+
+    "@decodo/sdk-ts": ["@decodo/sdk-ts@2.1.2", "", { "dependencies": { "zod": "^4" } }, "sha512-V/SdHS0DV9L8gBJc5ljQbTmbgV7C8Cn7V91qn3JfnHKgvSmuUq2kLH27UPgCbAa0T2ZVXOkBzbIog5ZnOzAUMg=="],
 
     "@drizzle-team/brocli": ["@drizzle-team/brocli@0.10.2", "", {}, "sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w=="],
 

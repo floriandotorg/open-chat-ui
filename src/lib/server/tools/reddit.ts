@@ -1,8 +1,7 @@
-import { fetchWithScraperApiKeys } from './scraperapi-keys'
 import type { ToolContext, ToolDefinition } from './types'
+import { AuthenticationError, DecodoClient, Target } from '@decodo/sdk-ts'
 
 const BASE_URL = 'https://www.reddit.com'
-const SCRAPER_API_URL = 'https://api.scraperapi.com'
 const USER_AGENT = 'script:open-chat-ui-reddit:v1.0.0'
 const TIMEOUT_MS = 30_000
 const MIN_DELAY_MS = 300
@@ -12,7 +11,7 @@ const DEFAULT_MAX_CHARS = 1000
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 const randInt = (min: number, max: number) => Math.min(min, max) + Math.floor(Math.random() * (Math.abs(max - min) + 1))
 const toIso = (sec: number) => new Date(sec * 1000).toISOString()
-const hoursAgo = (utc: number) => (Date.now() - utc * 1000) / 3_600_000
+const hoursAgo = (iso: string | null) => (iso ? (Date.now() - new Date(iso).getTime()) / 3_600_000 : Number.POSITIVE_INFINITY)
 
 const clamp = (n: unknown, lo: number, hi: number, fallback: number) => {
   const x = typeof n === 'number' && Number.isFinite(n) ? n : fallback
@@ -41,6 +40,8 @@ const extractPostId = (input: unknown): string | null => {
   return m ? m[1] : null
 }
 
+const isRetryable = (message: string) => message.includes('HTTP 429') || message.includes('HTTP 5') || message.includes('aborted') || message.includes('HTML instead of JSON') || message.toLowerCase().includes('rate limit') || message.toLowerCase().includes('timeout')
+
 const fetchRedditJsonDirect = async (url: string): Promise<unknown> => {
   await sleep(randInt(MIN_DELAY_MS, MAX_DELAY_MS))
   const controller = new AbortController()
@@ -59,45 +60,44 @@ const fetchRedditJsonDirect = async (url: string): Promise<unknown> => {
   }
 }
 
-const fetchRedditJsonViaScraper = async (url: string, apiKey: string): Promise<unknown> => {
-  const params = new URLSearchParams({
-    api_key: apiKey,
-    url,
-    render: 'true',
-    country_code: 'us',
-  })
-  const scraperUrl = `${SCRAPER_API_URL}?${params}`
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+const normalizeDecodoToken = (raw: string) => (raw.includes(':') ? Buffer.from(raw, 'utf8').toString('base64') : raw)
+
+const scrapeRedditJsonViaDecodo = async (url: string, token: string): Promise<unknown> => {
+  const client = new DecodoClient({ webScrapingApi: { token: normalizeDecodoToken(token) } })
+  let result: Awaited<ReturnType<typeof client.webScrapingApi.scrape>>
   try {
-    const res = await fetch(scraperUrl, { signal: controller.signal })
-    const text = await res.text()
-    if (!res.ok) throw new Error(`ScraperAPI HTTP ${res.status}: ${text.slice(0, 300)}`)
-    if (text.trim().startsWith('<')) throw new Error('ScraperAPI returned HTML instead of JSON')
-    return JSON.parse(text)
-  } finally {
-    clearTimeout(timer)
+    result = await client.webScrapingApi.scrape({
+      target: Target.Universal,
+      url,
+      proxy_pool: 'premium',
+      headless: 'html',
+    })
+  } catch (e) {
+    if (e instanceof AuthenticationError) {
+      throw new Error('Decodo authentication failed — check your Decodo Web Scraping API credentials (username:password) in Settings > Tools.')
+    }
+    throw e
   }
+  const entry = result.results?.[0]
+  const content = entry?.content
+  if (content && typeof content === 'object') return content
+  if (typeof content !== 'string') throw new Error(`Decodo returned no scrape content (status ${entry?.status_code ?? 'unknown'})`)
+  const trimmed = content.trim()
+  if (!trimmed) throw new Error(`Decodo returned empty content (status ${entry?.status_code ?? 'unknown'})`)
+  if (trimmed.startsWith('<')) throw new Error('Decodo returned HTML instead of JSON')
+  return JSON.parse(trimmed)
 }
 
-const fetchRedditJson = async (url: string, scraperApiKeys: string[], scope: string): Promise<unknown> =>
-  fetchWithScraperApiKeys(
-    scope,
-    scraperApiKeys,
-    () => fetchRedditJsonDirect(url),
-    key => fetchRedditJsonViaScraper(url, key),
-  )
+const fetchRedditJson = async (url: string, token: string | null): Promise<unknown> => (token ? scrapeRedditJsonViaDecodo(url, token) : fetchRedditJsonDirect(url))
 
-const fetchWithRetry = async (url: string, scraperApiKeys: string[], scope: string, retries = 3): Promise<unknown> => {
+const fetchWithRetry = async (url: string, token: string | null, retries = 3): Promise<unknown> => {
   let lastErr: Error | null = null
   for (let attempt = 0; attempt <= retries; ++attempt) {
     try {
-      return await fetchRedditJson(url, scraperApiKeys, scope)
+      return await fetchRedditJson(url, token)
     } catch (e) {
       lastErr = e instanceof Error ? e : new Error(String(e))
-      const msg = lastErr.message
-      const retryable = msg.includes('HTTP 429') || msg.includes('HTTP 5') || msg.includes('aborted') || msg.includes('HTML instead of JSON')
-      if (!retryable || attempt === retries) break
+      if (!isRetryable(lastErr.message) || attempt === retries) break
       await sleep(600 * 2 ** attempt + randInt(0, 400))
     }
   }
@@ -127,14 +127,11 @@ const normalisePost = (node: RedditThing) => {
     id: d.id,
     subreddit: d.subreddit,
     title: d.title,
-    author: d.author,
     score: d.score,
     num_comments: d.num_comments,
-    created_utc: utc,
     created_iso: utc ? toIso(utc) : null,
     permalink: permalink(d.permalink as string | undefined),
     url: d.url,
-    is_self: d.is_self,
     flair: (d.link_flair_text as string) ?? null,
     selftext_snippet: selftext ? selftext.slice(0, 800) : null,
   }
@@ -142,34 +139,44 @@ const normalisePost = (node: RedditThing) => {
 
 interface CommentOpts {
   depth: number
-  parentFullname: string | null
   maxChars: number
 }
-const normaliseComment = (node: RedditThing, { depth, parentFullname, maxChars }: CommentOpts) => {
+const normaliseComment = (node: RedditThing, { depth, maxChars }: CommentOpts) => {
   const d = node.data ?? (node as Record<string, unknown>)
   const utc = (d.created_utc as number) ?? 0
   const body = (d.body as string) ?? ''
   return {
     id: d.id,
-    author: d.author,
     score: d.score,
-    created_utc: utc,
     created_iso: utc ? toIso(utc) : null,
     depth,
-    parent_fullname: parentFullname ?? d.parent_id ?? null,
-    permalink: permalink(d.permalink as string | undefined),
     body_snippet: body ? body.slice(0, maxChars) : null,
+  }
+}
+
+const normaliseThreadPost = (node: RedditThing) => {
+  const d = node.data ?? (node as Record<string, unknown>)
+  const utc = (d.created_utc as number) ?? 0
+  const selftext = d.selftext as string | undefined
+  return {
+    id: d.id,
+    title: d.title,
+    score: d.score,
+    created_iso: utc ? toIso(utc) : null,
+    permalink: permalink(d.permalink as string | undefined),
+    url: d.url,
+    flair: (d.link_flair_text as string) ?? null,
+    selftext_snippet: selftext ? selftext.slice(0, 800) : null,
   }
 }
 
 interface TreeOpts {
   depth?: number
-  parentFullname?: string | null
   maxDepth?: number
   maxChars?: number
 }
 const parseCommentsTree = (children: RedditThing[], opts: TreeOpts): { comments: ReturnType<typeof normaliseComment>[]; moreCount: number } => {
-  const { depth = 0, parentFullname = null, maxDepth = 8, maxChars = DEFAULT_MAX_CHARS } = opts
+  const { depth = 0, maxDepth = 8, maxChars = DEFAULT_MAX_CHARS } = opts
   const out: ReturnType<typeof normaliseComment>[] = []
   let moreCount = 0
   for (const node of children) {
@@ -183,14 +190,13 @@ const parseCommentsTree = (children: RedditThing[], opts: TreeOpts): { comments:
     const body = node.data?.body as string | undefined
     const deleted = author === '[deleted]' || body === '[deleted]' || body === '[removed]' || body == null
     if (!deleted) {
-      out.push(normaliseComment(node, { depth, parentFullname, maxChars }))
+      out.push(normaliseComment(node, { depth, maxChars }))
     }
     if (depth < maxDepth) {
       const replies = node.data?.replies as Listing | undefined
       const replyChildren = replies?.data?.children
       if (Array.isArray(replyChildren)) {
-        const pf = (node.data?.name as string) ?? parentFullname
-        const parsed = parseCommentsTree(replyChildren, { depth: depth + 1, parentFullname: pf, maxDepth, maxChars })
+        const parsed = parseCommentsTree(replyChildren, { depth: depth + 1, maxDepth, maxChars })
         out.push(...parsed.comments)
         moreCount += parsed.moreCount
       }
@@ -206,7 +212,7 @@ const keywordHits = (text: string, keywords: string[]) => {
 
 type Args = Record<string, unknown>
 
-const getScraperKeys = (context: ToolContext) => context.getApiKeys('scraperapi')
+const getDecodoToken = (context: ToolContext) => context.getApiKey('decodo')
 
 const cmdPosts = async (args: Args, context: ToolContext) => {
   const subreddit = String(args.subreddit ?? '')
@@ -214,12 +220,12 @@ const cmdPosts = async (args: Args, context: ToolContext) => {
   const sort = String(args.sort ?? 'hot')
   const time = String(args.time ?? 'day')
   const limit = clamp(args.limit, 1, 100, 10)
-  const scraperKeys = await getScraperKeys(context)
+  const token = await getDecodoToken(context)
 
   const qs = new URLSearchParams({ limit: String(limit) })
   if (sort === 'top' || sort === 'controversial') qs.set('t', time)
 
-  const listing = (await fetchWithRetry(buildUrl(`/r/${subreddit}/${sort}?${qs}`), scraperKeys, context.userId)) as Listing
+  const listing = (await fetchWithRetry(buildUrl(`/r/${subreddit}/${sort}?${qs}`), token)) as Listing
   const posts = (listing?.data?.children ?? []).filter(x => x.kind === 't3').map(normalisePost)
   return JSON.stringify({ subreddit, sort, limit, after: listing?.data?.after ?? null, posts })
 }
@@ -231,13 +237,13 @@ const cmdSearch = async (args: Args, context: ToolContext) => {
   const sort = String(args.sort ?? 'relevance')
   const time = String(args.time ?? 'all')
   const limit = clamp(args.limit, 1, 100, 10)
-  const scraperKeys = await getScraperKeys(context)
+  const token = await getDecodoToken(context)
 
   const qs = new URLSearchParams({ q: query, sort, t: time, limit: String(limit) })
   if (scope !== 'all') qs.set('restrict_sr', 'on')
   const path = scope === 'all' ? `/search?${qs}` : `/r/${scope}/search?${qs}`
 
-  const listing = (await fetchWithRetry(buildUrl(path), scraperKeys, context.userId)) as Listing
+  const listing = (await fetchWithRetry(buildUrl(path), token)) as Listing
   const posts = (listing?.data?.children ?? []).filter(x => x.kind === 't3').map(normalisePost)
   return JSON.stringify({ scope, query, sort, time, limit, after: listing?.data?.after ?? null, posts })
 }
@@ -248,11 +254,11 @@ const cmdThread = async (args: Args, context: ToolContext) => {
   const limit = clamp(args.limit, 1, 500, 50)
   const maxDepth = clamp(args.depth, 0, 20, 8)
   const maxChars = clamp(args.max_chars, 50, 20000, DEFAULT_MAX_CHARS)
-  const scraperKeys = await getScraperKeys(context)
+  const token = await getDecodoToken(context)
 
-  const data = (await fetchWithRetry(buildUrl(`/comments/${postId}?limit=${limit}`), scraperKeys, context.userId)) as [Listing, Listing]
+  const data = (await fetchWithRetry(buildUrl(`/comments/${postId}?limit=${limit}`), token)) as [Listing, Listing]
   const postChild = data[0]?.data?.children?.find(x => x.kind === 't3')
-  const post = postChild ? normalisePost(postChild) : null
+  const post = postChild ? normaliseThreadPost(postChild) : null
   const parsed = parseCommentsTree(data[1]?.data?.children ?? [], { maxDepth, maxChars })
   return JSON.stringify({ post, comments: parsed.comments, more_count_estimate: parsed.moreCount })
 }
@@ -268,7 +274,7 @@ const cmdFind = async (args: Args, context: ToolContext) => {
   const perSubLimit = clamp(args.per_subreddit_limit, 1, 100, 25)
   const maxResults = clamp(args.max_results, 1, 100, 10)
   const rank = String(args.rank ?? 'new')
-  const scraperKeys = await getScraperKeys(context)
+  const token = await getDecodoToken(context)
 
   const collected: (ReturnType<typeof normalisePost> & { reason: string[]; match_score: number })[] = []
 
@@ -276,10 +282,10 @@ const cmdFind = async (args: Args, context: ToolContext) => {
     let posts: ReturnType<typeof normalisePost>[]
     if (query) {
       const qs = new URLSearchParams({ q: query, restrict_sr: 'on', sort: 'new', t: 'all', limit: String(perSubLimit) })
-      const listing = (await fetchWithRetry(buildUrl(`/r/${sub}/search?${qs}`), scraperKeys, context.userId)) as Listing
+      const listing = (await fetchWithRetry(buildUrl(`/r/${sub}/search?${qs}`), token)) as Listing
       posts = (listing?.data?.children ?? []).filter(x => x.kind === 't3').map(normalisePost)
     } else {
-      const listing = (await fetchWithRetry(buildUrl(`/r/${sub}/new?limit=${perSubLimit}`), scraperKeys, context.userId)) as Listing
+      const listing = (await fetchWithRetry(buildUrl(`/r/${sub}/new?limit=${perSubLimit}`), token)) as Listing
       posts = (listing?.data?.children ?? []).filter(x => x.kind === 't3').map(normalisePost)
     }
 
@@ -291,12 +297,12 @@ const cmdFind = async (args: Args, context: ToolContext) => {
       if (include.length > 0 && hits.length === 0) continue
       if (exclude.length > 0 && exHits.length > 0) continue
       if (typeof p.score === 'number' && p.score < minScore) continue
-      if (maxAgeHours != null && hoursAgo(p.created_utc) > maxAgeHours) continue
+      if (maxAgeHours != null && hoursAgo(p.created_iso) > maxAgeHours) continue
 
       const reason: string[] = []
       if (query) reason.push(`query:${query}`)
       if (hits.length) reason.push(`include:${hits.join(',')}`)
-      if (maxAgeHours != null) reason.push(`age_h:${hoursAgo(p.created_utc).toFixed(1)}`)
+      if (maxAgeHours != null) reason.push(`age_h:${hoursAgo(p.created_iso).toFixed(1)}`)
       if (minScore) reason.push(`minScore:${minScore}`)
 
       collected.push({ ...p, reason, match_score: hits.length })
@@ -307,7 +313,7 @@ const cmdFind = async (args: Args, context: ToolContext) => {
     if (rank === 'score') return ((b.score as number) ?? 0) - ((a.score as number) ?? 0)
     if (rank === 'comments') return ((b.num_comments as number) ?? 0) - ((a.num_comments as number) ?? 0)
     if (rank === 'match') return b.match_score - a.match_score
-    return b.created_utc - a.created_utc
+    return new Date(b.created_iso ?? 0).getTime() - new Date(a.created_iso ?? 0).getTime()
   })
 
   return JSON.stringify({ criteria: { subreddits, query: query || null, include, exclude, minScore, maxAgeHours, maxResults, rank }, results: collected.slice(0, maxResults) })
@@ -322,7 +328,7 @@ const COMMANDS: Record<string, (args: Args, context: ToolContext) => Promise<str
 
 export const redditQuery: ToolDefinition = {
   name: 'reddit_query',
-  description: `Query Reddit for posts, comments, and discussions. Uses ScraperAPI when configured (Settings > Tools) for reliable access, otherwise falls back to direct Reddit endpoints.
+  description: `Query Reddit for posts, comments, and discussions. Uses Decodo (Settings > Tools) when configured for reliable access, otherwise falls back to direct Reddit endpoints.
 
 Workflow guidance:
 - Clarify scope if needed: subreddits + topic keywords + timeframe.
