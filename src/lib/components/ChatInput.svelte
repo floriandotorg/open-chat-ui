@@ -282,11 +282,19 @@ const transcribeAudio = async () => {
   for (let n = 0; n < bytes.length; ++n) binary += String.fromCharCode(bytes[n])
   const base64 = btoa(binary)
 
+  // Generous, recording-length-aware backstop. Long audio legitimately takes a
+  // while to transcribe, so the budget scales with the recording length, but it
+  // is always finite so the spinner can never run forever.
+  const timeoutMs = Math.min(300_000, Math.max(90_000, recordingSeconds * 4000))
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
   try {
     const res = await fetch('/api/dictation', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ audio: base64 }),
+      signal: controller.signal,
     })
 
     if (!res.ok) {
@@ -304,8 +312,14 @@ const transcribeAudio = async () => {
     dictationState = 'idle'
   } catch (err) {
     console.error('Dictation error:', err)
-    dictationError = err instanceof Error ? err.message : 'Dictation failed'
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      dictationError = 'Transcription timed out'
+    } else {
+      dictationError = err instanceof Error ? err.message : 'Dictation failed'
+    }
     dictationState = 'error'
+  } finally {
+    clearTimeout(timeoutId)
   }
 }
 

@@ -14,18 +14,21 @@ const transcribeWithMistral = async (userId: string, audio: string): Promise<str
   }
 
   const client = new Mistral({ apiKey })
-  const response = await client.chat.complete({
-    model: 'voxtral-mini-latest',
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'input_audio' as const, inputAudio: audio },
-          { type: 'text' as const, text: 'Transcribe this audio exactly as spoken in its original language. Do not translate it to another language.' },
-        ],
-      },
-    ],
-  })
+  const response = await client.chat.complete(
+    {
+      model: 'voxtral-mini-latest',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'input_audio' as const, inputAudio: audio },
+            { type: 'text' as const, text: 'Transcribe this audio exactly as spoken in its original language. Do not translate it to another language.' },
+          ],
+        },
+      ],
+    },
+    { timeoutMs: 240_000 },
+  )
 
   const transcription = response.choices?.[0]?.message?.content
   if (typeof transcription !== 'string') {
@@ -50,6 +53,7 @@ const transcribeWithElevenLabs = async (userId: string, audio: string): Promise<
     method: 'POST',
     headers: { 'xi-api-key': apiKey },
     body: form,
+    signal: AbortSignal.timeout(240_000),
   })
 
   if (!upstream.ok) {
@@ -75,6 +79,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const [settings] = await db.select({ dictationProvider: userSettings.dictationProvider }).from(userSettings).where(eq(userSettings.userId, userId))
   const provider = settings?.dictationProvider ?? 'mistral'
 
-  const text = provider === 'elevenlabs' ? await transcribeWithElevenLabs(userId, audio) : await transcribeWithMistral(userId, audio)
-  return json({ text })
+  try {
+    const text = provider === 'elevenlabs' ? await transcribeWithElevenLabs(userId, audio) : await transcribeWithMistral(userId, audio)
+    return json({ text })
+  } catch (err) {
+    if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError' || err.name === 'RequestTimeoutError' || /timed\s*out/i.test(err.message))) {
+      throw error(504, 'Transcription timed out')
+    }
+    throw err
+  }
 }
