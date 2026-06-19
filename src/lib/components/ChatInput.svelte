@@ -268,34 +268,52 @@ const stopAnalyser = () => {
   analyser = undefined
 }
 
-const transcribeAudio = async () => {
-  dictationState = 'transcribing'
-
+const audioToBase64Wav = async (): Promise<string> => {
   const blob = new Blob(audioChunks)
+  if (blob.size === 0) throw new Error('No audio was recorded')
   const arrayBuffer = await blob.arrayBuffer()
   const ctx = new AudioContext()
-  const decoded = await ctx.decodeAudioData(arrayBuffer)
-  const wavBuffer = encodeWav(decoded.getChannelData(0), decoded.sampleRate)
-  await ctx.close()
-  const bytes = new Uint8Array(wavBuffer)
-  let binary = ''
-  for (let n = 0; n < bytes.length; ++n) binary += String.fromCharCode(bytes[n])
-  const base64 = btoa(binary)
+  try {
+    const decoded = await ctx.decodeAudioData(arrayBuffer)
+    const wavBuffer = encodeWav(decoded.getChannelData(0), decoded.sampleRate)
+    const bytes = new Uint8Array(wavBuffer)
+    let binary = ''
+    for (let n = 0; n < bytes.length; ++n) binary += String.fromCharCode(bytes[n])
+    return btoa(binary)
+  } finally {
+    await ctx.close().catch(() => {})
+  }
+}
 
-  // Generous, recording-length-aware backstop. Long audio legitimately takes a
-  // while to transcribe, so the budget scales with the recording length, but it
-  // is always finite so the spinner can never run forever.
+const transcribeAudio = async () => {
+  dictationState = 'transcribing'
+  dictationError = ''
+
+  // Single backstop covering the whole operation (audio decoding *and* the
+  // network round-trip). It scales with the recording length but is always
+  // finite, and the callback itself flips to the error state so the spinner can
+  // never run forever — even if a promise (e.g. decodeAudioData) never settles.
   const timeoutMs = Math.min(300_000, Math.max(90_000, recordingSeconds * 4000))
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  let timedOut = false
+  const timeoutId = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+    dictationError = 'Transcription timed out'
+    dictationState = 'error'
+  }, timeoutMs)
 
   try {
+    const base64 = await audioToBase64Wav()
+    if (timedOut) return
+
     const res = await fetch('/api/dictation', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ audio: base64 }),
       signal: controller.signal,
     })
+    if (timedOut) return
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ message: 'Dictation failed' }))
@@ -305,12 +323,14 @@ const transcribeAudio = async () => {
       return
     }
     const { text } = await res.json()
+    if (timedOut) return
     if (text) {
       content += (content && !content.endsWith(' ') ? ' ' : '') + text
     }
     audioChunks = []
     dictationState = 'idle'
   } catch (err) {
+    if (timedOut) return
     console.error('Dictation error:', err)
     if (err instanceof DOMException && err.name === 'AbortError') {
       dictationError = 'Transcription timed out'
