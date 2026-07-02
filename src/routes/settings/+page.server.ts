@@ -13,7 +13,7 @@ const TOOL_SERVICES: ToolService[] = [
   { id: 'kagi', name: 'Kagi Search', capabilities: [] },
   { id: 'jina', name: 'Jina Reader', capabilities: [] },
   { id: 'decodo', name: 'Decodo (Web Scraping API — username:password)', capabilities: [] },
-  { id: 'openalex', name: 'OpenAlex (email for polite pool, optional)', capabilities: [] },
+  { id: 'openalex', name: 'OpenAlex (API key or email, optional)', capabilities: [] },
   { id: 'elevenlabs', name: 'ElevenLabs TTS (API Key)', capabilities: [] },
   { id: 'elevenlabs-voice-id', name: 'ElevenLabs TTS (Voice ID)', capabilities: [] },
 ]

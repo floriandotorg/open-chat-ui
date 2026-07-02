@@ -27,6 +27,13 @@ const clamp = (n: unknown, lo: number, hi: number, fallback: number): number => 
   return Math.max(lo, Math.min(hi, Math.floor(x)))
 }
 
+export const openAlexAuthParams = (value: string | null): { mailto?: string; api_key?: string } => {
+  const v = value?.trim()
+  if (!v) return {}
+  if (v.includes('@')) return { mailto: v }
+  return { api_key: v }
+}
+
 const buildFilter = (args: Record<string, unknown>): string => {
   const parts: string[] = []
   const fromYear = typeof args.from_year === 'number' ? args.from_year : null
@@ -45,7 +52,7 @@ const buildFilter = (args: Record<string, unknown>): string => {
 
 export const academicSearch: ToolDefinition = {
   name: 'academic_search',
-  description: `Search academic literature (papers/studies) by keywords using the OpenAlex API (250M+ works, free, no key required). Returns title, authors, year, venue, citation count, DOI, open-access link, and the full abstract.
+  description: `Search academic literature (papers/studies) by keywords using the OpenAlex API (250M+ works, free). Returns title, authors, year, venue, citation count, DOI, open-access link, and the full abstract. A free API key (optional, configured in settings) raises rate limits.
 
 Use for scholarly/scientific research questions, literature reviews, or to ground claims in peer-reviewed sources. Refine with from_year/to_year, min_citations, or open_access. Sort by relevance (default), cited_by_count, or publication_date.`,
   parameters: {
@@ -98,8 +105,8 @@ Use for scholarly/scientific research questions, literature reviews, or to groun
     })
     if (filter) qs.set('filter', filter)
     if (sortParam) qs.set('sort', sortParam)
-    const mailto = await context.getApiKey('openalex')
-    if (mailto) qs.set('mailto', mailto)
+    const authParams = openAlexAuthParams(await context.getApiKey('openalex'))
+    for (const [k, v] of Object.entries(authParams)) qs.set(k, v)
 
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
