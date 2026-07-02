@@ -4,6 +4,7 @@ import { getDecryptedKey, getDecryptedKeys } from '$lib/server/api-key'
 import { decrypt } from '$lib/server/crypto'
 import { db } from '$lib/server/db'
 import { apiKeys, conversations, messages, systemPrompts, userSettings } from '$lib/server/db/schema'
+import { getKnowledgeCutoff } from '$lib/server/knowledge-cutoff'
 import { formatCurrentDate, getPostSystemPrompt } from '$lib/server/prompts'
 import { getProviderFactory } from '$lib/server/providers'
 import type { ChatMessage, ChatMessageImage, ToolCallInfo } from '$lib/server/providers/types'
@@ -133,7 +134,11 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
   }
   const postSystemPrompt = getPostSystemPrompt(provider)
   const combinedSystemPrompt = baseSystemPrompt ? `${baseSystemPrompt}\n\n${postSystemPrompt}` : postSystemPrompt
-  const resolvedSystemPrompt = combinedSystemPrompt.replaceAll('{CURRENT_DATE}', formatCurrentDate())
+  let resolvedSystemPrompt = combinedSystemPrompt.replaceAll('{CURRENT_DATE}', formatCurrentDate())
+  if (resolvedSystemPrompt.includes('{KNOWLEDGE_CUTOFF}')) {
+    const cutoff = (await getKnowledgeCutoff(modelRef)) ?? ''
+    resolvedSystemPrompt = resolvedSystemPrompt.replaceAll('{KNOWLEDGE_CUTOFF}', cutoff)
+  }
 
   const anthropicClient = provider === 'anthropic' ? new Anthropic({ apiKey: decryptedKey }) : null
   const allFileIds: string[] = []
