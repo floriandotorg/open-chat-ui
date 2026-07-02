@@ -24,6 +24,7 @@ let dictationError = $state('')
 let recordingSeconds = $state(0)
 let waveformBars = $state<number[]>([])
 let mediaRecorder: MediaRecorder | undefined
+let recorderMimeType = ''
 let audioChunks: Blob[] = []
 let analyser: AnalyserNode | undefined
 let audioContext: AudioContext | undefined
@@ -191,41 +192,6 @@ $effect(() => {
   tick().then(autoResize)
 })
 
-const encodeWav = (samples: Float32Array, sampleRate: number): ArrayBuffer => {
-  const numChannels = 1
-  const bitsPerSample = 16
-  const byteRate = sampleRate * numChannels * (bitsPerSample / 8)
-  const blockAlign = numChannels * (bitsPerSample / 8)
-  const dataSize = samples.length * (bitsPerSample / 8)
-  const buffer = new ArrayBuffer(44 + dataSize)
-  const view = new DataView(buffer)
-
-  const writeString = (offset: number, str: string) => {
-    for (let n = 0; n < str.length; ++n) view.setUint8(offset + n, str.charCodeAt(n))
-  }
-
-  writeString(0, 'RIFF')
-  view.setUint32(4, 36 + dataSize, true)
-  writeString(8, 'WAVE')
-  writeString(12, 'fmt ')
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
-  view.setUint16(22, numChannels, true)
-  view.setUint32(24, sampleRate, true)
-  view.setUint32(28, byteRate, true)
-  view.setUint16(32, blockAlign, true)
-  view.setUint16(34, bitsPerSample, true)
-  writeString(36, 'data')
-  view.setUint32(40, dataSize, true)
-
-  for (let n = 0; n < samples.length; ++n) {
-    const clamped = Math.max(-1, Math.min(1, samples[n]))
-    view.setInt16(44 + n * 2, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true)
-  }
-
-  return buffer
-}
-
 const BAR_COUNT = 50
 let lastWaveformTime = 0
 const WAVEFORM_INTERVAL = 20
@@ -268,31 +234,13 @@ const stopAnalyser = () => {
   analyser = undefined
 }
 
-const audioToBase64Wav = async (): Promise<string> => {
-  const blob = new Blob(audioChunks)
-  if (blob.size === 0) throw new Error('No audio was recorded')
-  const arrayBuffer = await blob.arrayBuffer()
-  const ctx = new AudioContext()
-  try {
-    const decoded = await ctx.decodeAudioData(arrayBuffer)
-    const wavBuffer = encodeWav(decoded.getChannelData(0), decoded.sampleRate)
-    const bytes = new Uint8Array(wavBuffer)
-    let binary = ''
-    for (let n = 0; n < bytes.length; ++n) binary += String.fromCharCode(bytes[n])
-    return btoa(binary)
-  } finally {
-    await ctx.close().catch(() => {})
-  }
-}
-
 const transcribeAudio = async () => {
   dictationState = 'transcribing'
   dictationError = ''
 
-  // Single backstop covering the whole operation (audio decoding *and* the
-  // network round-trip). It scales with the recording length but is always
-  // finite, and the callback itself flips to the error state so the spinner can
-  // never run forever — even if a promise (e.g. decodeAudioData) never settles.
+  // Single backstop covering the whole network round-trip. It scales with the
+  // recording length but is always finite, and the callback itself flips to the
+  // error state so the spinner can never run forever.
   const timeoutMs = Math.min(300_000, Math.max(90_000, recordingSeconds * 4000))
   const controller = new AbortController()
   let timedOut = false
@@ -304,13 +252,14 @@ const transcribeAudio = async () => {
   }, timeoutMs)
 
   try {
-    const base64 = await audioToBase64Wav()
-    if (timedOut) return
+    const blob = new Blob(audioChunks, { type: recorderMimeType || 'audio/webm' })
+    if (blob.size === 0) throw new Error('No audio was recorded')
+    const form = new FormData()
+    form.append('audio', blob, 'audio')
 
     const res = await fetch('/api/dictation', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ audio: base64 }),
+      body: form,
       signal: controller.signal,
     })
     if (timedOut) return
@@ -381,6 +330,7 @@ const startRecording = async () => {
     }, 1000)
 
     mediaRecorder = new MediaRecorder(stream)
+    recorderMimeType = mediaRecorder.mimeType
     mediaRecorder.ondataavailable = e => {
       if (e.data.size > 0) audioChunks.push(e.data)
     }

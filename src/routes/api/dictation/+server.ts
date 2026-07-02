@@ -7,47 +7,38 @@ import { Mistral } from '@mistralai/mistralai'
 import { error, json } from '@sveltejs/kit'
 import { eq } from 'drizzle-orm'
 
-const transcribeWithMistral = async (userId: string, audio: string): Promise<string> => {
+const audioFilename = (mimeType: string): string => {
+  const subtype = mimeType.split(';')[0].split('/')[1] ?? 'webm'
+  return `audio.${subtype === 'mpeg' ? 'mp3' : subtype}`
+}
+
+const transcribeWithMistral = async (userId: string, audio: File): Promise<string> => {
   const apiKey = await getDecryptedKey(userId, 'mistral')
   if (!apiKey) {
     throw error(400, 'No Mistral API key configured. Add one in Settings → API Keys.')
   }
 
   const client = new Mistral({ apiKey })
-  const response = await client.chat.complete(
+  const response = await client.audio.transcriptions.complete(
     {
       model: 'voxtral-mini-latest',
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'input_audio' as const, inputAudio: audio },
-            { type: 'text' as const, text: 'Transcribe this audio exactly as spoken in its original language. Do not translate it to another language.' },
-          ],
-        },
-      ],
+      file: { fileName: audioFilename(audio.type), content: audio },
     },
     { timeoutMs: 240_000 },
   )
-
-  const transcription = response.choices?.[0]?.message?.content
-  if (typeof transcription !== 'string') {
-    throw error(500, 'Failed to transcribe audio')
-  }
-  return transcription
+  return response.text
 }
 
-const transcribeWithElevenLabs = async (userId: string, audio: string): Promise<string> => {
+const transcribeWithElevenLabs = async (userId: string, audio: File): Promise<string> => {
   const apiKey = await getDecryptedKey(userId, 'elevenlabs')
   if (!apiKey) {
     throw error(400, 'No ElevenLabs API key configured. Add one in Settings → Tools.')
   }
 
-  const audioBytes = Uint8Array.from(atob(audio), c => c.charCodeAt(0))
   const form = new FormData()
   form.append('model_id', 'scribe_v1')
   form.append('tag_audio_events', 'false')
-  form.append('file', new Blob([audioBytes], { type: 'audio/wav' }), 'audio.wav')
+  form.append('file', audio, audioFilename(audio.type))
 
   const upstream = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
     method: 'POST',
@@ -70,9 +61,10 @@ const transcribeWithElevenLabs = async (userId: string, audio: string): Promise<
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   const userId = requireUser(locals.user).id
-  const { audio } = (await request.json()) as { audio: string }
+  const form = await request.formData()
+  const audio = form.get('audio')
 
-  if (!audio) {
+  if (!(audio instanceof File) || audio.size === 0) {
     throw error(400, 'No audio data provided')
   }
 

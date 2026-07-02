@@ -32,7 +32,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 | `/api/uploads` | POST | Multipart file upload |
 | `/api/uploads/[id]` | GET | Serve uploaded file |
 | `/api/files/[fileId]` | GET | Download from Anthropic Files API (code execution output) |
-| `/api/dictation` | POST | Audio transcription via Mistral Voxtral |
+| `/api/dictation` | POST | Multipart audio transcription (Mistral Voxtral or ElevenLabs Scribe) |
 
 ## Streaming
 
