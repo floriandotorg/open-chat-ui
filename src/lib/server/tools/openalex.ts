@@ -2,7 +2,7 @@ import type { ToolContext, ToolDefinition } from './types'
 
 const BASE_URL = 'https://api.openalex.org'
 const TIMEOUT_MS = 20_000
-const DEFAULT_PER_PAGE = 10
+const DEFAULT_LIMIT = 5
 const MAX_PER_PAGE = 25
 
 const stripPrefix = (id: unknown): string =>
@@ -52,7 +52,7 @@ const buildFilter = (args: Record<string, unknown>): string => {
 
 export const academicSearch: ToolDefinition = {
   name: 'academic_search',
-  description: `Search academic literature (papers/studies) by keywords using the OpenAlex API (250M+ works, free). Returns title, authors, year, venue, citation count, DOI, open-access link, and the full abstract. A free API key (optional, configured in settings) raises rate limits.
+  description: `Search academic literature (papers/studies) by keywords using the OpenAlex API (250M+ works, free). Returns markdown listing each work with title, year, URL, cited_by_count, authors, and the full abstract. A free API key (optional, configured in settings) raises rate limits.
 
 Use for scholarly/scientific research questions, literature reviews, or to ground claims in peer-reviewed sources. Refine with from_year/to_year, min_citations, or open_access. Sort by relevance (default), cited_by_count, or publication_date.`,
   parameters: {
@@ -82,9 +82,9 @@ Use for scholarly/scientific research questions, literature reviews, or to groun
         type: 'string',
         description: 'Sort order: "relevance" (default), "cited_by_count", or "publication_date".',
       },
-      per_page: {
+      limit: {
         type: 'integer',
-        description: 'Number of results to return (1-25, default 10).',
+        description: 'Number of results to return (1-25, default 5).',
       },
     },
     required: ['query'],
@@ -94,14 +94,14 @@ Use for scholarly/scientific research questions, literature reviews, or to groun
     if (!query) return 'Error: "query" is required.'
 
     const filter = buildFilter(args)
-    const perPage = clamp(args.per_page, 1, MAX_PER_PAGE, DEFAULT_PER_PAGE)
+    const limit = clamp(args.limit, 1, MAX_PER_PAGE, DEFAULT_LIMIT)
     const sort = String(args.sort ?? '').trim()
     const sortParam = sort === 'cited_by_count' ? 'cited_by_count:desc' : sort === 'publication_date' ? 'publication_date:desc' : ''
 
     const qs = new URLSearchParams({
       search: query,
-      per_page: String(perPage),
-      select: 'id,doi,title,publication_year,cited_by_count,authorships,primary_location,open_access,abstract_inverted_index',
+      per_page: String(limit),
+      select: 'id,doi,title,publication_year,cited_by_count,authorships,open_access,abstract_inverted_index',
     })
     if (filter) qs.set('filter', filter)
     if (sortParam) qs.set('sort', sortParam)
@@ -122,37 +122,23 @@ Use for scholarly/scientific research questions, literature reviews, or to groun
         results?: Record<string, unknown>[]
       }
 
-      const results = (data.results ?? []).map(w => {
+      const lines: string[] = []
+      for (const [i, w] of (data.results ?? []).entries()) {
         const authorships = Array.isArray(w.authorships) ? (w.authorships as { author?: { display_name?: string } }[]) : []
         const authors = authorships
           .slice(0, 5)
           .map(a => a.author?.display_name)
           .filter(Boolean)
-        if (authorships.length > 5) authors.push(`+${authorships.length - 5} more`)
-        const primary = w.primary_location as { source?: { display_name?: string } } | undefined
-        const oa = w.open_access as { is_oa?: boolean; oa_url?: string | null } | undefined
+          .join(', ')
+        const oa = w.open_access as { oa_url?: string | null } | undefined
+        const url = (w.doi as string | null) ?? oa?.oa_url ?? `https://openalex.org/${stripPrefix(w.id)}`
+        const n = i + 1
         const abstract = reconstructAbstract(w.abstract_inverted_index as Record<string, number[]> | null | undefined)
-        return {
-          id: stripPrefix(w.id),
-          title: w.title ?? null,
-          authors,
-          year: w.publication_year ?? null,
-          venue: primary?.source?.display_name ?? null,
-          cited_by_count: w.cited_by_count ?? 0,
-          doi: w.doi ?? null,
-          open_access: oa?.is_oa ?? false,
-          oa_url: oa?.oa_url ?? null,
-          abstract,
-        }
-      })
+        lines.push(`${n}. [${w.title ?? 'Untitled'}](${url ?? ''}) — ${w.publication_year ?? 'n.d.'} — cited by ${w.cited_by_count ?? 0} — ${authors || 'Unknown authors'}\n   ${abstract ?? 'No abstract available.'}`)
+      }
 
-      return JSON.stringify({
-        query,
-        filter: filter || null,
-        total_results: data.meta?.count ?? 0,
-        returned: results.length,
-        results,
-      })
+      const header = `# Academic search: "${query}"${filter ? ` (filter: ${filter})` : ''}\n\n${data.meta?.count ?? 0} results, showing ${lines.length}:\n`
+      return header + lines.join('\n')
     } catch (e) {
       return `Error: ${e instanceof Error ? e.message : String(e)}`
     } finally {
