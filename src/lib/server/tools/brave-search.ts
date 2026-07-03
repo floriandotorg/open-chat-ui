@@ -89,6 +89,10 @@ export const braveSearch: ToolDefinition = {
         type: 'integer',
         description: 'Number of web results to return (1-20, default 5)',
       },
+      offset: {
+        type: 'integer',
+        description: 'Number of results to skip for pagination (default 0)',
+      },
       country: {
         type: 'string',
         description: 'Two-letter country code for regional results (e.g. "us", "de", "fr", "gb"). Defaults to none.',
@@ -109,6 +113,7 @@ export const braveSearch: ToolDefinition = {
 
     const query = args.query as string
     const limit = Math.min(20, Math.max(1, (args.limit as number) ?? 5))
+    const offset = Math.max(0, (args.offset as number) ?? 0)
     const country = (args.country as string | undefined)?.trim().toLowerCase() || undefined
     const freshnessRaw = (args.freshness as string | undefined)?.trim().toLowerCase()
     const freshness = freshnessRaw && isFreshness(freshnessRaw) ? freshnessRaw : undefined
@@ -120,6 +125,7 @@ export const braveSearch: ToolDefinition = {
     })
     if (country) params.set('country', country)
     if (freshness) params.set('freshness', freshness)
+    if (offset > 0) params.set('offset', String(offset))
 
     const url = `https://api.search.brave.com/res/v1/web/search?${params.toString()}`
 
