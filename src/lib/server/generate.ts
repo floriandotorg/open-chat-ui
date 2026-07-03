@@ -161,11 +161,66 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
         }
       }
     }
-    chatMessages.push({
-      role: m.role as ChatMessage['role'],
-      content: m.content,
-      ...(imgs.length ? { images: imgs.map(loadImageData) } : {}),
-    })
+    const parsedToolCalls = m.toolCalls ? (JSON.parse(m.toolCalls) as (PersistedToolCall | PersistedCodeExecution)[]) : null
+    const allToolCallsParsed = parsedToolCalls ?? []
+    const regularToolCalls = allToolCallsParsed.filter((tc): tc is PersistedToolCall => !('type' in tc && tc.type === 'code_execution'))
+    const hasCodeExec = allToolCallsParsed.some(tc => 'type' in tc && tc.type === 'code_execution')
+    const rawBlocksByOffset = new Map<number, unknown[]>()
+    if (m.rawContentBlocks) {
+      for (const entry of JSON.parse(m.rawContentBlocks) as { textOffset: number; blocks: unknown[] }[]) {
+        rawBlocksByOffset.set(entry.textOffset, entry.blocks)
+      }
+    }
+    const imgsLoaded = imgs.length ? imgs.map(loadImageData) : undefined
+
+    if (m.role === 'assistant' && (regularToolCalls.length || hasCodeExec)) {
+      // The persisted content is the concatenated text from every round; each
+      // tool call's textOffset marks the end of its round's text. Split there
+      // so tool calls and results are interleaved in their original position,
+      // with the final answer text following the last tool round. Rounds with
+      // code execution replay their rawContentBlocks verbatim (server-side
+      // tool_use/result blocks can't be reconstructed from toolCalls alone).
+      const offsets = [...new Set(allToolCallsParsed.map(tc => tc.textOffset))].sort((a, b) => a - b)
+      let prev = 0
+      let firstSegment = true
+      for (const off of offsets) {
+        const roundCalls = regularToolCalls.filter(tc => tc.textOffset === off)
+        const roundBlocks = rawBlocksByOffset.get(off)
+        if (roundBlocks?.length) {
+          chatMessages.push({
+            role: 'assistant',
+            content: m.content.slice(prev, off),
+            rawContentBlocks: roundBlocks,
+            ...(firstSegment && imgsLoaded ? { images: imgsLoaded } : {}),
+          })
+        } else {
+          chatMessages.push({
+            role: 'assistant',
+            content: m.content.slice(prev, off),
+            toolCalls: roundCalls.map(tc => ({ id: tc.id, name: tc.name, arguments: tc.arguments })),
+            ...(firstSegment && imgsLoaded ? { images: imgsLoaded } : {}),
+          })
+        }
+        firstSegment = false
+        for (const tc of roundCalls) {
+          chatMessages.push({ role: 'tool', content: tc.result, toolCallId: tc.id })
+        }
+        prev = off
+      }
+      const tail = m.content.slice(prev)
+      const tailBlocks = rawBlocksByOffset.get(m.content.length)
+      if (tailBlocks?.length) {
+        chatMessages.push({ role: 'assistant', content: tail, rawContentBlocks: tailBlocks })
+      } else if (tail) {
+        chatMessages.push({ role: 'assistant', content: tail })
+      }
+    } else {
+      chatMessages.push({
+        role: m.role as ChatMessage['role'],
+        content: m.content,
+        ...(imgsLoaded ? { images: imgsLoaded } : {}),
+      })
+    }
   }
 
   if (allFileIds.length && chatMessages.length) {
@@ -187,6 +242,7 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
   let fullText = ''
   const totalUsage = { inputTokens: 0, outputTokens: 0 }
   const allToolCalls: (PersistedToolCall | PersistedCodeExecution)[] = []
+  const allRawContentBlocks: { textOffset: number; blocks: unknown[] }[] = []
   let citationCounter = 0
   let container: string | undefined = conversation.container ?? undefined
 
@@ -200,6 +256,7 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
       if (hub.abort.signal.aborted) break
       let roundText = ''
       const toolCalls: ToolCallInfo[] = []
+      const pendingCodeExecResults: { type: 'code_execution'; id: string; name: string; input: Record<string, unknown>; stdout?: string; stderr?: string; returnCode?: number; error?: string; files?: { fileId: string; filename: string; mimeType: string }[] }[] = []
       let stopReason: 'end' | 'tool_use' = 'end'
       let rawContentBlocks: unknown[] | undefined
 
@@ -229,19 +286,18 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
           codeExecInputs.set(id, (codeExecInputs.get(id) ?? '') + partialInput)
           emit(hub, event)
         } else if (event.type === 'code_execution_result' && event.codeExecutionResult) {
-          const textOffset = fullText.length + roundText.length
           const { id, ...result } = event.codeExecutionResult
           const inputJson = codeExecInputs.get(id) ?? '{}'
           let input: Record<string, unknown> = {}
           try {
             input = JSON.parse(inputJson)
           } catch {}
-          allToolCalls.push({ type: 'code_execution', id, name: 'bash_code_execution', input, textOffset, ...result })
+          pendingCodeExecResults.push({ type: 'code_execution', id, name: 'bash_code_execution', input, ...result })
           codeExecInputs.delete(id)
           emit(hub, event)
         } else if (event.type === 'code_execution_files' && event.codeExecutionFiles) {
           const { id, files } = event.codeExecutionFiles
-          const existing = allToolCalls.find((tc): tc is PersistedCodeExecution => 'type' in tc && tc.type === 'code_execution' && tc.id === id)
+          const existing = pendingCodeExecResults.find(tc => tc.id === id)
           if (existing) existing.files = files
           emit(hub, event)
         } else if (event.type === 'raw_assistant_content') {
@@ -259,6 +315,13 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
 
       const textOffsetForRound = fullText.length + roundText.length
       fullText += roundText
+
+      for (const ce of pendingCodeExecResults) {
+        allToolCalls.push({ ...ce, textOffset: textOffsetForRound })
+      }
+      if (pendingCodeExecResults.length && rawContentBlocks?.length) {
+        allRawContentBlocks.push({ textOffset: textOffsetForRound, blocks: rawContentBlocks })
+      }
 
       if (stopReason !== 'tool_use' || toolCalls.length === 0) break
 
@@ -312,6 +375,7 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
       inputTokens: totalUsage.inputTokens || undefined,
       outputTokens: totalUsage.outputTokens || undefined,
       toolCalls: allToolCalls.length ? JSON.stringify(allToolCalls) : null,
+      rawContentBlocks: allRawContentBlocks.length ? JSON.stringify(allRawContentBlocks) : null,
     })
 
     const existingBranches: Record<string, string> = conversation.activeBranches ? JSON.parse(conversation.activeBranches) : {}
