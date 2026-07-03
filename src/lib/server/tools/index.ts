@@ -1,11 +1,11 @@
+import { braveSearch } from './brave-search'
 import { fetchUrl } from './fetch-url'
-import { kagiSearch } from './kagi-search'
 import { academicSearch } from './openalex'
 import { redditQuery } from './reddit'
 import type { ToolContext, ToolDefinition } from './types'
 import { wikipediaSearch } from './wikipedia-search'
 
-const tools: ToolDefinition[] = [kagiSearch, redditQuery, academicSearch, wikipediaSearch, fetchUrl]
+const tools: ToolDefinition[] = [braveSearch, redditQuery, academicSearch, wikipediaSearch, fetchUrl]
 
 export const getAllTools = (): ToolDefinition[] => tools
 

@@ -10,7 +10,7 @@ import { asc, eq } from 'drizzle-orm'
 type ToolService = { id: string; name: string; capabilities: string[] }
 
 const TOOL_SERVICES: ToolService[] = [
-  { id: 'kagi', name: 'Kagi Search', capabilities: [] },
+  { id: 'brave', name: 'Brave Search', capabilities: [] },
   { id: 'jina', name: 'Jina Reader', capabilities: [] },
   { id: 'decodo', name: 'Decodo (Web Scraping API — username:password)', capabilities: [] },
   { id: 'openalex', name: 'OpenAlex (API key or email, optional)', capabilities: [] },
