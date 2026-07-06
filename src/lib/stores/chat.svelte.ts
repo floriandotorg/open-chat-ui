@@ -29,8 +29,11 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
   }
 
   let messageQueue = $state<QueueEntry[]>([])
+  let serverAssistantId: string | null = null
+  let partialAttached = false
 
   const resetStreamingState = () => {
+    serverAssistantId = null
     streamingText = ''
     streamingThinking = ''
     thinkingDuration = null
@@ -41,7 +44,7 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
   }
 
   const buildMessage = (conversationId: string, parentId?: string | null): Message => ({
-    id: crypto.randomUUID(),
+    id: serverAssistantId ?? crypto.randomUUID(),
     conversationId,
     parentId,
     role: 'assistant',
@@ -53,6 +56,20 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     codeExecutions: streamingCodeExecutions.length ? [...streamingCodeExecutions] : undefined,
     createdAt: new Date(),
   })
+
+  const attachStreamedMessage = (conversationId: string, parentId?: string | null): boolean => {
+    const hasContent = !!(streamingText || streamingToolCalls.length || streamingCodeExecutions.length)
+    if (hasContent) {
+      const assistantMsg = buildMessage(conversationId, parentId ?? null)
+      allMessages = [...allMessages, assistantMsg]
+      if (parentId) {
+        activeBranches = { ...activeBranches, [parentId]: assistantMsg.id }
+      }
+      partialAttached = true
+    }
+    resetStreamingState()
+    return hasContent
+  }
 
   const getLastMessageId = (): string | null => {
     const resolved = resolveAndAnnotate(allMessages, activeBranches)
@@ -69,6 +86,7 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     const handleEvent = (event: ChatStreamEvent) => {
       if (event.type === 'stream_meta') {
         if (event.parentId) parentId = event.parentId
+        if (event.assistantMsgId) serverAssistantId = event.assistantMsgId
         return
       }
       if (event.type === 'stream_end') {
@@ -128,6 +146,7 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
       }
       if (event.type === 'error') {
         completed = true
+        attachStreamedMessage(conversationId, parentId)
         throw new Error(event.error ?? 'Stream error')
       }
       if (event.type === 'done') {
@@ -197,7 +216,7 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
         continue
       }
       if (reconnect.status === 404) {
-        resetStreamingState()
+        attachStreamedMessage(conversationId, parentId)
         return
       }
       if (!reconnect.ok) {
@@ -231,6 +250,7 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
 
     const isFirstMessage = allMessages.length === 0
     activeConversationId = conversationId
+    partialAttached = false
     isStreaming = true
     isThinking = false
     streamingText = ''
@@ -288,23 +308,18 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     } catch (err) {
       const isMine = abortController === ctrl
       if (err instanceof DOMException && err.name === 'AbortError') {
-        if (isMine && streamingText) {
-          const assistantMsg = buildMessage(conversationId, userMsg.id)
-          allMessages = [...allMessages, assistantMsg]
-          if (userMsg.id) {
-            activeBranches = { ...activeBranches, [userMsg.id]: assistantMsg.id }
-          }
-        }
         if (isMine) {
-          resetStreamingState()
+          attachStreamedMessage(conversationId, userMsg.id)
           abortController = null
         }
         return
       }
       if (isMine) {
-        const errorText = err instanceof Error ? err.message : 'Failed to send message'
-        allMessages = allMessages.map(m => (m.id === userMsg.id ? { ...m, sendError: errorText } : m))
-        resetStreamingState()
+        attachStreamedMessage(conversationId, userMsg.id)
+        if (!partialAttached) {
+          const errorText = err instanceof Error ? err.message : 'Failed to send message'
+          allMessages = allMessages.map(m => (m.id === userMsg.id ? { ...m, sendError: errorText } : m))
+        }
         messageQueue = []
         abortController = null
       }
@@ -324,6 +339,7 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     if (isStreaming) return
 
     activeConversationId = conversationId
+    partialAttached = false
     isStreaming = true
     isThinking = false
     streamingText = ''
@@ -358,23 +374,12 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
       await processStream(response, conversationId, userParentId, ctrl)
     } catch (err) {
       const isMine = abortController === ctrl
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        if (isMine && streamingText) {
-          const assistantMsg = buildMessage(conversationId, userParentId)
-          allMessages = [...allMessages, assistantMsg]
-          if (userParentId) {
-            activeBranches = { ...activeBranches, [userParentId]: assistantMsg.id }
-          }
-        }
-        if (isMine) {
-          resetStreamingState()
-          abortController = null
-        }
-        return
-      }
       if (isMine) {
-        resetStreamingState()
+        attachStreamedMessage(conversationId, userParentId)
         abortController = null
+      }
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return
       }
       throw err
     }
@@ -416,6 +421,7 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     activeBranches = { ...activeBranches, [parentKey]: newMessageId }
 
     activeConversationId = conversationId
+    partialAttached = false
     isStreaming = true
     isThinking = false
     streamingText = ''
@@ -452,21 +458,12 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
       await processStream(response, conversationId, newMessageId, ctrl)
     } catch (err) {
       const isMine = abortController === ctrl
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        if (isMine && streamingText) {
-          const assistantMsg = buildMessage(conversationId, newMessageId)
-          allMessages = [...allMessages, assistantMsg]
-          activeBranches = { ...activeBranches, [newMessageId]: assistantMsg.id }
-        }
-        if (isMine) {
-          resetStreamingState()
-          abortController = null
-        }
-        return
-      }
       if (isMine) {
-        resetStreamingState()
+        attachStreamedMessage(conversationId, newMessageId)
         abortController = null
+      }
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return
       }
       throw err
     }
@@ -503,6 +500,7 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
   const resumeStream = async (conversationId: string) => {
     if (isStreaming && activeConversationId === conversationId) return
     activeConversationId = conversationId
+    partialAttached = false
     isStreaming = true
     isThinking = false
     streamingText = ''

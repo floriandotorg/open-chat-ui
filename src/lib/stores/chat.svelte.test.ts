@@ -87,12 +87,12 @@ describe('createChatStore.sendMessage failure handling', () => {
     expect(Object.values(chat.activeBranches)).not.toContain(failedId)
   })
 
-  it('resets streaming state when the stream drops mid-flight and reconnect returns 404 (server finished while we were backgrounded)', async () => {
+  it('attaches the streamed partial with the server assistant id when reconnect returns 404 (server finished while we were disconnected)', async () => {
     let calls = 0
     installFetch(async url => {
       ++calls
       if (calls === 1) {
-        return sseResponse('id: 0\ndata: {"type":"text_delta","text":"partial "}\n\n')
+        return sseResponse('id: 0\ndata: {"type":"stream_meta","assistantMsgId":"srv-assist-1"}\n\nid: 1\ndata: {"type":"text_delta","text":"partial "}\n\n')
       }
       expect(String(url)).toContain('/api/chat/stream/')
       return new Response('No active stream', { status: 404 })
@@ -107,8 +107,47 @@ describe('createChatStore.sendMessage failure handling', () => {
     expect(calls).toBe(2)
     expect(chat.isStreaming).toBe(false)
     expect(chat.streamingText).toBe('')
+    expect(chat.allMessages.length).toBe(2)
+    const [userMsg, assistantMsg] = chat.allMessages
+    expect(userMsg.role).toBe('user')
+    expect(assistantMsg.role).toBe('assistant')
+    expect(assistantMsg.id).toBe('srv-assist-1')
+    expect(assistantMsg.content).toBe('partial ')
+    expect(assistantMsg.parentId).toBe(userMsg.id)
+    expect(chat.activeBranches[userMsg.id]).toBe('srv-assist-1')
+  })
+
+  it('attaches the streamed partial with the server assistant id when the stream emits an error event mid-generation', async () => {
+    installFetch(async () => sseResponse('id: 0\ndata: {"type":"stream_meta","assistantMsgId":"srv-assist-2"}\n\nid: 1\ndata: {"type":"text_delta","text":"partial answer"}\n\nid: 2\ndata: {"type":"error","error":"Connection error"}\n\n'))
+
+    const chat = createChatStore()
+    chat.selectedModel = 'anthropic/claude-test'
+
+    await chat.sendMessage('conv-1', 'hello')
+    await flush()
+
+    expect(chat.isStreaming).toBe(false)
+    expect(chat.allMessages.length).toBe(2)
+    const [userMsg, assistantMsg] = chat.allMessages
+    expect(userMsg.sendError).toBeUndefined()
+    expect(assistantMsg.id).toBe('srv-assist-2')
+    expect(assistantMsg.content).toBe('partial answer')
+    expect(assistantMsg.parentId).toBe(userMsg.id)
+    expect(chat.activeBranches[userMsg.id]).toBe('srv-assist-2')
+  })
+
+  it('marks the user message with sendError when the stream errors before producing any content', async () => {
+    installFetch(async () => sseResponse('id: 0\ndata: {"type":"stream_meta","assistantMsgId":"srv-assist-3"}\n\nid: 1\ndata: {"type":"error","error":"Overloaded"}\n\n'))
+
+    const chat = createChatStore()
+    chat.selectedModel = 'anthropic/claude-test'
+
+    await chat.sendMessage('conv-1', 'hello')
+    await flush()
+
     expect(chat.allMessages.length).toBe(1)
-    expect(chat.allMessages[0].role).toBe('user')
+    expect(chat.allMessages[0].sendError).toBe('Overloaded')
+    expect(chat.isStreaming).toBe(false)
   })
 
   it('retryFailedMessage discards the failed message and resends with the same content/images/files', async () => {
