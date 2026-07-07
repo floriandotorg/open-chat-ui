@@ -124,33 +124,31 @@ const normalisePost = (node: RedditThing) => {
   const utc = (d.created_utc as number) ?? 0
   const selftext = d.selftext as string | undefined
   return {
-    id: d.id,
-    subreddit: d.subreddit,
-    title: d.title,
-    score: d.score,
-    num_comments: d.num_comments,
-    created_iso: utc ? toIso(utc) : null,
-    permalink: permalink(d.permalink as string | undefined),
-    url: d.url,
-    flair: (d.link_flair_text as string) ?? null,
-    selftext_snippet: selftext ? selftext.slice(0, 800) : null,
+    subreddit: d.subreddit as string | undefined,
+    title: d.title as string | undefined,
+    created_at: utc ? toIso(utc) : null,
+    url: permalink(d.permalink as string | undefined),
+    snippet: selftext ? selftext.slice(0, 800) : null,
+    score: d.score as number | undefined,
+    num_comments: d.num_comments as number | undefined,
   }
 }
 
 interface CommentOpts {
   depth: number
   maxChars: number
+  subreddit: string | undefined
 }
-const normaliseComment = (node: RedditThing, { depth, maxChars }: CommentOpts) => {
+const normaliseComment = (node: RedditThing, { depth, maxChars, subreddit }: CommentOpts) => {
   const d = node.data ?? (node as Record<string, unknown>)
   const utc = (d.created_utc as number) ?? 0
   const body = (d.body as string) ?? ''
   return {
-    id: d.id,
-    score: d.score,
-    created_iso: utc ? toIso(utc) : null,
-    depth,
-    body_snippet: body ? body.slice(0, maxChars) : null,
+    subreddit,
+    title: `comment (depth ${depth})`,
+    created_at: utc ? toIso(utc) : null,
+    url: permalink(d.permalink as string | undefined),
+    snippet: body ? body.slice(0, maxChars) : null,
   }
 }
 
@@ -159,14 +157,11 @@ const normaliseThreadPost = (node: RedditThing) => {
   const utc = (d.created_utc as number) ?? 0
   const selftext = d.selftext as string | undefined
   return {
-    id: d.id,
-    title: d.title,
-    score: d.score,
-    created_iso: utc ? toIso(utc) : null,
-    permalink: permalink(d.permalink as string | undefined),
-    url: d.url,
-    flair: (d.link_flair_text as string) ?? null,
-    selftext_snippet: selftext ? selftext.slice(0, 800) : null,
+    subreddit: d.subreddit as string | undefined,
+    title: d.title as string | undefined,
+    created_at: utc ? toIso(utc) : null,
+    url: permalink(d.permalink as string | undefined),
+    snippet: selftext ? selftext.slice(0, 800) : null,
   }
 }
 
@@ -174,9 +169,10 @@ interface TreeOpts {
   depth?: number
   maxDepth?: number
   maxChars?: number
+  subreddit?: string
 }
 const parseCommentsTree = (children: RedditThing[], opts: TreeOpts): { comments: ReturnType<typeof normaliseComment>[]; moreCount: number } => {
-  const { depth = 0, maxDepth = 8, maxChars = DEFAULT_MAX_CHARS } = opts
+  const { depth = 0, maxDepth = 8, maxChars = DEFAULT_MAX_CHARS, subreddit } = opts
   const out: ReturnType<typeof normaliseComment>[] = []
   let moreCount = 0
   for (const node of children) {
@@ -190,13 +186,13 @@ const parseCommentsTree = (children: RedditThing[], opts: TreeOpts): { comments:
     const body = node.data?.body as string | undefined
     const deleted = author === '[deleted]' || body === '[deleted]' || body === '[removed]' || body == null
     if (!deleted) {
-      out.push(normaliseComment(node, { depth, maxChars }))
+      out.push(normaliseComment(node, { depth, maxChars, subreddit }))
     }
     if (depth < maxDepth) {
       const replies = node.data?.replies as Listing | undefined
       const replyChildren = replies?.data?.children
       if (Array.isArray(replyChildren)) {
-        const parsed = parseCommentsTree(replyChildren, { depth: depth + 1, maxDepth, maxChars })
+        const parsed = parseCommentsTree(replyChildren, { depth: depth + 1, maxDepth, maxChars, subreddit })
         out.push(...parsed.comments)
         moreCount += parsed.moreCount
       }
@@ -208,6 +204,15 @@ const parseCommentsTree = (children: RedditThing[], opts: TreeOpts): { comments:
 const keywordHits = (text: string, keywords: string[]) => {
   const t = text.toLowerCase()
   return keywords.filter(kw => kw && t.includes(kw.toLowerCase()))
+}
+
+const mdEscape = (s: string | null | undefined) => (s ?? '').replace(/[[\]]/g, '')
+const formatItem = (p: { subreddit?: string; title?: string; created_at: string | null; url: string | null; snippet: string | null }, n: number) => {
+  const sub = p.subreddit ? `r/${p.subreddit}` : 'r/?'
+  const title = mdEscape(p.title) || '(untitled)'
+  const url = p.url ?? ''
+  const snippet = p.snippet ? `\n   ${p.snippet.replace(/\n\n+/g, ' ').slice(0, 800)}` : ''
+  return `${n}. **${title}** — ${sub}\n   - created_at: ${p.created_at ?? 'unknown'}\n   - url: ${url}${snippet}`
 }
 
 type Args = Record<string, unknown>
@@ -227,7 +232,8 @@ const cmdPosts = async (args: Args, context: ToolContext) => {
 
   const listing = (await fetchWithRetry(buildUrl(`/r/${subreddit}/${sort}?${qs}`), token)) as Listing
   const posts = (listing?.data?.children ?? []).filter(x => x.kind === 't3').map(normalisePost)
-  return JSON.stringify({ subreddit, sort, limit, after: listing?.data?.after ?? null, posts })
+  if (posts.length === 0) return 'No posts found.'
+  return `## Posts (r/${subreddit}, ${sort})\n\n${posts.map((p, n) => formatItem(p, n + 1)).join('\n\n')}`
 }
 
 const cmdSearch = async (args: Args, context: ToolContext) => {
@@ -245,7 +251,8 @@ const cmdSearch = async (args: Args, context: ToolContext) => {
 
   const listing = (await fetchWithRetry(buildUrl(path), token)) as Listing
   const posts = (listing?.data?.children ?? []).filter(x => x.kind === 't3').map(normalisePost)
-  return JSON.stringify({ scope, query, sort, time, limit, after: listing?.data?.after ?? null, posts })
+  if (posts.length === 0) return 'No results found.'
+  return `## Search results (${scope}, "${query}")\n\n${posts.map((p, n) => formatItem(p, n + 1)).join('\n\n')}`
 }
 
 const cmdThread = async (args: Args, context: ToolContext) => {
@@ -259,8 +266,11 @@ const cmdThread = async (args: Args, context: ToolContext) => {
   const data = (await fetchWithRetry(buildUrl(`/comments/${postId}?limit=${limit}`), token)) as [Listing, Listing]
   const postChild = data[0]?.data?.children?.find(x => x.kind === 't3')
   const post = postChild ? normaliseThreadPost(postChild) : null
-  const parsed = parseCommentsTree(data[1]?.data?.children ?? [], { maxDepth, maxChars })
-  return JSON.stringify({ post, comments: parsed.comments, more_count_estimate: parsed.moreCount })
+  const parsed = parseCommentsTree(data[1]?.data?.children ?? [], { maxDepth, maxChars, subreddit: post?.subreddit })
+  if (!post) return 'Thread not found.'
+  const header = formatItem(post, 1)
+  if (parsed.comments.length === 0) return `## Thread\n\n${header}\n\n_No comments._`
+  return `## Thread\n\n${header}\n\n## Comments\n\n${parsed.comments.map((c, n) => formatItem(c, n + 1)).join('\n\n')}`
 }
 
 const cmdFind = async (args: Args, context: ToolContext) => {
@@ -276,7 +286,7 @@ const cmdFind = async (args: Args, context: ToolContext) => {
   const rank = String(args.rank ?? 'new')
   const token = await getDecodoToken(context)
 
-  const collected: (ReturnType<typeof normalisePost> & { reason: string[]; match_score: number })[] = []
+  const collected: ReturnType<typeof normalisePost>[] = []
 
   for (const sub of subreddits) {
     let posts: ReturnType<typeof normalisePost>[]
@@ -290,33 +300,29 @@ const cmdFind = async (args: Args, context: ToolContext) => {
     }
 
     for (const p of posts) {
-      const text = `${p.title ?? ''}\n\n${p.selftext_snippet ?? ''}`
+      const text = `${p.title ?? ''}\n\n${p.snippet ?? ''}`
       const hits = keywordHits(text, include)
       const exHits = keywordHits(text, exclude)
 
       if (include.length > 0 && hits.length === 0) continue
       if (exclude.length > 0 && exHits.length > 0) continue
       if (typeof p.score === 'number' && p.score < minScore) continue
-      if (maxAgeHours != null && hoursAgo(p.created_iso) > maxAgeHours) continue
+      if (maxAgeHours != null && hoursAgo(p.created_at) > maxAgeHours) continue
 
-      const reason: string[] = []
-      if (query) reason.push(`query:${query}`)
-      if (hits.length) reason.push(`include:${hits.join(',')}`)
-      if (maxAgeHours != null) reason.push(`age_h:${hoursAgo(p.created_iso).toFixed(1)}`)
-      if (minScore) reason.push(`minScore:${minScore}`)
-
-      collected.push({ ...p, reason, match_score: hits.length })
+      collected.push(p)
     }
   }
 
   collected.sort((a, b) => {
     if (rank === 'score') return ((b.score as number) ?? 0) - ((a.score as number) ?? 0)
     if (rank === 'comments') return ((b.num_comments as number) ?? 0) - ((a.num_comments as number) ?? 0)
-    if (rank === 'match') return b.match_score - a.match_score
-    return new Date(b.created_iso ?? 0).getTime() - new Date(a.created_iso ?? 0).getTime()
+    if (rank === 'match') return 0
+    return new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime()
   })
 
-  return JSON.stringify({ criteria: { subreddits, query: query || null, include, exclude, minScore, maxAgeHours, maxResults, rank }, results: collected.slice(0, maxResults) })
+  const results = collected.slice(0, maxResults)
+  if (results.length === 0) return 'No matching posts found.'
+  return `## Find results\n\n${results.map((p, n) => formatItem(p, n + 1)).join('\n\n')}`
 }
 
 const COMMANDS: Record<string, (args: Args, context: ToolContext) => Promise<string>> = {

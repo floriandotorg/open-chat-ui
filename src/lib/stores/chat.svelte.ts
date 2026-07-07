@@ -154,13 +154,19 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
           isThinking = false
           thinkingDuration = thinkingStartTime ? Math.round((Date.now() - thinkingStartTime) / 1000) : null
         }
-        const assistantMsg = buildMessage(conversationId, parentId)
-        if (event.messageId) {
-          assistantMsg.id = event.messageId
-        }
-        allMessages = [...allMessages, assistantMsg]
-        if (parentId) {
-          activeBranches = { ...activeBranches, [parentId]: assistantMsg.id }
+        // Mirror the server's persist rule: an empty completion is never written
+        // to the DB, so creating a local message would produce a phantom parent
+        // that breaks the next turn's server-side history walk (context loss).
+        const hasContent = !!(streamingText || streamingToolCalls.length || streamingCodeExecutions.length)
+        if (hasContent) {
+          const assistantMsg = buildMessage(conversationId, parentId)
+          if (event.messageId) {
+            assistantMsg.id = event.messageId
+          }
+          allMessages = [...allMessages, assistantMsg]
+          if (parentId) {
+            activeBranches = { ...activeBranches, [parentId]: assistantMsg.id }
+          }
         }
         resetStreamingState()
       }

@@ -150,6 +150,38 @@ describe('createChatStore.sendMessage failure handling', () => {
     expect(chat.isStreaming).toBe(false)
   })
 
+  it('does not create a phantom assistant message when the server completes with empty content (nothing persisted)', async () => {
+    installFetch(async () => sseResponse('id: 0\ndata: {"type":"stream_meta","assistantMsgId":"srv-empty-1"}\n\nid: 1\ndata: {"type":"usage","inputTokens":10,"outputTokens":0}\n\nid: 2\ndata: {"type":"done"}\n\nid: 3\ndata: {"type":"stream_end"}\n\n'))
+
+    const chat = createChatStore()
+    chat.selectedModel = 'anthropic/claude-test'
+
+    await chat.sendMessage('conv-1', 'weiter')
+    await flush()
+
+    expect(chat.isStreaming).toBe(false)
+    expect(chat.allMessages.length).toBe(1)
+    expect(chat.allMessages[0].role).toBe('user')
+    expect(Object.keys(chat.activeBranches)).not.toContain(chat.allMessages[0].id)
+  })
+
+  it('creates the assistant message with the server id when the stream completes with content', async () => {
+    installFetch(async () => sseResponse('id: 0\ndata: {"type":"stream_meta","assistantMsgId":"srv-ok-1"}\n\nid: 1\ndata: {"type":"text_delta","text":"full answer"}\n\nid: 2\ndata: {"type":"done","messageId":"srv-ok-1"}\n\nid: 3\ndata: {"type":"stream_end"}\n\n'))
+
+    const chat = createChatStore()
+    chat.selectedModel = 'anthropic/claude-test'
+
+    await chat.sendMessage('conv-1', 'hello')
+    await flush()
+
+    expect(chat.allMessages.length).toBe(2)
+    const [userMsg, assistantMsg] = chat.allMessages
+    expect(assistantMsg.id).toBe('srv-ok-1')
+    expect(assistantMsg.content).toBe('full answer')
+    expect(assistantMsg.parentId).toBe(userMsg.id)
+    expect(chat.activeBranches[userMsg.id]).toBe('srv-ok-1')
+  })
+
   it('retryFailedMessage discards the failed message and resends with the same content/images/files', async () => {
     let calls = 0
     const sentBodies: unknown[] = []

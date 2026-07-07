@@ -1,3 +1,4 @@
+import { resolveEffectiveParentId } from '$lib/message-tree'
 import { requireUser } from '$lib/server/auth-guard'
 import { db } from '$lib/server/db'
 import { conversations, messages } from '$lib/server/db/schema'
@@ -51,11 +52,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
 
   const userMsgId = requestUserMsgId ?? crypto.randomUUID()
+  const priorMsgs = await db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt))
+  const effectiveParentId = skipUserInsert ? (requestParentId ?? null) : resolveEffectiveParentId(requestParentId, priorMsgs)
   if (!skipUserInsert) {
     await db.insert(messages).values({
       id: userMsgId,
       conversationId,
-      parentId: requestParentId ?? null,
+      parentId: effectiveParentId,
       role: 'user',
       content: message,
       images: imageIds?.length ? JSON.stringify(imageIds) : null,
@@ -63,7 +66,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     })
   }
 
-  const allMsgs = await db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt))
+  const allMsgs = skipUserInsert ? priorMsgs : await db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt))
   const byId = new Map(allMsgs.map(m => [m.id, m]))
   const historyIds: string[] = []
   let cur = byId.get(userMsgId)
@@ -81,7 +84,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     assistantMsgId,
     parentId: userMsgId,
     historyMessageIds: historyIds,
-    branchParentKey: requestParentId ?? '__root__',
+    branchParentKey: effectiveParentId ?? '__root__',
     titleOnFirst: true,
   })
 

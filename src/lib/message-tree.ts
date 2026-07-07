@@ -38,6 +38,18 @@ export const preserveLocalOrphans = <S extends { id: string }, L extends { id: s
   return orphans.length ? [...serverMessages, ...orphans] : serverMessages
 }
 
+// A user message must attach to a real prior message. If the requested parent
+// is missing from the conversation (e.g. a legacy phantom left by an empty
+// completion that was never persisted), reattach to the most recent message so
+// the server-side history walk keeps full context instead of collapsing.
+export const resolveEffectiveParentId = <T extends { id: string; createdAt: Date | string }>(requestedParentId: string | null | undefined, priorMessages: T[]): string | null => {
+  const requested = requestedParentId ?? null
+  if (requested === null) return null
+  if (priorMessages.some(m => m.id === requested)) return requested
+  if (!priorMessages.length) return null
+  return priorMessages.reduce((latest, m) => (new Date(m.createdAt).getTime() > new Date(latest.createdAt).getTime() ? m : latest)).id
+}
+
 export const getAncestorPath = <T extends { id: string; parentId?: string | null }>(messageId: string, allMessages: T[]): T[] => {
   const byId = new Map(allMessages.map(m => [m.id, m]))
   const path: T[] = []

@@ -1,5 +1,30 @@
-import { preserveLocalOrphans, resolveAndAnnotate } from './message-tree'
+import { preserveLocalOrphans, resolveAndAnnotate, resolveEffectiveParentId } from './message-tree'
 import { describe, expect, it } from 'vitest'
+
+describe('resolveEffectiveParentId', () => {
+  const msgs = [
+    { id: 'u1', createdAt: '2024-01-01T00:00:00Z' },
+    { id: 'a1', createdAt: '2024-01-01T00:00:10Z' },
+    { id: 'u2', createdAt: '2024-01-01T00:00:20Z' },
+  ]
+
+  it('returns null for a root-level message', () => {
+    expect(resolveEffectiveParentId(null, msgs)).toBe(null)
+    expect(resolveEffectiveParentId(undefined, msgs)).toBe(null)
+  })
+
+  it('keeps a valid existing parent', () => {
+    expect(resolveEffectiveParentId('a1', msgs)).toBe('a1')
+  })
+
+  it('reattaches a dangling parent to the most recent message (heals empty-completion phantom)', () => {
+    expect(resolveEffectiveParentId('phantom-does-not-exist', msgs)).toBe('u2')
+  })
+
+  it('falls back to null when the conversation has no prior messages', () => {
+    expect(resolveEffectiveParentId('phantom', [])).toBe(null)
+  })
+})
 
 describe('preserveLocalOrphans', () => {
   it('returns server messages unchanged when no orphans', () => {
