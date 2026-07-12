@@ -234,6 +234,30 @@ const stopAnalyser = () => {
   analyser = undefined
 }
 
+let shouldTranscribe = false
+
+const handleRecorderStop = () => {
+  if (activeStream) {
+    for (const track of activeStream.getTracks()) track.stop()
+    activeStream = undefined
+  }
+  if (shouldTranscribe) {
+    shouldTranscribe = false
+    transcribeAudio()
+  } else if (dictationState === 'recording') {
+    audioChunks = []
+    dictationState = 'idle'
+  }
+}
+
+const handleRecorderError = (e: Event) => {
+  console.error('MediaRecorder error:', e)
+  shouldTranscribe = false
+  stopAnalyser()
+  dictationError = 'Recording failed unexpectedly'
+  dictationState = 'error'
+}
+
 const transcribeAudio = async () => {
   dictationState = 'transcribing'
   dictationError = ''
@@ -334,6 +358,8 @@ const startRecording = async () => {
     mediaRecorder.ondataavailable = e => {
       if (e.data.size > 0) audioChunks.push(e.data)
     }
+    mediaRecorder.onstop = handleRecorderStop
+    mediaRecorder.onerror = handleRecorderError
     mediaRecorder.start()
     dictationState = 'recording'
   } catch (err) {
@@ -343,30 +369,27 @@ const startRecording = async () => {
 }
 
 const stopAndTranscribe = () => {
-  if (!mediaRecorder || dictationState !== 'recording') return
+  if (dictationState !== 'recording' || !mediaRecorder) return
   stopAnalyser()
-  mediaRecorder.onstop = () => {
-    if (activeStream) {
-      for (const track of activeStream.getTracks()) track.stop()
-      activeStream = undefined
-    }
-    transcribeAudio()
+  shouldTranscribe = true
+  dictationState = 'transcribing'
+  if (mediaRecorder.state === 'recording') {
+    mediaRecorder.stop()
+  } else {
+    handleRecorderStop()
   }
-  mediaRecorder.stop()
 }
-
 const cancelRecording = () => {
-  if (!mediaRecorder || dictationState !== 'recording') return
+  if (dictationState !== 'recording' || !mediaRecorder) return
   stopAnalyser()
-  mediaRecorder.onstop = () => {
-    if (activeStream) {
-      for (const track of activeStream.getTracks()) track.stop()
-      activeStream = undefined
-    }
-  }
-  mediaRecorder.stop()
+  shouldTranscribe = false
   audioChunks = []
   dictationState = 'idle'
+  if (mediaRecorder.state === 'recording') {
+    mediaRecorder.stop()
+  } else {
+    handleRecorderStop()
+  }
 }
 </script>
 
