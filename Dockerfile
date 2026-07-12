@@ -7,6 +7,9 @@ COPY . .
 RUN DATABASE_URL=/tmp/build.db BETTER_AUTH_SECRET=build ENCRYPTION_SECRET=build ORIGIN=http://localhost bun run build
 
 FROM oven/bun:1
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip python3-venv pipx && rm -rf /var/lib/apt/lists/*
+RUN pipx install flights && pipx inject flights click
+ENV PATH="/root/.local/bin:${PATH}"
 WORKDIR /app
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/package.json ./

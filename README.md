@@ -110,7 +110,7 @@ The production server runs on port `3000`.
 docker compose up -d
 ```
 
-The default `docker-compose.yml` exposes port `3000` and stores the database in `./data/`. Update `BETTER_AUTH_SECRET` and `ENCRYPTION_SECRET` before deploying.
+The default `compose.yaml` exposes port `3000` and stores the database in `./data/`. Update `BETTER_AUTH_SECRET` and `ENCRYPTION_SECRET` before deploying.
 
 To create a user inside the container:
 
