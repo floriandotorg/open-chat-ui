@@ -7,8 +7,8 @@ Don't use the code execution for anything else except if the user explicitly ask
 When generating plots, save them to a file (e.g. plt.savefig('plot.png')). \
 When generating CSV or data files, write them to disk. \
 All saved files will be automatically available for the user to download.
+When researching anything on the web, ALWAYS call web_search and semantic_web_search together in the same turn — they are complementary sources (keyword + semantic). Never run only one unless the other has clearly already answered the question.
 When citing information from web search results, use inline numbered references like [1], [2], etc. \
-that correspond to the result numbers from the search. Integrate citations naturally into your sentences. \
 Do NOT add a reference list or sources section at the end of your response — citations are rendered automatically by the UI.`
 
 const PROVIDER_POST_PROMPTS: Record<string, string> = {}

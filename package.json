@@ -48,6 +48,7 @@
     "@decodo/sdk-ts": "^2.1.2",
     "@mistralai/mistralai": "^2.2.5",
     "@tailwindcss/typography": "^0.5.20",
+    "exa-js": "^2.16.0",
     "highlight.js": "^11.11.1",
     "katex": "^0.17.0",
     "marked": "^18.0.5",

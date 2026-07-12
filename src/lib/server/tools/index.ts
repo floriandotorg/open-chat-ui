@@ -1,5 +1,6 @@
 import { braveNewsSearch } from './brave-news-search'
 import { braveSearch } from './brave-search'
+import { exaSearch } from './exa-search'
 import { fetchUrl } from './fetch-url'
 import { searchFlightDates, searchFlights } from './flights'
 import { hackerNewsSearch } from './hacker-news-search'
@@ -8,7 +9,7 @@ import { redditQuery } from './reddit'
 import type { ToolContext, ToolDefinition } from './types'
 import { wikipediaSearch } from './wikipedia-search'
 
-const tools: ToolDefinition[] = [braveSearch, braveNewsSearch, redditQuery, academicSearch, wikipediaSearch, hackerNewsSearch, fetchUrl, searchFlights, searchFlightDates]
+const tools: ToolDefinition[] = [braveSearch, braveNewsSearch, exaSearch, redditQuery, academicSearch, wikipediaSearch, hackerNewsSearch, fetchUrl, searchFlights, searchFlightDates]
 
 export const getAllTools = (): ToolDefinition[] => tools
 

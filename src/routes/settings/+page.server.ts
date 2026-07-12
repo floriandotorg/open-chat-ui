@@ -11,7 +11,7 @@ type ToolService = { id: string; name: string; capabilities: string[] }
 
 const TOOL_SERVICES: ToolService[] = [
   { id: 'brave', name: 'Brave Search', capabilities: [] },
-  { id: 'jina', name: 'Jina Reader', capabilities: [] },
+  { id: 'exa', name: 'Exa (Semantic Search)', capabilities: [] },
   { id: 'decodo', name: 'Decodo (Web Scraping API — username:password)', capabilities: [] },
   { id: 'openalex', name: 'OpenAlex (API key or email, optional)', capabilities: [] },
   { id: 'elevenlabs', name: 'ElevenLabs TTS (API Key)', capabilities: [] },
