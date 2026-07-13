@@ -1,10 +1,8 @@
-import type { ToolContext, ToolDefinition } from './types'
+import type { AcademicResult } from './academic-search'
+import type { ToolContext } from './types'
 
 const BASE_URL = 'https://api.openalex.org'
 const TIMEOUT_MS = 20_000
-const DEFAULT_LIMIT = 5
-const MAX_PER_PAGE = 25
-
 const stripPrefix = (id: unknown): string =>
   String(id ?? '')
     .trim()
@@ -20,11 +18,6 @@ const reconstructAbstract = (inverted: Record<string, number[]> | null | undefin
   if (!positions.length) return null
   positions.sort((a, b) => a.pos - b.pos)
   return positions.map(p => p.word).join(' ')
-}
-
-const clamp = (n: unknown, lo: number, hi: number, fallback: number): number => {
-  const x = typeof n === 'number' && Number.isFinite(n) ? n : fallback
-  return Math.max(lo, Math.min(hi, Math.floor(x)))
 }
 
 export const openAlexAuthParams = (value: string | null): { mailto?: string; api_key?: string } => {
@@ -50,99 +43,63 @@ const buildFilter = (args: Record<string, unknown>): string => {
   return parts.join(',')
 }
 
-export const academicSearch: ToolDefinition = {
-  name: 'academic_search',
-  description: `Search academic literature (papers/studies) by keywords using the OpenAlex API (250M+ works, free). Returns markdown listing each work with title, year, URL, cited_by_count, authors, and the full abstract. A free API key (optional, configured in settings) raises rate limits.
+export const searchOpenAlex = async (args: Record<string, unknown>, context: ToolContext, limit: number, sort: string): Promise<{ results: AcademicResult[]; hitCount: number }> => {
+  const query = String(args.query ?? '').trim()
+  if (!query) return { results: [], hitCount: 0 }
 
-Use for scholarly/scientific research questions, literature reviews, or to ground claims in peer-reviewed sources. Refine with from_year/to_year, min_citations, or open_access. Sort by relevance (default), cited_by_count, or publication_date.`,
-  parameters: {
-    type: 'object',
-    properties: {
-      query: {
-        type: 'string',
-        description: 'Keywords to search for in titles, abstracts, and full text.',
-      },
-      from_year: {
-        type: 'integer',
-        description: 'Earliest publication year (inclusive).',
-      },
-      to_year: {
-        type: 'integer',
-        description: 'Latest publication year (inclusive).',
-      },
-      min_citations: {
-        type: 'integer',
-        description: 'Minimum number of citations.',
-      },
-      open_access: {
-        type: 'boolean',
-        description: 'Restrict to open-access works only.',
-      },
-      sort: {
-        type: 'string',
-        description: 'Sort order: "relevance" (default), "cited_by_count", or "publication_date".',
-      },
-      limit: {
-        type: 'integer',
-        description: 'Number of results to return (1-25, default 5).',
-      },
-    },
-    required: ['query'],
-  },
-  execute: async (args, context: ToolContext) => {
-    const query = String(args.query ?? '').trim()
-    if (!query) return 'Error: "query" is required.'
+  const filter = buildFilter(args)
+  const sortParam = sort === 'cited_by_count' ? 'cited_by_count:desc' : sort === 'publication_date' ? 'publication_date:desc' : ''
 
-    const filter = buildFilter(args)
-    const limit = clamp(args.limit, 1, MAX_PER_PAGE, DEFAULT_LIMIT)
-    const sort = String(args.sort ?? '').trim()
-    const sortParam = sort === 'cited_by_count' ? 'cited_by_count:desc' : sort === 'publication_date' ? 'publication_date:desc' : ''
+  const qs = new URLSearchParams({
+    search: query,
+    per_page: String(limit),
+    select: 'id,doi,title,publication_year,cited_by_count,authorships,open_access,abstract_inverted_index',
+  })
+  if (filter) qs.set('filter', filter)
+  if (sortParam) qs.set('sort', sortParam)
+  const authParams = openAlexAuthParams(await context.getApiKey('openalex'))
+  for (const [k, v] of Object.entries(authParams)) qs.set(k, v)
 
-    const qs = new URLSearchParams({
-      search: query,
-      per_page: String(limit),
-      select: 'id,doi,title,publication_year,cited_by_count,authorships,open_access,abstract_inverted_index',
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  try {
+    const res = await fetch(`${BASE_URL}/works?${qs}`, {
+      headers: { Accept: 'application/json', 'User-Agent': 'open-chat-ui/1.0' },
+      signal: controller.signal,
     })
-    if (filter) qs.set('filter', filter)
-    if (sortParam) qs.set('sort', sortParam)
-    const authParams = openAlexAuthParams(await context.getApiKey('openalex'))
-    for (const [k, v] of Object.entries(authParams)) qs.set(k, v)
-
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
-    try {
-      const res = await fetch(`${BASE_URL}/works?${qs}`, {
-        headers: { Accept: 'application/json', 'User-Agent': 'open-chat-ui/1.0' },
-        signal: controller.signal,
-      })
-      const text = await res.text()
-      if (!res.ok) return `Error: OpenAlex HTTP ${res.status}: ${text.slice(0, 300)}`
-      const data = JSON.parse(text) as {
-        meta?: { count?: number }
-        results?: Record<string, unknown>[]
-      }
-
-      const lines: string[] = []
-      for (const [i, w] of (data.results ?? []).entries()) {
-        const authorships = Array.isArray(w.authorships) ? (w.authorships as { author?: { display_name?: string } }[]) : []
-        const authors = authorships
-          .slice(0, 5)
-          .map(a => a.author?.display_name)
-          .filter(Boolean)
-          .join(', ')
-        const oa = w.open_access as { oa_url?: string | null } | undefined
-        const url = (w.doi as string | null) ?? oa?.oa_url ?? `https://openalex.org/${stripPrefix(w.id)}`
-        const n = i + 1
-        const abstract = reconstructAbstract(w.abstract_inverted_index as Record<string, number[]> | null | undefined)
-        lines.push(`${n}. [${w.title ?? 'Untitled'}](${url ?? ''}) — ${w.publication_year ?? 'n.d.'} — cited by ${w.cited_by_count ?? 0} — ${authors || 'Unknown authors'}\n   ${abstract ?? 'No abstract available.'}`)
-      }
-
-      const header = `# Academic search: "${query}"${filter ? ` (filter: ${filter})` : ''}\n\n${data.meta?.count ?? 0} results, showing ${lines.length}:\n`
-      return header + lines.join('\n')
-    } catch (e) {
-      return `Error: ${e instanceof Error ? e.message : String(e)}`
-    } finally {
-      clearTimeout(timer)
+    const text = await res.text()
+    if (!res.ok) throw new Error(`OpenAlex HTTP ${res.status}: ${text.slice(0, 200)}`)
+    const data = JSON.parse(text) as {
+      meta?: { count?: number }
+      results?: Record<string, unknown>[]
     }
-  },
+
+    const results: AcademicResult[] = []
+    for (const w of data.results ?? []) {
+      const authorships = Array.isArray(w.authorships) ? (w.authorships as { author?: { display_name?: string } }[]) : []
+      const authors = authorships
+        .slice(0, 5)
+        .map(a => a.author?.display_name)
+        .filter(Boolean)
+        .join(', ')
+      const oa = w.open_access as { oa_url?: string | null } | undefined
+      const doi = (w.doi as string | null) ?? null
+      const url = doi ?? oa?.oa_url ?? `https://openalex.org/${stripPrefix(w.id)}`
+      const abstract = reconstructAbstract(w.abstract_inverted_index as Record<string, number[]> | null | undefined)
+      const cited = typeof w.cited_by_count === 'number' ? w.cited_by_count : 0
+      results.push({
+        doi,
+        title: String(w.title ?? 'Untitled'),
+        year: w.publication_year != null ? String(w.publication_year) : null,
+        citedByCount: cited,
+        authors: authors || 'Unknown authors',
+        url: url ?? '',
+        abstract,
+        source: 'OpenAlex',
+      })
+    }
+    return { results, hitCount: data.meta?.count ?? 0 }
+  } finally {
+    clearTimeout(timer)
+  }
 }
