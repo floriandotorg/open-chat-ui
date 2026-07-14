@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { CITATION_TOOL_NAMES, renumberCitations } from '$lib/citations'
 import { parseModelRef } from '$lib/model-ref'
 import { getDecryptedKey, getDecryptedKeys } from '$lib/server/api-key'
 import { decrypt } from '$lib/server/crypto'
@@ -331,12 +332,9 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
 
       for (const { tc, result } of toolResults) {
         let finalResult = result
-        if (tc.name === 'web_search') {
-          let count = 0
-          finalResult = result.replace(/^(\d+)\.\s+/gm, () => {
-            ++count
-            return `${citationCounter + count}. `
-          })
+        if (CITATION_TOOL_NAMES.has(tc.name)) {
+          const { result: renumbered, count } = renumberCitations(result, citationCounter)
+          finalResult = renumbered
           citationCounter += count
         }
         chatMessages.push({ role: 'tool', content: finalResult, toolCallId: tc.id })

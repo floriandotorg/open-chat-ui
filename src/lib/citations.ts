@@ -8,14 +8,25 @@ export interface Citation {
   hostname: string
 }
 
+export const CITATION_TOOL_NAMES = new Set(['web_search', 'semantic_web_search', 'news_search', 'wikipedia_search', 'academic_search', 'hacker_news_search'])
+
+export const renumberCitations = (result: string, offset: number): { result: string; count: number } => {
+  let count = 0
+  const renumbered = result.replace(/^(##\s+)?(\d+)\.\s+/gm, (_m, prefix: string | undefined) => {
+    ++count
+    return `${prefix ?? ''}${offset + count}. `
+  })
+  return { result: renumbered, count }
+}
+
 export const extractCitations = (toolCalls?: ToolCallInfo[]): Citation[] => {
   if (!toolCalls) {
     return []
   }
   const citations: Citation[] = []
   for (const tc of toolCalls) {
-    if (tc.name === 'web_search' && tc.result) {
-      for (const match of tc.result.matchAll(/^(\d+)\.\s+\[(.+?)\]\((.+?)\)/gm)) {
+    if (CITATION_TOOL_NAMES.has(tc.name) && tc.result) {
+      for (const match of tc.result.matchAll(/^(?:##\s+)?(\d+)\.\s+\[(.+?)\]\((.+?)\)/gm)) {
         try {
           const url = match[3]
           const parsed = new URL(url)
