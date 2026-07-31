@@ -117,6 +117,10 @@ const attachToConversation = (convId: string, generating: boolean) => {
     return
   }
   if (generating) {
+    chat.resumeStream(convId).then(resumed => {
+      if (resumed) chat.processQueue()
+      else invalidateAll()
+    })
     return
   }
   const queryMessage = consumeQueryMessage()

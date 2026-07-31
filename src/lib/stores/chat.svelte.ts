@@ -209,7 +209,12 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
             else if (line.startsWith('data: ')) dataLine = line.slice(6)
           }
           if (!dataLine) continue
-          const event: ChatStreamEvent = JSON.parse(dataLine)
+          let event: ChatStreamEvent
+          try {
+            event = JSON.parse(dataLine)
+          } catch {
+            continue
+          }
           handleEvent(event)
           if (idLine !== undefined) cursor = Number(idLine) + 1
           if (completed) return
@@ -517,6 +522,44 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     resetStreamingState()
   }
 
+  const resumeStream = async (conversationId: string): Promise<boolean> => {
+    if (isStreaming && activeConversationId === conversationId) return true
+    activeConversationId = conversationId
+    partialAttached = false
+    lastStreamCompleted = false
+    isStreaming = true
+    isThinking = false
+    streamingText = ''
+    streamingThinking = ''
+    thinkingDuration = null
+    streamingToolCalls = []
+    streamingCodeExecutions = []
+    const ctrl = new AbortController()
+    abortController = ctrl
+    try {
+      const response = await fetch(`/api/chat/stream/${conversationId}?cursor=0`, {
+        signal: ctrl.signal,
+      })
+      if (!response.ok) {
+        if (abortController === ctrl) {
+          resetStreamingState()
+          abortController = null
+        }
+        return false
+      }
+      await processStream(response, conversationId, null, ctrl)
+    } catch {
+      if (abortController === ctrl) {
+        resetStreamingState()
+        abortController = null
+      }
+      return false
+    }
+    if (abortController !== ctrl) return true
+    abortController = null
+    return true
+  }
+
   const editQueuedMessage = (id: string, content: string) => {
     messageQueue = messageQueue.map(m => (m.id === id ? { ...m, content } : m))
   }
@@ -624,6 +667,7 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     switchBranch,
     stopStreaming,
     detachStream,
+    resumeStream,
     editQueuedMessage,
     deleteQueuedMessage,
     upsertMessage,

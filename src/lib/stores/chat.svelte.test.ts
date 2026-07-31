@@ -11,6 +11,17 @@ const installFetch = (impl: (url: unknown, init?: RequestInit) => Promise<Respon
 
 const sseResponse = (body: string, init?: ResponseInit) => new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' }, ...init })
 
+const openSseResponse = (body: string, signal?: AbortSignal) =>
+  new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(body))
+        signal?.addEventListener('abort', () => controller.close(), { once: true })
+      },
+    }),
+    { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+  )
+
 describe('createChatStore.sendMessage failure handling', () => {
   let originalFetch: typeof fetch
 
@@ -180,6 +191,95 @@ describe('createChatStore.sendMessage failure handling', () => {
     expect(assistantMsg.content).toBe('full answer')
     expect(assistantMsg.parentId).toBe(userMsg.id)
     expect(chat.activeBranches[userMsg.id]).toBe('srv-ok-1')
+  })
+
+  it('resumeStream attaches to an in-flight stream and replaces the placeholder with the completed message', async () => {
+    let requestedUrl: unknown
+    installFetch(async url => {
+      requestedUrl = url
+      return sseResponse(
+        'id: 0\ndata: {"type":"stream_meta","assistantMsgId":"srv-resume-1","parentId":"user-1"}\n\nid: 1\ndata: {"type":"text_delta","text":"was "}\n\nid: 2\ndata: {"type":"text_delta","text":"streaming"}\n\nid: 3\ndata: {"type":"done","messageId":"srv-resume-1"}\n\nid: 4\ndata: {"type":"stream_end"}\n\n',
+      )
+    })
+
+    const chat = createChatStore({
+      allMessages: [
+        { id: 'user-1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'hello', createdAt: new Date() },
+        { id: 'srv-resume-1', conversationId: 'conv-1', parentId: 'user-1', role: 'assistant', content: '', generating: true, createdAt: new Date() },
+      ],
+      activeBranches: { __root__: 'user-1' },
+    })
+    chat.selectedModel = 'anthropic/claude-test'
+
+    const resumed = await chat.resumeStream('conv-1')
+    await flush()
+
+    expect(resumed).toBe(true)
+    expect(String(requestedUrl)).toContain('/api/chat/stream/conv-1?cursor=0')
+    expect(chat.isStreaming).toBe(false)
+    expect(chat.allMessages.length).toBe(2)
+    const assistantMsg = chat.allMessages[1]
+    expect(assistantMsg.id).toBe('srv-resume-1')
+    expect(assistantMsg.content).toBe('was streaming')
+    expect(assistantMsg.parentId).toBe('user-1')
+    expect(chat.activeBranches['user-1']).toBe('srv-resume-1')
+  })
+
+  it('resumeStream keeps accumulating text after a mid-stream reconnect', async () => {
+    let calls = 0
+    installFetch(async () => {
+      ++calls
+      if (calls === 1) {
+        return sseResponse('id: 0\ndata: {"type":"stream_meta","assistantMsgId":"srv-resume-2","parentId":"user-2"}\n\nid: 1\ndata: {"type":"text_delta","text":"first "}\n\n')
+      }
+      return sseResponse('id: 2\ndata: {"type":"text_delta","text":"second"}\n\nid: 3\ndata: {"type":"done","messageId":"srv-resume-2"}\n\nid: 4\ndata: {"type":"stream_end"}\n\n')
+    })
+
+    const chat = createChatStore()
+    chat.selectedModel = 'anthropic/claude-test'
+
+    const resumed = await chat.resumeStream('conv-1')
+    await flush()
+
+    expect(resumed).toBe(true)
+    expect(calls).toBe(2)
+    expect(chat.allMessages.length).toBe(1)
+    expect(chat.allMessages[0].content).toBe('first second')
+  })
+
+  it('resumeStream returns false and stops streaming when there is no active stream (404)', async () => {
+    installFetch(async () => new Response('No active stream', { status: 404 }))
+
+    const chat = createChatStore()
+    chat.selectedModel = 'anthropic/claude-test'
+
+    const resumed = await chat.resumeStream('conv-1')
+    await flush()
+
+    expect(resumed).toBe(false)
+    expect(chat.isStreaming).toBe(false)
+    expect(chat.allMessages.length).toBe(0)
+  })
+
+  it('resumeStream is a no-op while already streaming that conversation', async () => {
+    installFetch(async (url, init) => {
+      if (String(url).includes('/api/chat/stream/')) {
+        return openSseResponse('', init?.signal ?? undefined)
+      }
+      return sseResponse('id: 0\ndata: {"type":"stream_meta","assistantMsgId":"srv-guard-1"}\n\nid: 1\ndata: {"type":"text_delta","text":"hi"}\n\n')
+    })
+
+    const chat = createChatStore()
+    chat.selectedModel = 'anthropic/claude-test'
+
+    const sending = chat.sendMessage('conv-1', 'hello')
+    await flush()
+    const resumed = await chat.resumeStream('conv-1')
+
+    expect(resumed).toBe(true)
+    expect(chat.isStreaming).toBe(true)
+    chat.detachStream()
+    await sending
   })
 
   it('retryFailedMessage discards the failed message and resends with the same content/images/files', async () => {
