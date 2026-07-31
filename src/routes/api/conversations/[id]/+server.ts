@@ -58,8 +58,8 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
 
   const updated = await pb.collection('conversations').update(params.id, {
     ...(body.title !== undefined && { title: body.title }),
-    ...(body.systemPrompt !== undefined && { systemPrompt: body.systemPrompt }),
-    ...(body.systemPromptId !== undefined && { systemPromptRef: body.systemPromptId }),
+    ...(body.systemPrompt !== undefined && { systemPrompt: body.systemPrompt, resolvedSystemPrompt: null }),
+    ...(body.systemPromptId !== undefined && { systemPromptRef: body.systemPromptId, resolvedSystemPrompt: null }),
     ...(body.defaultModel !== undefined && { defaultModel: body.defaultModel }),
     ...(body.favorite !== undefined && { favorite: body.favorite }),
     ...(shouldUpdateTimestamp && { updatedAt: now() }),

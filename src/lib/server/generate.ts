@@ -121,30 +121,34 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
   const byId = new Map(allMsgs.map(m => [m.id, m]))
   const history = historyMessageIds.map(id => byId.get(id)).filter((m): m is NonNullable<typeof m> => !!m)
 
-  const settings = await getFirstOrNull(
-    pb
-      .collection('user_settings')
-      .getFirstListItem(pb.filter('user = {:u}', { u: userId }))
-      .then(mapUserSettings),
-  )
-  let baseSystemPrompt: string | undefined
-  if (conversation.systemPromptId) {
-    try {
-      const sp = mapSystemPrompt(await pb.collection('system_prompts').getOne(conversation.systemPromptId))
-      baseSystemPrompt = sp.content ?? undefined
-    } catch (err) {
-      if (!isNotFound(err)) throw err
+  let resolvedSystemPrompt = conversation.resolvedSystemPrompt ?? undefined
+  if (!resolvedSystemPrompt) {
+    const settings = await getFirstOrNull(
+      pb
+        .collection('user_settings')
+        .getFirstListItem(pb.filter('user = {:u}', { u: userId }))
+        .then(mapUserSettings),
+    )
+    let baseSystemPrompt: string | undefined
+    if (conversation.systemPromptId) {
+      try {
+        const sp = mapSystemPrompt(await pb.collection('system_prompts').getOne(conversation.systemPromptId))
+        baseSystemPrompt = sp.content ?? undefined
+      } catch (err) {
+        if (!isNotFound(err)) throw err
+      }
     }
-  }
-  if (!baseSystemPrompt) {
-    baseSystemPrompt = conversation.systemPrompt ?? settings?.defaultSystemPrompt ?? undefined
-  }
-  const postSystemPrompt = getPostSystemPrompt(provider)
-  const combinedSystemPrompt = baseSystemPrompt ? `${baseSystemPrompt}\n\n${postSystemPrompt}` : postSystemPrompt
-  let resolvedSystemPrompt = combinedSystemPrompt.replaceAll('{CURRENT_DATE}', formatCurrentDate())
-  if (resolvedSystemPrompt.includes('{KNOWLEDGE_CUTOFF}')) {
-    const cutoff = (await getKnowledgeCutoff(modelRef)) ?? ''
-    resolvedSystemPrompt = resolvedSystemPrompt.replaceAll('{KNOWLEDGE_CUTOFF}', cutoff)
+    if (!baseSystemPrompt) {
+      baseSystemPrompt = conversation.systemPrompt ?? settings?.defaultSystemPrompt ?? undefined
+    }
+    const postSystemPrompt = getPostSystemPrompt(provider)
+    const combinedSystemPrompt = baseSystemPrompt ? `${baseSystemPrompt}\n\n${postSystemPrompt}` : postSystemPrompt
+    resolvedSystemPrompt = combinedSystemPrompt.replaceAll('{CURRENT_DATE}', formatCurrentDate())
+    if (resolvedSystemPrompt.includes('{KNOWLEDGE_CUTOFF}')) {
+      const cutoff = (await getKnowledgeCutoff(modelRef)) ?? ''
+      resolvedSystemPrompt = resolvedSystemPrompt.replaceAll('{KNOWLEDGE_CUTOFF}', cutoff)
+    }
+    await pb.collection('conversations').update(conversationId, { resolvedSystemPrompt })
   }
 
   const anthropicClient = provider === 'anthropic' ? new Anthropic({ apiKey: decryptedKey }) : null
@@ -165,6 +169,20 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
         }
       }
     }
+    if (imgs.length && anthropicClient) {
+      let imagesChanged = false
+      await Promise.all(
+        imgs.map(async img => {
+          if (img.providerFileId) return
+          const ext = img.mimeType.split('/')[1] ?? 'png'
+          img.providerFileId = await uploadFileToAnthropic(anthropicClient, { ...img, filename: `image.${ext}` })
+          imagesChanged = true
+        }),
+      )
+      if (imagesChanged) {
+        await pb.collection('messages').update(m.id, { images: imgs })
+      }
+    }
     const parsedToolCalls = m.toolCalls ? (m.toolCalls as (PersistedToolCall | PersistedCodeExecution)[]) : null
     const allToolCallsParsed = parsedToolCalls ?? []
     const regularToolCalls = allToolCallsParsed.filter((tc): tc is PersistedToolCall => !('type' in tc && tc.type === 'code_execution'))
@@ -175,7 +193,7 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
         rawBlocksByOffset.set(entry.textOffset, entry.blocks)
       }
     }
-    const imgsLoaded = imgs.length ? imgs.map(loadImageData) : undefined
+    const imgsLoaded = imgs.length ? imgs.map(img => (anthropicClient && img.providerFileId ? { data: '', mimeType: img.mimeType, providerFileId: img.providerFileId } : loadImageData(img))) : undefined
 
     if (m.role === 'assistant' && (regularToolCalls.length || hasCodeExec)) {
       // The persisted content is the concatenated text from every round; each
@@ -244,7 +262,7 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
   }
 
   let fullText = ''
-  const totalUsage = { inputTokens: 0, outputTokens: 0 }
+  const totalUsage = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }
   const allToolCalls: (PersistedToolCall | PersistedCodeExecution)[] = []
   const allRawContentBlocks: { textOffset: number; blocks: unknown[] }[] = []
   let citationCounter = 0
@@ -354,6 +372,8 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
         } else if (event.type === 'usage') {
           totalUsage.inputTokens += event.inputTokens ?? 0
           totalUsage.outputTokens += event.outputTokens ?? 0
+          totalUsage.cacheReadInputTokens += event.cacheReadInputTokens ?? 0
+          totalUsage.cacheCreationInputTokens += event.cacheCreationInputTokens ?? 0
         } else if (event.type === 'done') {
           stopReason = event.stopReason ?? 'end'
         } else if (event.type === 'error') {
@@ -399,7 +419,13 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
       }
     }
 
-    emit(hub, { type: 'usage', inputTokens: totalUsage.inputTokens, outputTokens: totalUsage.outputTokens })
+    emit(hub, {
+      type: 'usage',
+      inputTokens: totalUsage.inputTokens,
+      outputTokens: totalUsage.outputTokens,
+      cacheReadInputTokens: totalUsage.cacheReadInputTokens,
+      cacheCreationInputTokens: totalUsage.cacheCreationInputTokens,
+    })
     streamSucceeded = true
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Stream error'
@@ -425,6 +451,8 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
         model: modelRef,
         inputTokens: totalUsage.inputTokens || undefined,
         outputTokens: totalUsage.outputTokens || undefined,
+        cacheReadInputTokens: totalUsage.cacheReadInputTokens || undefined,
+        cacheCreationInputTokens: totalUsage.cacheCreationInputTokens || undefined,
         toolCalls: allToolCalls.length ? allToolCalls : null,
         rawContentBlocks: allRawContentBlocks.length ? allRawContentBlocks : null,
         generating: false,
@@ -440,6 +468,8 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
         model: modelRef,
         inputTokens: totalUsage.inputTokens || undefined,
         outputTokens: totalUsage.outputTokens || undefined,
+        cacheReadInputTokens: totalUsage.cacheReadInputTokens || undefined,
+        cacheCreationInputTokens: totalUsage.cacheCreationInputTokens || undefined,
         toolCalls: allToolCalls.length ? allToolCalls : null,
         rawContentBlocks: allRawContentBlocks.length ? allRawContentBlocks : null,
         generating: false,

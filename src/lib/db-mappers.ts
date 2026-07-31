@@ -18,6 +18,7 @@ export interface Conversation {
   title: string
   systemPrompt: string | null
   systemPromptId: string | null
+  resolvedSystemPrompt: string | null
   defaultProvider: string | null
   defaultModel: string | null
   container: string | null
@@ -40,6 +41,8 @@ export interface Message {
   model: string | null
   inputTokens: number | null
   outputTokens: number | null
+  cacheReadInputTokens: number | null
+  cacheCreationInputTokens: number | null
   toolCalls: unknown[] | null
   rawContentBlocks: unknown[] | null
   generating?: boolean
@@ -103,6 +106,7 @@ export const mapConversation = (r: RecordModel): Conversation => ({
   title: r.title,
   systemPrompt: orNull(r.systemPrompt),
   systemPromptId: orNull(r.systemPromptRef),
+  resolvedSystemPrompt: orNull(r.resolvedSystemPrompt),
   defaultProvider: orNull(r.defaultProvider),
   defaultModel: normalizeModelRef(orNull(r.defaultProvider), orNull(r.defaultModel)),
   container: orNull(r.container),
@@ -125,6 +129,8 @@ export const mapMessage = (r: RecordModel): Message => ({
   model: orNull(r.model),
   inputTokens: numOrNull(r.inputTokens),
   outputTokens: numOrNull(r.outputTokens),
+  cacheReadInputTokens: numOrNull(r.cacheReadInputTokens),
+  cacheCreationInputTokens: numOrNull(r.cacheCreationInputTokens),
   toolCalls: r.toolCalls ?? null,
   rawContentBlocks: r.rawContentBlocks ?? null,
   generating: r.generating ?? false,
@@ -152,6 +158,8 @@ export const mapClientMessage = (r: RecordModel): ClientMessage => {
     model: normalizeModelRef(m.provider, m.model),
     inputTokens: m.inputTokens,
     outputTokens: m.outputTokens,
+    cacheReadInputTokens: m.cacheReadInputTokens,
+    cacheCreationInputTokens: m.cacheCreationInputTokens,
     toolCalls: toolCalls.length ? toolCalls : undefined,
     codeExecutions: codeExecutions.length ? codeExecutions : undefined,
     generating: m.generating,

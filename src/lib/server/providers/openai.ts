@@ -140,7 +140,7 @@ const createOpenAIAdapter = (apiKey: string): LLMProvider => ({
     try {
       const stream = await client.chat.completions.create(params as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming, { signal: request.signal })
 
-      let usage = { promptTokens: 0, completionTokens: 0 }
+      let usage = { promptTokens: 0, completionTokens: 0, cachedTokens: 0 }
       let stopReason: 'end' | 'tool_use' = 'end'
       const toolCallAccumulator = new Map<number, { id: string; name: string; args: string }>()
 
@@ -180,6 +180,7 @@ const createOpenAIAdapter = (apiKey: string): LLMProvider => ({
           usage = {
             promptTokens: chunk.usage.prompt_tokens ?? 0,
             completionTokens: chunk.usage.completion_tokens ?? 0,
+            cachedTokens: chunk.usage.prompt_tokens_details?.cached_tokens ?? 0,
           }
         }
       }
@@ -193,7 +194,7 @@ const createOpenAIAdapter = (apiKey: string): LLMProvider => ({
         yield { type: 'tool_call', toolCall }
       }
 
-      yield { type: 'usage', inputTokens: usage.promptTokens, outputTokens: usage.completionTokens }
+      yield { type: 'usage', inputTokens: usage.promptTokens - usage.cachedTokens, outputTokens: usage.completionTokens, cacheReadInputTokens: usage.cachedTokens }
       yield { type: 'done', stopReason }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'

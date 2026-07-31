@@ -493,6 +493,19 @@
         "displayFields": null
       },
       {
+        "name": "resolvedSystemPrompt",
+        "type": "text",
+        "system": false,
+        "required": false,
+        "presentable": false,
+        "hidden": false,
+        "help": "",
+        "min": 0,
+        "max": 100000000,
+        "pattern": "",
+        "autogeneratePattern": ""
+      },
+      {
         "name": "defaultProvider",
         "type": "text",
         "system": false,
@@ -708,6 +721,30 @@
       },
       {
         "name": "inputTokens",
+        "type": "number",
+        "system": false,
+        "required": false,
+        "presentable": false,
+        "hidden": false,
+        "help": "",
+        "min": 0,
+        "max": 2147483647,
+        "onlyInt": true
+      },
+      {
+        "name": "cacheReadInputTokens",
+        "type": "number",
+        "system": false,
+        "required": false,
+        "presentable": false,
+        "hidden": false,
+        "help": "",
+        "min": 0,
+        "max": 2147483647,
+        "onlyInt": true
+      },
+      {
+        "name": "cacheCreationInputTokens",
         "type": "number",
         "system": false,
         "required": false,

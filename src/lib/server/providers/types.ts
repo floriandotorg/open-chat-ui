@@ -13,6 +13,7 @@ export interface ModelInfo {
 export interface ChatMessageImage {
   data: string
   mimeType: string
+  providerFileId?: string
 }
 
 export interface ToolCallInfo {
@@ -81,6 +82,8 @@ export interface ChatStreamEvent {
   thinking?: string
   inputTokens?: number
   outputTokens?: number
+  cacheReadInputTokens?: number
+  cacheCreationInputTokens?: number
   error?: string
   toolCall?: ToolCallInfo
   toolResult?: { toolCallId: string; toolName: string; result: string }

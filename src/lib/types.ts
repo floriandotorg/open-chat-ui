@@ -1,6 +1,7 @@
 export interface ImageAttachment {
   id: string
   mimeType: string
+  providerFileId?: string
 }
 
 export interface FileAttachment {
@@ -47,6 +48,8 @@ export interface Message {
   model?: string | null
   inputTokens?: number | null
   outputTokens?: number | null
+  cacheReadInputTokens?: number | null
+  cacheCreationInputTokens?: number | null
   thinking?: string
   thinkingDuration?: number
   toolCalls?: ToolCallInfo[]

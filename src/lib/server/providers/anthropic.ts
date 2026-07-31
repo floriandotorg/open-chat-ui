@@ -7,6 +7,19 @@ type AnyBlock = Record<string, unknown>
 const CODE_EXEC_TOOL_NAMES = new Set(['code_execution', 'bash_code_execution', 'text_editor_code_execution'])
 const CODE_EXEC_RESULT_TYPES = new Set(['bash_code_execution_tool_result', 'text_editor_code_execution_tool_result', 'code_execution_tool_result'])
 
+const CACHE_CONTROL = { type: 'ephemeral' } as const
+
+const withMessageCacheControl = (messages: Anthropic.MessageParam[]): unknown[] => {
+  const last = messages[messages.length - 1]
+  if (!last) return messages
+  if (typeof last.content === 'string') {
+    return [...messages.slice(0, -1), { role: last.role, content: [{ type: 'text', text: last.content, cache_control: CACHE_CONTROL }] }]
+  }
+  if (last.content.length === 0) return messages
+  const blocks = last.content.map((b, i) => (i === last.content.length - 1 ? { ...b, cache_control: CACHE_CONTROL } : b))
+  return [...messages.slice(0, -1), { role: last.role, content: blocks }]
+}
+
 const mapCapabilities = (caps: Anthropic.ModelCapabilities | null): ProviderCapability[] => {
   const result: ProviderCapability[] = ['streaming', 'system_prompt']
   if (caps?.image_input?.supported) result.push('vision')
@@ -21,7 +34,7 @@ const buildAnthropicContent = (m: ChatMessage): string | Anthropic.ContentBlockP
     for (const img of m.images) {
       parts.push({
         type: 'image' as const,
-        source: { type: 'base64' as const, media_type: img.mimeType as Anthropic.Base64ImageSource['media_type'], data: img.data },
+        source: img.providerFileId ? ({ type: 'file', file_id: img.providerFileId } as unknown as Anthropic.ImageBlockParam['source']) : { type: 'base64' as const, media_type: img.mimeType as Anthropic.Base64ImageSource['media_type'], data: img.data },
       })
     }
   }
@@ -129,6 +142,7 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
     const client = new Anthropic({ apiKey })
 
     const hasContainerUploads = request.messages.some(m => m.containerUploadFileIds?.length)
+    const hasFileRefs = hasContainerUploads || request.messages.some(m => m.images?.some(i => i.providerFileId))
 
     const useThinking = request.thinkingEffort && request.thinkingEffort !== 'none'
     const baseMaxTokens = request.maxTokens ?? 4096
@@ -138,8 +152,8 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
       model: request.model,
       max_tokens: maxTokens,
       temperature: useThinking ? undefined : request.temperature,
-      system: request.systemPrompt,
-      messages: buildAnthropicMessages(request.messages),
+      system: request.systemPrompt ? [{ type: 'text', text: request.systemPrompt, cache_control: CACHE_CONTROL }] : undefined,
+      messages: withMessageCacheControl(buildAnthropicMessages(request.messages)),
     }
 
     if (request.container) {
@@ -168,11 +182,12 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
     }
 
     if (tools.length > 0) {
+      tools[tools.length - 1] = { ...tools[tools.length - 1], cache_control: CACHE_CONTROL }
       params.tools = tools
     }
 
     const streamOptions: Record<string, unknown> = { signal: request.signal }
-    if (hasContainerUploads) {
+    if (hasFileRefs) {
       streamOptions.headers = { 'anthropic-beta': 'files-api-2025-04-14' }
     }
     const stream = client.messages.stream(params as Anthropic.MessageStreamParams, streamOptions)
@@ -271,6 +286,8 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
         type: 'usage',
         inputTokens: finalMessage.usage.input_tokens,
         outputTokens: finalMessage.usage.output_tokens,
+        cacheReadInputTokens: finalMessage.usage.cache_read_input_tokens ?? 0,
+        cacheCreationInputTokens: finalMessage.usage.cache_creation_input_tokens ?? 0,
       }
       yield {
         type: 'done',
