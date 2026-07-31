@@ -16,6 +16,7 @@ let {
   isThinking = false,
   toolCalls = [],
   codeExecutions = [],
+  paused = false,
 }: {
   text: string
   thinking?: string
@@ -23,12 +24,24 @@ let {
   isThinking?: boolean
   toolCalls?: ToolCallInfo[]
   codeExecutions?: CodeExecutionBlock[]
+  paused?: boolean
 } = $props()
 
+let displayedText = $state('')
+let displayedToolCalls = $state<ToolCallInfo[]>([])
+let displayedCodeExecutions = $state<CodeExecutionBlock[]>([])
+
+$effect(() => {
+  if (paused) return
+  displayedText = text
+  displayedToolCalls = toolCalls
+  displayedCodeExecutions = codeExecutions
+})
+
 let showThinking = $derived(thinking || isThinking)
-let segments = $derived(buildContentSegments(text, toolCalls, codeExecutions))
-let allCitations = $derived(extractCitations(toolCalls))
-let citations = $derived(filterReferencedCitations(text, allCitations))
+let segments = $derived(buildContentSegments(displayedText, displayedToolCalls, displayedCodeExecutions))
+let allCitations = $derived(extractCitations(displayedToolCalls))
+let citations = $derived(filterReferencedCitations(displayedText, allCitations))
 let hasContent = $derived(text || showThinking || toolCalls.length > 0 || codeExecutions.length > 0)
 </script>
 

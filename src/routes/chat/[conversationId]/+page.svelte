@@ -53,6 +53,7 @@ let editingQueueId = $state<string | null>(null)
 let editContent = $state('')
 let editTextarea: HTMLTextAreaElement | undefined = $state()
 let queueMounted = $state(false)
+let userInteracting = $state(false)
 
 const SCROLL_THRESHOLD = 40
 
@@ -61,6 +62,25 @@ const distanceFromBottom = (el: HTMLElement) => el.scrollHeight - el.clientHeigh
 const onScroll = () => {
   if (!messageContainer) return
   stickToBottom = distanceFromBottom(messageContainer) <= SCROLL_THRESHOLD
+}
+
+const selectionInsideContainer = (): boolean => {
+  const sel = window.getSelection()
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return false
+  const node = sel.getRangeAt(0).commonAncestorContainer
+  return !!messageContainer && (messageContainer === node || messageContainer.contains(node))
+}
+
+const onPointerDown = () => {
+  userInteracting = true
+}
+
+const onPointerUp = () => {
+  userInteracting = selectionInsideContainer()
+}
+
+const onSelectionChange = () => {
+  userInteracting = selectionInsideContainer()
 }
 
 chat.onFirstReply = async (conversationId: string) => {
@@ -215,7 +235,7 @@ $effect(() => {
   void chat.streamingText
   void chat.streamingThinking
   void chat.messageQueue.length
-  if (stickToBottom && messageContainer) {
+  if (stickToBottom && messageContainer && !userInteracting) {
     messageContainer.scrollTop = messageContainer.scrollHeight
   }
 })
@@ -311,6 +331,7 @@ const autoResizeEdit = () => {
 }
 </script>
 
+<svelte:window onpointerdown={onPointerDown} onpointerup={onPointerUp} onselectionchange={onSelectionChange} />
 <div class="relative flex h-full flex-col">
   <div bind:this={messageContainer} onscroll={onScroll} class="flex flex-1 flex-col overflow-y-auto px-4 pt-16 pb-32 lg:px-8">
     <div class="mt-auto w-full space-y-6">
@@ -344,6 +365,7 @@ const autoResizeEdit = () => {
         isThinking={chat.isThinking}
         toolCalls={chat.streamingToolCalls}
         codeExecutions={chat.streamingCodeExecutions}
+        paused={userInteracting}
       />
       {#each chat.messageQueue as entry (entry.id)}
         <div class="flex justify-end">
