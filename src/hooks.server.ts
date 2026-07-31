@@ -1,10 +1,9 @@
-import { auth } from '$lib/server/auth'
-import { authInit } from '$lib/server/auth-init'
 import { reapStaleGenerations } from '$lib/server/reaper'
 import { building, dev } from '$app/environment'
 import type { Handle, HandleServerError } from '@sveltejs/kit'
 import { redirect } from '@sveltejs/kit'
-import { svelteKitHandler } from 'better-auth/svelte-kit'
+import PocketBase from 'pocketbase'
+import { env } from '$env/dynamic/private'
 
 if (!building) {
   reapStaleGenerations().catch(err => {
@@ -23,18 +22,31 @@ export const handleError: HandleServerError = ({ error, event, status, message }
 }
 
 const protectedPrefixes = ['/chat', '/settings', '/api/']
+const secure = env.ORIGIN.startsWith('https://')
 
-const handleBetterAuth: Handle = async ({ event, resolve }) => {
+const handleAuth: Handle = async ({ event, resolve }) => {
   if (dev && event.url.pathname === '/.well-known/appspecific/com.chrome.devtools.json') {
     return new Response(undefined, { status: 404 })
   }
 
-  await authInit
-  const session = await auth.api.getSession({ headers: event.request.headers })
+  event.locals.pb = new PocketBase(env.POCKETBASE_URL)
+  event.locals.pb.authStore.loadFromCookie(event.request.headers.get('cookie') ?? '')
 
-  if (session) {
-    event.locals.session = session.session
-    event.locals.user = session.user
+  try {
+    if (event.locals.pb.authStore.isValid) {
+      await event.locals.pb.collection('users').authRefresh()
+    } else {
+      event.locals.pb.authStore.clear()
+    }
+  } catch {
+    event.locals.pb.authStore.clear()
+  }
+
+  const record = event.locals.pb.authStore.record
+  if (record?.id) {
+    const email = typeof record.email === 'string' ? record.email : ''
+    const name = typeof record.name === 'string' && record.name ? record.name : email
+    event.locals.user = { id: record.id, email, name }
   }
 
   const isProtected = protectedPrefixes.some(p => event.url.pathname.startsWith(p))
@@ -42,13 +54,15 @@ const handleBetterAuth: Handle = async ({ event, resolve }) => {
     throw redirect(303, '/login')
   }
 
-  const response = await svelteKitHandler({ event, resolve, auth, building })
+  const response = await resolve(event)
 
   if (response.headers.get('content-type')?.includes('text/html')) {
     response.headers.set('cache-control', 'no-cache, no-store, must-revalidate')
   }
 
+  response.headers.append('set-cookie', event.locals.pb.authStore.exportToCookie({ secure, sameSite: 'Lax', httpOnly: false, path: '/' }))
+
   return response
 }
 
-export const handle: Handle = handleBetterAuth
+export const handle: Handle = handleAuth

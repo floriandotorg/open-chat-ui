@@ -1,7 +1,7 @@
 <script lang="ts">
 import { splitByTerms } from '$lib/highlight'
 import type { Conversation } from '$lib/types'
-import { goto, invalidateAll } from '$app/navigation'
+import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
 import ConfirmDialog from './ConfirmDialog.svelte'
 
@@ -124,7 +124,6 @@ const confirmDelete = async () => {
   if (currentId === id) {
     await goto(resolve('/chat'))
   }
-  await invalidateAll()
 }
 
 const toggleFavorite = async (e: Event, convId: string, currentFavorite: boolean) => {
@@ -136,7 +135,6 @@ const toggleFavorite = async (e: Event, convId: string, currentFavorite: boolean
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ favorite: newFavorite }),
   })
-  await invalidateAll()
 }
 </script>
 

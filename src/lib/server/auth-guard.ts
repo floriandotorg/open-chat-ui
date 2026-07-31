@@ -1,7 +1,8 @@
 import { error } from '@sveltejs/kit'
-import type { User } from 'better-auth'
 
-export const requireUser = (user: User | undefined): User => {
+export type AuthUser = { id: string; email: string; name: string }
+
+export const requireUser = (user: AuthUser | undefined): AuthUser => {
   if (!user) {
     throw error(401, 'Not authenticated')
   }

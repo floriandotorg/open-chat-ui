@@ -1,1 +1,0 @@
-ALTER TABLE `user_settings` ADD `dictation_provider` text DEFAULT 'mistral';

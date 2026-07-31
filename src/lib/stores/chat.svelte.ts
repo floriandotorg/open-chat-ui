@@ -31,6 +31,8 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
   let messageQueue = $state<QueueEntry[]>([])
   let serverAssistantId: string | null = null
   let partialAttached = false
+  let lastStreamCompleted = $state(false)
+  const localAssistantIds = new Set<string>()
 
   const resetStreamingState = () => {
     serverAssistantId = null
@@ -61,7 +63,10 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     const hasContent = !!(streamingText || streamingToolCalls.length || streamingCodeExecutions.length)
     if (hasContent) {
       const assistantMsg = buildMessage(conversationId, parentId ?? null)
-      allMessages = [...allMessages, assistantMsg]
+      localAssistantIds.add(assistantMsg.id)
+      if (!allMessages.some(m => m.id === assistantMsg.id)) {
+        allMessages = [...allMessages, assistantMsg]
+      }
       if (parentId) {
         activeBranches = { ...activeBranches, [parentId]: assistantMsg.id }
       }
@@ -82,11 +87,16 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     let parentId: string | null = initialParentId
     let cursor = 0
     let completed = false
+    lastStreamCompleted = false
 
     const handleEvent = (event: ChatStreamEvent) => {
       if (event.type === 'stream_meta') {
         if (event.parentId) parentId = event.parentId
-        if (event.assistantMsgId) serverAssistantId = event.assistantMsgId
+        if (event.assistantMsgId) {
+          serverAssistantId = event.assistantMsgId
+          localAssistantIds.add(event.assistantMsgId)
+          allMessages = allMessages.filter(m => m.id !== event.assistantMsgId)
+        }
         return
       }
       if (event.type === 'stream_end') {
@@ -163,11 +173,15 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
           if (event.messageId) {
             assistantMsg.id = event.messageId
           }
-          allMessages = [...allMessages, assistantMsg]
+          localAssistantIds.add(assistantMsg.id)
+          if (!allMessages.some(m => m.id === assistantMsg.id)) {
+            allMessages = [...allMessages, assistantMsg]
+          }
           if (parentId) {
             activeBranches = { ...activeBranches, [parentId]: assistantMsg.id }
           }
         }
+        lastStreamCompleted = true
         resetStreamingState()
       }
     }
@@ -503,47 +517,6 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     resetStreamingState()
   }
 
-  const resumeStream = async (conversationId: string) => {
-    if (isStreaming && activeConversationId === conversationId) return
-    activeConversationId = conversationId
-    partialAttached = false
-    isStreaming = true
-    isThinking = false
-    streamingText = ''
-    streamingThinking = ''
-    thinkingDuration = null
-    streamingToolCalls = []
-    streamingCodeExecutions = []
-    const ctrl = new AbortController()
-    abortController = ctrl
-    try {
-      const response = await fetch(`/api/chat/stream/${conversationId}?cursor=0`, {
-        signal: ctrl.signal,
-      })
-      if (!response.ok) {
-        if (abortController === ctrl) {
-          resetStreamingState()
-          abortController = null
-        }
-        return
-      }
-      await processStream(response, conversationId, null, ctrl)
-    } catch {
-      if (abortController === ctrl) {
-        resetStreamingState()
-        abortController = null
-      }
-      return
-    }
-    if (abortController !== ctrl) return
-    abortController = null
-    if (messageQueue.length > 0) {
-      const [next, ...rest] = messageQueue
-      messageQueue = rest
-      await sendMessage(next.conversationId, next.content, next.systemPrompt, next.images, next.files)
-    }
-  }
-
   const editQueuedMessage = (id: string, content: string) => {
     messageQueue = messageQueue.map(m => (m.id === id ? { ...m, content } : m))
   }
@@ -552,6 +525,15 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     messageQueue = messageQueue.filter(m => m.id !== id)
   }
 
+  const upsertMessage = (msg: Message) => {
+    if (localAssistantIds.has(msg.id)) return
+    allMessages = allMessages.some(m => m.id === msg.id) ? allMessages.map(m => (m.id === msg.id ? msg : m)) : [...allMessages, msg]
+  }
+
+  const removeMessage = (id: string) => {
+    if (localAssistantIds.has(id)) return
+    allMessages = allMessages.filter(m => m.id !== id)
+  }
   const discardFailedMessage = (messageId: string) => {
     allMessages = allMessages.filter(m => m.id !== messageId)
     const newBranches: BranchMap = {}
@@ -631,6 +613,9 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     set onFirstReply(v: ((conversationId: string) => void) | null) {
       onFirstReply = v
     },
+    get lastStreamCompleted() {
+      return lastStreamCompleted
+    },
     sendMessage,
     regenerateMessage,
     editMessage,
@@ -639,9 +624,10 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     switchBranch,
     stopStreaming,
     detachStream,
-    resumeStream,
     editQueuedMessage,
     deleteQueuedMessage,
+    upsertMessage,
+    removeMessage,
     processQueue: () => {
       if (isStreaming || messageQueue.length === 0) return
       const [next, ...rest] = messageQueue

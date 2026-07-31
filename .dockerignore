@@ -1,0 +1,8 @@
+node_modules
+data
+pb_data
+pb_data/*
+.git
+.env
+.env.*
+*.log

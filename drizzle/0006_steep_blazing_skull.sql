@@ -1,1 +1,0 @@
-ALTER TABLE `messages` ADD `raw_content_blocks` text;

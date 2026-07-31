@@ -1,12 +1,23 @@
 <script lang="ts">
+import { pbClient } from '$lib/pb-client'
 import type { ModelInfo, ProviderInfo } from '$lib/types'
 import { browser } from '$app/environment'
+import { onMount } from 'svelte'
 
-let { providers, titleModel = $bindable('') }: { providers: ProviderInfo[]; titleModel: string } = $props()
+let {
+  providers,
+  titleModel,
+  savingTitleModel,
+  onSaveTitleModel,
+}: {
+  providers: ProviderInfo[]
+  titleModel: string
+  savingTitleModel: boolean
+  onSaveTitleModel: (value: string) => void
+} = $props()
 
 let selectedProvider = $state('')
 let allModelsByProvider = $state<Map<string, ModelInfo[]>>(new Map())
-let savingTitleModel = $state(false)
 
 $effect(() => {
   if (!selectedProvider && providers.length > 0) {
@@ -68,21 +79,51 @@ const toggleAll = async (enabled: boolean) => {
   models = models.map(m => ({ ...m, enabled }))
 }
 
-const saveTitleModel = async (value: string) => {
-  savingTitleModel = true
-  titleModel = value
-  await fetch('/api/settings', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ titleModel: value || null }),
-  })
-  savingTitleModel = false
-}
-
 let enabledCount = $derived(models.filter(m => m.enabled).length)
 let allEnabled = $derived(models.length > 0 && enabledCount === models.length)
 let noneEnabled = $derived(enabledCount === 0)
 let availableProviders = $derived(providers.filter(p => p.hasKey))
+
+let modelsUnsub: (() => void) | null = null
+let realtimeCancelled = false
+
+const refetchProviderModels = async (provider: string) => {
+  if (!provider) return
+  const res = await fetch(`/api/models/manage?provider=${provider}`)
+  if (!res.ok) return
+  const m = await res.json()
+  if (provider === selectedProvider) models = m
+  if (allModelsByProvider.has(provider)) {
+    const next = new Map(allModelsByProvider)
+    next.set(provider, m)
+    allModelsByProvider = next
+  }
+}
+
+onMount(() => {
+  if (!browser) return
+  realtimeCancelled = false
+  void (async () => {
+    try {
+      modelsUnsub = await pbClient.collection('provider_models').subscribe('*', e => {
+        if (realtimeCancelled) return
+        const provider = e.record.provider as string
+        void refetchProviderModels(provider)
+      })
+    } catch (err) {
+      console.warn('[realtime] provider_models subscribe failed', err)
+    }
+    if (realtimeCancelled) {
+      modelsUnsub?.()
+      modelsUnsub = null
+    }
+  })()
+  return () => {
+    realtimeCancelled = true
+    modelsUnsub?.()
+    modelsUnsub = null
+  }
+})
 </script>
 
 <div class="space-y-6">
@@ -91,7 +132,7 @@ let availableProviders = $derived(providers.filter(p => p.hasKey))
     <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">Model used to auto-generate chat titles after the first reply.</p>
     <select
       value={titleModel}
-      onchange={(e) => saveTitleModel(e.currentTarget.value)}
+    onchange={(e) => onSaveTitleModel(e.currentTarget.value)}
       disabled={savingTitleModel}
       class="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
     >

@@ -1,12 +1,25 @@
 import { parseModelRef } from '$lib/model-ref'
 import { getDecryptedKey } from '$lib/server/api-key'
 import { requireUser } from '$lib/server/auth-guard'
-import { db } from '$lib/server/db'
-import { providerModels } from '$lib/server/db/schema'
+import { mapProviderModel, now } from '$lib/server/db/records'
+import { createOrRecover, getFirstOrNull, pb } from '$lib/server/pb'
 import { getProviderFactory } from '$lib/server/providers'
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
-import { eq } from 'drizzle-orm'
+
+const upsertProviderModel = async (provider: string, modelId: string, enabled: boolean) => {
+  const existing = await getFirstOrNull(
+    pb
+      .collection('provider_models')
+      .getFirstListItem(pb.filter('provider = {:p} && modelId = {:m}', { p: provider, m: modelId }))
+      .then(mapProviderModel),
+  )
+  if (existing) {
+    await pb.collection('provider_models').update(existing.id, { enabled, updatedAt: now() })
+  } else {
+    await createOrRecover('provider_models', { provider, modelId, enabled, createdAt: now(), updatedAt: now() }, pb.filter('provider = {:p} && modelId = {:m}', { p: provider, m: modelId }), { enabled, updatedAt: now() })
+  }
+}
 
 export const GET: RequestHandler = async ({ locals, url }) => {
   const userId = requireUser(locals.user).id
@@ -24,7 +37,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   const llm = getProviderFactory(provider)(apiKey)
   const allModels = await llm.listModels()
 
-  const stored = await db.select().from(providerModels).where(eq(providerModels.provider, provider))
+  const stored = (await pb.collection('provider_models').getFullList({ filter: pb.filter('provider = {:p}', { p: provider }) })).map(mapProviderModel)
 
   const enabledMap = new Map(stored.map(s => [s.modelId, s.enabled]))
 
@@ -46,13 +59,7 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
 
   const { provider, model } = parseModelRef(modelId)
 
-  await db
-    .insert(providerModels)
-    .values({ provider, modelId: model, enabled })
-    .onConflictDoUpdate({
-      target: [providerModels.provider, providerModels.modelId],
-      set: { enabled, updatedAt: new Date() },
-    })
+  await upsertProviderModel(provider, model, enabled)
 
   return json({ success: true })
 }
@@ -75,13 +82,7 @@ export const PATCH: RequestHandler = async ({ request, locals }) => {
 
   for (const m of allModels) {
     const { model } = parseModelRef(m.id)
-    await db
-      .insert(providerModels)
-      .values({ provider, modelId: model, enabled })
-      .onConflictDoUpdate({
-        target: [providerModels.provider, providerModels.modelId],
-        set: { enabled, updatedAt: new Date() },
-      })
+    await upsertProviderModel(provider, model, enabled)
   }
 
   return json({ success: true })

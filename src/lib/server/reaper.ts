@@ -1,17 +1,37 @@
-import { db } from '$lib/server/db'
-import { conversations } from '$lib/server/db/schema'
-import { and, eq } from 'drizzle-orm'
+import { isNotFound, pb } from '$lib/server/pb'
+import type { RecordModel } from 'pocketbase'
+
+const finalizeOrphanMessage = async (row: RecordModel) => {
+  const content = row.content ?? ''
+  const toolCalls = row.toolCalls
+  if (!content && !toolCalls) {
+    try {
+      await pb.collection('messages').delete(row.id)
+    } catch {}
+  } else {
+    try {
+      await pb.collection('messages').update(row.id, { generating: false })
+    } catch {}
+  }
+}
 
 export const reapStaleGenerations = async () => {
-  const stale = await db.select({ id: conversations.id }).from(conversations).where(eq(conversations.generating, true))
-  if (stale.length === 0) return
-  await db.update(conversations).set({ generating: false }).where(eq(conversations.generating, true))
-  console.info(`[reaper] cleared ${stale.length} stale generating flag${stale.length === 1 ? '' : 's'} on startup`)
+  const stale = await pb.collection('conversations').getFullList({ filter: 'generating = true', fields: 'id' })
+  const orphans = await pb.collection('messages').getFullList({ filter: 'generating = true', fields: 'id,content,toolCalls' })
+  if (stale.length === 0 && orphans.length === 0) return
+  await Promise.all([...stale.map(row => pb.collection('conversations').update(row.id, { generating: false })), ...orphans.map(finalizeOrphanMessage)])
+  const c = stale.length === 1 ? '' : 's'
+  const m = orphans.length === 1 ? '' : 's'
+  console.info(`[reaper] cleared ${stale.length} stale generating flag${c} and ${orphans.length} orphan message${m} on startup`)
 }
 
 export const clearGeneratingFlag = async (conversationId: string) => {
-  await db
-    .update(conversations)
-    .set({ generating: false })
-    .where(and(eq(conversations.id, conversationId), eq(conversations.generating, true)))
+  try {
+    await pb.collection('conversations').update(conversationId, { generating: false })
+  } catch (err) {
+    if (isNotFound(err)) return
+    throw err
+  }
+  const orphans = await pb.collection('messages').getFullList({ filter: pb.filter('conversation = {:c} && generating = true', { c: conversationId }), fields: 'id,content,toolCalls' })
+  await Promise.all(orphans.map(finalizeOrphanMessage))
 }

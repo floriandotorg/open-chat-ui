@@ -1,23 +1,20 @@
-# Database migrations
+# PocketBase schema + record mappers
 
-Applies to `schema.ts`, `drizzle.config.ts`, and SQL under `drizzle/`. See also `drizzle/AGENTS.md`.
+Applies to `pocketbase/pb_schema.json`, `src/lib/server/db/records.ts`, and `src/lib/server/pb.ts`.
+
+## Schema
+
+The collection schema lives in `pocketbase/pb_schema.json` and is the source of truth. Apply it to a running PocketBase with `bun run pb:schema` (idempotent; creates/updates collections).
+
+- The `users` collection is an auth collection (password auth, no public rules).
+- All app collections (`api_keys`, `conversations`, `messages`, `provider_models`, `system_prompts`, `user_settings`) have null API rules — only the superuser can read/write. SvelteKit enforces per-user isolation in app code.
+- The `id` primary key on every collection is widened to accept 15–36 chars matching `^[a-zA-Z0-9-]+$` so migrated UUIDs are preserved.
 
 ## Never destructive
 
-Migrations must NEVER delete, truncate, or drop tables/columns. SQLite cannot `ALTER COLUMN`, so Drizzle may silently recreate tables (deleting all rows) when schema changes are non-trivial.
+- Never edit `pb_data/` (the live SQLite store) by hand. Always go through the PocketBase API or admin UI.
+- When changing `pb_schema.json`, prefer adding fields/indexes. Removing or renaming fields drops data on `pb:schema` apply — back up `pb_data/` first.
 
-## Safe schema changes
+## Record mappers (`records.ts`)
 
-- New columns MUST use `.default(value)` without `.notNull()` — SQLite `ALTER TABLE ADD COLUMN` with `NOT NULL` triggers a table recreation that deletes all rows.
-- Never rename or remove columns in-place. Add the new column, migrate data, then deprecate the old one in a later release.
-
-## Running migrations
-
-- Use `drizzle-kit generate` then `drizzle-kit migrate` (applies SQL files).
-- **Never** run `drizzle-kit push --force` — it auto-accepts destructive statements without confirmation.
-- If `drizzle-kit push` is needed for local dev, always run it **without** `--force` and review every statement before confirming.
-
-## Checklist before applying
-
-1. Read the generated `.sql` file — reject if it contains `DELETE`, `DROP TABLE`, or table recreation.
-2. Back up the database before running migrations in production.
+PB rows use relation field names (`user`, `conversation`, `systemPromptRef`) and ISO date strings. The `map*` helpers convert them to the app-facing shapes (`userId`, `conversationId`, `systemPromptId`, `Date` objects, parsed JSON). Always map rows before returning them to route handlers. Write `createdAt`/`updatedAt` explicitly with `now()` — they are not auto-managed.

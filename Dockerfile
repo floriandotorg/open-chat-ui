@@ -4,7 +4,13 @@ WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 COPY . .
-RUN DATABASE_URL=/tmp/build.db BETTER_AUTH_SECRET=build ENCRYPTION_SECRET=build ORIGIN=http://localhost bun run build
+RUN POCKETBASE_URL=http://localhost:8090 \
+    PUBLIC_POCKETBASE_URL=http://localhost:8090 \
+    POCKETBASE_ADMIN_EMAIL=build@local \
+    POCKETBASE_ADMIN_PASSWORD=buildbuild \
+    ORIGIN=http://localhost \
+    ENCRYPTION_SECRET=build-secret-placeholder-32chars-minimum \
+    bun run build
 
 FROM oven/bun:1
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip python3-venv pipx && rm -rf /var/lib/apt/lists/*
@@ -14,14 +20,11 @@ WORKDIR /app
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/drizzle.config.ts ./
-COPY --from=builder /app/drizzle ./drizzle
-COPY --from=builder /app/src/lib/server/db ./src/lib/server/db
+COPY --from=builder /app/pocketbase ./pocketbase
 COPY --from=builder /app/scripts ./scripts
 COPY entrypoint.sh ./
 RUN chmod +x entrypoint.sh
 ENV NODE_ENV=production
 ENV BODY_SIZE_LIMIT=10M
 EXPOSE 3000
-VOLUME ["/data"]
 ENTRYPOINT ["./entrypoint.sh"]

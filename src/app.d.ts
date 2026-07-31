@@ -1,10 +1,10 @@
-import type { Session, User } from 'better-auth'
-
 declare global {
   namespace App {
     interface Locals {
-      user?: User
-      session?: Session
+      user?: { id: string; email: string; name: string }
+      pb: import('pocketbase').default
     }
   }
 }
+
+export {}

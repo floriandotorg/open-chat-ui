@@ -2,13 +2,15 @@
 import type { SystemPrompt } from '$lib/types'
 
 let {
-  initial = [],
+  prompts,
+  upsert,
+  remove,
 }: {
-  initial?: SystemPrompt[]
+  prompts: SystemPrompt[]
+  upsert: (prompt: SystemPrompt) => void
+  remove: (id: string) => void
 } = $props()
 
-// svelte-ignore state_referenced_locally
-let prompts = $state<SystemPrompt[]>([...initial])
 let editingId = $state<string | null>(null)
 let editTitle = $state('')
 let editContent = $state('')
@@ -34,7 +36,7 @@ const saveEdit = async () => {
   })
   if (res.ok) {
     const updated: SystemPrompt = await res.json()
-    prompts = prompts.map(p => (p.id === updated.id ? updated : p))
+    upsert(updated)
     editingId = null
   }
   saving = false
@@ -48,7 +50,7 @@ const addPrompt = async () => {
   })
   if (res.ok) {
     const created: SystemPrompt = await res.json()
-    prompts = [...prompts, created]
+    upsert(created)
     startEdit(created)
   }
 }
@@ -60,14 +62,15 @@ const setDefault = async (id: string) => {
     body: JSON.stringify({ isDefault: true }),
   })
   if (res.ok) {
-    prompts = prompts.map(p => ({ ...p, isDefault: p.id === id }))
+    const updated: SystemPrompt = await res.json()
+    upsert(updated)
   }
 }
 
 const deletePrompt = async (id: string) => {
   const res = await fetch(`/api/system-prompts/${id}`, { method: 'DELETE' })
   if (res.ok) {
-    prompts = prompts.filter(p => p.id !== id)
+    remove(id)
   }
 }
 </script>

@@ -1,21 +1,16 @@
 import { requireUser } from '$lib/server/auth-guard'
-import { db } from '$lib/server/db'
-import { conversations } from '$lib/server/db/schema'
+import { getFirstOrNull, pb } from '$lib/server/pb'
 import { clearGeneratingFlag } from '$lib/server/reaper'
 import { hubToSSE } from '$lib/server/sse'
 import { abortHub, getHub } from '$lib/server/stream-hub'
 import type { RequestHandler } from './$types'
 import { error } from '@sveltejs/kit'
-import { and, eq } from 'drizzle-orm'
 
 export const GET: RequestHandler = async ({ params, url, locals }) => {
   const userId = requireUser(locals.user).id
   const hub = getHub(params.conversationId)
   if (!hub) {
-    const [row] = await db
-      .select({ generating: conversations.generating })
-      .from(conversations)
-      .where(and(eq(conversations.id, params.conversationId), eq(conversations.userId, userId)))
+    const row = await getFirstOrNull(pb.collection('conversations').getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: params.conversationId, u: userId }), { fields: 'id,generating' }))
     if (row?.generating) {
       console.info(`[reaper] no live hub for ${params.conversationId}; clearing stale generating flag`)
       await clearGeneratingFlag(params.conversationId)

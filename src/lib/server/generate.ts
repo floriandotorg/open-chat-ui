@@ -3,9 +3,9 @@ import { CITATION_TOOL_NAMES, renumberCitations } from '$lib/citations'
 import { parseModelRef } from '$lib/model-ref'
 import { getDecryptedKey, getDecryptedKeys } from '$lib/server/api-key'
 import { decrypt } from '$lib/server/crypto'
-import { db } from '$lib/server/db'
-import { apiKeys, conversations, messages, systemPrompts, userSettings } from '$lib/server/db/schema'
+import { mapApiKey, mapConversation, mapMessage, mapSystemPrompt, mapUserSettings, now } from '$lib/server/db/records'
 import { getKnowledgeCutoff } from '$lib/server/knowledge-cutoff'
+import { getFirstOrNull, isNotFound, pb } from '$lib/server/pb'
 import { formatCurrentDate, getPostSystemPrompt } from '$lib/server/prompts'
 import { getProviderFactory } from '$lib/server/providers'
 import type { ChatMessage, ChatMessageImage, ToolCallInfo } from '$lib/server/providers/types'
@@ -15,7 +15,6 @@ import { executeTool, getToolSchemas } from '$lib/server/tools'
 import { getUploadPath } from '$lib/server/uploads'
 import type { FileAttachment, ImageAttachment, ThinkingEffort } from '$lib/types'
 import Anthropic, { toFile } from '@anthropic-ai/sdk'
-import { and, asc, eq } from 'drizzle-orm'
 
 const MAX_TOOL_ROUNDS = 10
 const CODE_EXEC_PROVIDERS = new Set(['anthropic'])
@@ -47,15 +46,9 @@ const loadImageData = (attachment: ImageAttachment): ChatMessageImage => {
   return { data: buffer.toString('base64'), mimeType: attachment.mimeType }
 }
 
-const parseImages = (raw: string | null): ImageAttachment[] => {
-  if (!raw) return []
-  return JSON.parse(raw) as ImageAttachment[]
-}
+const parseImages = (raw: unknown[] | null | undefined): ImageAttachment[] => (raw ?? []) as ImageAttachment[]
 
-const parseFiles = (raw: string | null): FileAttachment[] => {
-  if (!raw) return []
-  return JSON.parse(raw) as FileAttachment[]
-}
+const parseFiles = (raw: unknown[] | null | undefined): FileAttachment[] => (raw ?? []) as FileAttachment[]
 
 const uploadFileToAnthropic = async (client: Anthropic, attachment: FileAttachment): Promise<string> => {
   const filePath = getUploadPath(attachment.id)
@@ -85,13 +78,13 @@ export const startGeneration = (params: GenerationParams): StreamHub => {
   const hub = createHub(params.conversationId, params.userId)
   ;(async () => {
     try {
-      await db.update(conversations).set({ generating: true }).where(eq(conversations.id, params.conversationId))
+      await pb.collection('conversations').update(params.conversationId, { generating: true })
       await runGeneration(hub, params)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Generation error'
       emit(hub, { type: 'error', error: msg })
       try {
-        await db.update(conversations).set({ generating: false }).where(eq(conversations.id, params.conversationId))
+        await pb.collection('conversations').update(params.conversationId, { generating: false })
       } catch {}
       finishHub(hub)
     }
@@ -103,32 +96,45 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
   const { userId, conversationId, modelRef, thinkingEffort, assistantMsgId, parentId, historyMessageIds, branchParentKey, titleOnFirst } = params
   const { provider, model } = parseModelRef(modelRef)
 
-  const [conversation] = await db
-    .select()
-    .from(conversations)
-    .where(and(eq(conversations.id, conversationId), eq(conversations.userId, userId)))
+  const conversation = await getFirstOrNull(
+    pb
+      .collection('conversations')
+      .getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: conversationId, u: userId }))
+      .then(mapConversation),
+  )
   if (!conversation) {
     throw new Error('Conversation not found')
   }
 
-  const [keyRow] = await db
-    .select()
-    .from(apiKeys)
-    .where(and(eq(apiKeys.userId, userId), eq(apiKeys.provider, provider)))
+  const keyRow = await getFirstOrNull(
+    pb
+      .collection('api_keys')
+      .getFirstListItem(pb.filter('user = {:u} && provider = {:p}', { u: userId, p: provider }), { sort: 'createdAt' })
+      .then(mapApiKey),
+  )
   if (!keyRow) {
     throw new Error(`No API key configured for ${provider}`)
   }
   const decryptedKey = await decrypt(keyRow.encryptedKey, keyRow.iv)
 
-  const allMsgs = await db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt))
+  const allMsgs = (await pb.collection('messages').getFullList({ filter: pb.filter('conversation = {:c}', { c: conversationId }), sort: 'createdAt' })).map(mapMessage)
   const byId = new Map(allMsgs.map(m => [m.id, m]))
   const history = historyMessageIds.map(id => byId.get(id)).filter((m): m is NonNullable<typeof m> => !!m)
 
-  const [settings] = await db.select().from(userSettings).where(eq(userSettings.userId, userId))
+  const settings = await getFirstOrNull(
+    pb
+      .collection('user_settings')
+      .getFirstListItem(pb.filter('user = {:u}', { u: userId }))
+      .then(mapUserSettings),
+  )
   let baseSystemPrompt: string | undefined
   if (conversation.systemPromptId) {
-    const [sp] = await db.select().from(systemPrompts).where(eq(systemPrompts.id, conversation.systemPromptId))
-    baseSystemPrompt = sp?.content ?? undefined
+    try {
+      const sp = mapSystemPrompt(await pb.collection('system_prompts').getOne(conversation.systemPromptId))
+      baseSystemPrompt = sp.content ?? undefined
+    } catch (err) {
+      if (!isNotFound(err)) throw err
+    }
   }
   if (!baseSystemPrompt) {
     baseSystemPrompt = conversation.systemPrompt ?? settings?.defaultSystemPrompt ?? undefined
@@ -155,20 +161,17 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
           const providerFileId = await uploadFileToAnthropic(anthropicClient, file)
           file.providerFileId = providerFileId
           allFileIds.push(providerFileId)
-          await db
-            .update(messages)
-            .set({ files: JSON.stringify(fls) })
-            .where(eq(messages.id, m.id))
+          await pb.collection('messages').update(m.id, { files: fls })
         }
       }
     }
-    const parsedToolCalls = m.toolCalls ? (JSON.parse(m.toolCalls) as (PersistedToolCall | PersistedCodeExecution)[]) : null
+    const parsedToolCalls = m.toolCalls ? (m.toolCalls as (PersistedToolCall | PersistedCodeExecution)[]) : null
     const allToolCallsParsed = parsedToolCalls ?? []
     const regularToolCalls = allToolCallsParsed.filter((tc): tc is PersistedToolCall => !('type' in tc && tc.type === 'code_execution'))
     const hasCodeExec = allToolCallsParsed.some(tc => 'type' in tc && tc.type === 'code_execution')
     const rawBlocksByOffset = new Map<number, unknown[]>()
     if (m.rawContentBlocks) {
-      for (const entry of JSON.parse(m.rawContentBlocks) as { textOffset: number; blocks: unknown[] }[]) {
+      for (const entry of m.rawContentBlocks as { textOffset: number; blocks: unknown[] }[]) {
         rawBlocksByOffset.set(entry.textOffset, entry.blocks)
       }
     }
@@ -249,6 +252,48 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
 
   emit(hub, { type: 'stream_meta', parentId, assistantMsgId })
 
+  let placeholderCreated = false
+  try {
+    await pb.collection('messages').create({
+      id: assistantMsgId,
+      conversation: conversationId,
+      parentId,
+      role: 'assistant',
+      content: '',
+      provider,
+      model: modelRef,
+      generating: true,
+      createdAt: now(),
+    })
+    placeholderCreated = true
+  } catch {}
+
+  let pendingContent = ''
+  let lastFlushAt = 0
+  let finalized = false
+  let flushing = false
+  let flushPromise: Promise<void> | null = null
+  const FLUSH_INTERVAL = 500
+  const flushPartial = () => {
+    if (!placeholderCreated || finalized || flushing) return
+    if (Date.now() - lastFlushAt < FLUSH_INTERVAL) return
+    if (!pendingContent) return
+    flushing = true
+    lastFlushAt = Date.now()
+    const content = pendingContent
+    flushPromise = pb
+      .collection('messages')
+      .update(assistantMsgId, { content, generating: true })
+      .then(() => {
+        flushing = false
+        flushPromise = null
+      })
+      .catch(() => {
+        flushing = false
+        flushPromise = null
+      })
+  }
+
   let streamSucceeded = false
   try {
     const codeExecInputs = new Map<string, string>()
@@ -274,7 +319,9 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
         if (hub.abort.signal.aborted) break
         if (event.type === 'text_delta') {
           roundText += event.text ?? ''
+          pendingContent = fullText + roundText
           emit(hub, event)
+          flushPartial()
         } else if (event.type === 'thinking_delta') {
           emit(hub, event)
         } else if (event.type === 'tool_call' && event.toolCall) {
@@ -361,38 +408,64 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
 
   const persisted = !!(fullText || allToolCalls.length)
 
-  if (persisted) {
-    await db.insert(messages).values({
-      id: assistantMsgId,
-      conversationId,
-      parentId,
-      role: 'assistant',
-      content: fullText,
-      provider,
-      model: modelRef,
-      inputTokens: totalUsage.inputTokens || undefined,
-      outputTokens: totalUsage.outputTokens || undefined,
-      toolCalls: allToolCalls.length ? JSON.stringify(allToolCalls) : null,
-      rawContentBlocks: allRawContentBlocks.length ? JSON.stringify(allRawContentBlocks) : null,
-    })
+  finalized = true
+  if (flushPromise) {
+    try {
+      await flushPromise
+    } catch {}
+  }
 
-    const existingBranches: Record<string, string> = conversation.activeBranches ? JSON.parse(conversation.activeBranches) : {}
+  if (persisted) {
+    if (placeholderCreated) {
+      await pb.collection('messages').update(assistantMsgId, {
+        parentId,
+        role: 'assistant',
+        content: fullText,
+        provider,
+        model: modelRef,
+        inputTokens: totalUsage.inputTokens || undefined,
+        outputTokens: totalUsage.outputTokens || undefined,
+        toolCalls: allToolCalls.length ? allToolCalls : null,
+        rawContentBlocks: allRawContentBlocks.length ? allRawContentBlocks : null,
+        generating: false,
+      })
+    } else {
+      await pb.collection('messages').create({
+        id: assistantMsgId,
+        conversation: conversationId,
+        parentId,
+        role: 'assistant',
+        content: fullText,
+        provider,
+        model: modelRef,
+        inputTokens: totalUsage.inputTokens || undefined,
+        outputTokens: totalUsage.outputTokens || undefined,
+        toolCalls: allToolCalls.length ? allToolCalls : null,
+        rawContentBlocks: allRawContentBlocks.length ? allRawContentBlocks : null,
+        generating: false,
+        createdAt: now(),
+      })
+    }
+
+    const existingBranches: Record<string, string> = conversation.activeBranches ?? {}
     if (branchParentKey) {
       existingBranches[branchParentKey] = parentId
     }
     existingBranches[parentId] = assistantMsgId
 
-    await db
-      .update(conversations)
-      .set({
-        updatedAt: new Date(),
-        activeBranches: JSON.stringify(existingBranches),
-        generating: false,
-        ...(container ? { container } : {}),
-      })
-      .where(eq(conversations.id, conversationId))
+    await pb.collection('conversations').update(conversationId, {
+      updatedAt: now(),
+      activeBranches: existingBranches,
+      generating: false,
+      ...(container ? { container } : {}),
+    })
   } else {
-    await db.update(conversations).set({ generating: false }).where(eq(conversations.id, conversationId))
+    if (placeholderCreated) {
+      try {
+        await pb.collection('messages').delete(assistantMsgId)
+      } catch {}
+    }
+    await pb.collection('conversations').update(conversationId, { generating: false })
   }
 
   if (streamSucceeded) {

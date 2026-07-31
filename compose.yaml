@@ -1,13 +1,35 @@
 services:
+  pocketbase:
+    build:
+      context: .
+      dockerfile: Dockerfile.pb
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./pb_data:/pb_data
+    environment:
+      - POCKETBASE_ADMIN_EMAIL=${POCKETBASE_ADMIN_EMAIL}
+      - POCKETBASE_ADMIN_PASSWORD=${POCKETBASE_ADMIN_PASSWORD}
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8090/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
   open-chat-ui:
     build: .
+    depends_on:
+      pocketbase:
+        condition: service_healthy
     ports:
       - "3000:3000"
     volumes:
       - ./data:/data
     environment:
-      - DATABASE_URL=file:/data/chat.db
-      - ORIGIN=http://localhost:3000
-      - BETTER_AUTH_SECRET=change-me
-      - ENCRYPTION_SECRET=change-me-too
+      - POCKETBASE_URL=http://pocketbase:8090
+      - PUBLIC_POCKETBASE_URL=${PUBLIC_POCKETBASE_URL:-http://localhost:8090}
+      - POCKETBASE_ADMIN_EMAIL=${POCKETBASE_ADMIN_EMAIL}
+      - POCKETBASE_ADMIN_PASSWORD=${POCKETBASE_ADMIN_PASSWORD}
+      - ORIGIN=${ORIGIN:-http://localhost:3000}
+      - ENCRYPTION_SECRET=${ENCRYPTION_SECRET}
       - IDLE_TIMEOUT=120

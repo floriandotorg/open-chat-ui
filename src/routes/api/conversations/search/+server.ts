@@ -1,9 +1,7 @@
 import { requireUser } from '$lib/server/auth-guard'
-import { db } from '$lib/server/db'
-import { conversations, messages } from '$lib/server/db/schema'
+import { pb } from '$lib/server/pb'
 import type { RequestHandler } from './$types'
 import { json } from '@sveltejs/kit'
-import { and, eq, inArray, sql } from 'drizzle-orm'
 
 interface SearchHit {
   id: string
@@ -66,39 +64,28 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   if (rawQuery.length < 2) return json({ terms: [], results: [] })
 
   const terms = tokenize(rawQuery)
-  if (terms.length === 0) return json({ terms: [], results: [] })
+  if (terms.length === 0) return json({ terms, results: [] })
 
   const phrase = terms.join(' ')
-  const escapeLike = (term: string) => term.replace(/[\\%_]/g, c => `\\${c}`)
-  const likePatterns = terms.map(term => `%${escapeLike(term)}%`)
-  const contentMatchesAnyTerm = sql.join(
-    likePatterns.map(p => sql`lower(${messages.content}) LIKE ${p} ESCAPE '\\'`),
-    sql` OR `,
-  )
 
-  const allConvs = await db.select({ id: conversations.id, title: conversations.title, favorite: conversations.favorite, updatedAt: conversations.updatedAt }).from(conversations).where(eq(conversations.userId, userId))
+  const allConvs = await pb.collection('conversations').getFullList({ filter: pb.filter('user = {:u}', { u: userId }), fields: 'id,title,favorite,updatedAt' })
 
   if (allConvs.length === 0) return json({ terms, results: [] })
 
-  const matchingMessages = await db
-    .select({
-      conversationId: messages.conversationId,
-      role: messages.role,
-      content: messages.content,
-      createdAt: messages.createdAt,
-    })
-    .from(messages)
-    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
-    .where(and(eq(conversations.userId, userId), sql`(${contentMatchesAnyTerm})`, inArray(messages.role, ['user', 'assistant'])))
+  const userFilter = pb.filter('conversation.user = {:u}', { u: userId })
+  const termFilter = terms.map(t => pb.filter('content ~ {:t}', { t: `%${t}%` })).join(' || ')
+  const filter = `${userFilter} && (${termFilter}) && (role = 'user' || role = 'assistant')`
 
-  const messagesByConv = new Map<string, typeof matchingMessages>()
+  const matchingMessages = await pb.collection('messages').getFullList({ filter, fields: 'conversation,role,content,createdAt' })
+
+  const messagesByConv = new Map<string, { conversationId: string; role: string; content: string; createdAt: Date }[]>()
   for (const msg of matchingMessages) {
-    const list = messagesByConv.get(msg.conversationId) ?? []
-    list.push(msg)
-    messagesByConv.set(msg.conversationId, list)
+    const list = messagesByConv.get(msg.conversation) ?? []
+    list.push({ conversationId: msg.conversation, role: msg.role, content: msg.content, createdAt: new Date(msg.createdAt) })
+    messagesByConv.set(msg.conversation, list)
   }
 
-  const now = Date.now()
+  const nowMs = Date.now()
   const hits: SearchHit[] = []
 
   for (const conv of allConvs) {
@@ -133,7 +120,8 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     if (coveredTerms.size < terms.length) continue
 
     const titlePhraseHit = terms.length > 1 && titleLower.includes(phrase) ? 1 : 0
-    const daysSinceUpdate = Math.max(0, (now - conv.updatedAt.getTime()) / 86400000)
+    const updatedAt = new Date(conv.updatedAt)
+    const daysSinceUpdate = Math.max(0, (nowMs - updatedAt.getTime()) / 86400000)
     const recencyBoost = Math.max(0, 15 - daysSinceUpdate * 0.2)
 
     const score = titlePhraseHit * 500 + titleTerms.size * 100 + contentTerms.size * 30 + Math.min(totalOccurrences, 20) * 2 + recencyBoost
@@ -141,12 +129,12 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     hits.push({
       id: conv.id,
       title: conv.title,
-      favorite: conv.favorite,
+      favorite: conv.favorite ?? null,
       titleHasMatch: titleTerms.size > 0,
       snippet: bestMessage ? buildSnippet(bestMessage.content, terms) : null,
       snippetRole: bestMessage?.role ?? null,
       messageMatchCount: convMessages.length,
-      updatedAt: conv.updatedAt,
+      updatedAt,
       score,
     })
   }

@@ -27,3 +27,8 @@ vite.config.ts.timestamp-*
 *.db
 .playwright
 .playwright-cli
+
+# PocketBase
+pocketbase/pocketbase
+pb_data/
+pb_migrations/

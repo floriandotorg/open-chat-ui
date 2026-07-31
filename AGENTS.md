@@ -10,8 +10,8 @@ Self-hosted, multi-provider LLM chat application with built-in tools, code execu
 
 - SvelteKit (Svelte 5 runes) with Bun runtime via `svelte-adapter-bun`
 - Tailwind CSS 4 (no config file, `@tailwindcss/vite` plugin)
-- Drizzle ORM + SQLite (`bun:sqlite`)
-- better-auth for authentication (email/password, sign-up disabled, users created via CLI)
+- PocketBase for data + authentication (companion process; schema in `pocketbase/pb_schema.json`, applied via `bun run pb:schema`)
+- SvelteKit server talks to PocketBase through a superuser client (`src/lib/server/pb.ts`); per-user isolation enforced in app code
 - Biome for linting/formatting
 - Vitest for testing (browser tests via Playwright, server tests via Node)
 
@@ -20,8 +20,8 @@ Self-hosted, multi-provider LLM chat application with built-in tools, code execu
 ```
 src/lib/server/providers/     # LLM provider adapters (Anthropic, Mistral)
 src/lib/server/tools/         # Built-in tools (web search, URL fetch, Reddit)
-src/lib/server/db/            # Drizzle schema + client
-src/lib/server/auth.ts        # better-auth config
+src/lib/server/db/            # PocketBase record mappers + types (records.ts)
+src/lib/server/pb.ts          # superuser PocketBase client + auth cookie helpers
 src/lib/server/auth-guard.ts  # requireUser() helper for route handlers
 src/lib/server/crypto.ts      # AES-256-GCM encrypt/decrypt for API keys
 src/lib/server/prompts.ts     # Post-system-prompt instructions (citations, code execution)
@@ -46,7 +46,7 @@ scripts/add-user.ts           # CLI user creation script
 - **API key encryption**: User API keys are encrypted with AES-256-GCM before storage. `ENCRYPTION_SECRET` env var required.
 - **Streaming**: `POST /api/chat` returns SSE (`text/event-stream`). Provider adapters yield `ChatStreamEvent` via `AsyncGenerator`. Client reads via `ReadableStream`.
 - **State management**: `createChatStore()` in `stores/chat.svelte.ts` uses `$state` runes. Provider/model selection passed via Svelte `setContext`/`getContext` from chat layout.
-- **Per-user isolation**: All DB queries filter by `userId`. API keys, conversations, messages, and settings are scoped per user.
+- **Per-user isolation**: All PocketBase queries filter by `user`. API keys, conversations, messages, and settings are scoped per user (enforced in SvelteKit route handlers; PB collections are superuser-only).
 - **Code execution**: Anthropic provider supports sandboxed code execution with file output. Container IDs are persisted on conversations for session continuity.
 - **Model management**: Users can enable/disable specific models per provider and set a dedicated title-generation model via the `provider_models` table and settings.
 
@@ -104,7 +104,7 @@ Never stack `bg-white` / `bg-gray-*` / `dark:bg-neutral-*` on top of `.liquid-gl
 
 ## Testing and quality
 
-The default username is `test@example.com` and the default password is `test`.
+The default username is `test@example.com`. The password is whatever was passed to `bun run pb:migrate-data -- --password <pw>` (PocketBase enforces a minimum of 8 characters, so the old `test` password cannot be used post-migration).
 
 Before considering a task finished, `bun run lint` and `bun run check` must both pass with zero errors and zero warnings. Run `bun run lint -- --fix` to auto-fix where possible.
 
@@ -115,8 +115,7 @@ Before considering a task finished, `bun run lint` and `bun run check` must both
 | `src/AGENTS.md` | Svelte 5 components |
 | `src/routes/api/AGENTS.md` | API route conventions |
 | `src/lib/server/providers/AGENTS.md` | LLM provider adapters |
-| `src/lib/server/db/AGENTS.md` | Drizzle / SQLite migrations |
-| `drizzle/AGENTS.md` | Generated SQL migrations (safety pointer) |
+| `src/lib/server/db/AGENTS.md` | PocketBase schema + record mappers |
 
 ## Optional agent skills
 
@@ -124,4 +123,4 @@ Scripts and guides for doc lookup and web research live under `.agents/skills/` 
 
 ## Dev Server
 
-The dev server running at http://localhost:5179/ (if not, ask the user to start it). The user is test@example.com and the password is "test".
+The dev server running at http://localhost:5179/ (if not, ask the user to start it). Requires a running PocketBase on `http://127.0.0.1:8090` (`bun run pb:serve`) and the `POCKETBASE_*` env vars set in `.env`. The user is test@example.com; the password is the one assigned during data migration (≥8 chars).

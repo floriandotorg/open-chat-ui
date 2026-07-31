@@ -4,17 +4,25 @@ import ModelPicker from '$lib/components/ModelPicker.svelte'
 import SystemPromptPicker from '$lib/components/SystemPromptPicker.svelte'
 import ThinkingEffortPicker from '$lib/components/ThinkingEffortPicker.svelte'
 import TtsPlayer from '$lib/components/TtsPlayer.svelte'
+import { mapSystemPrompt } from '$lib/db-mappers'
+import { pbClient } from '$lib/pb-client'
+import { createConversationsStore } from '$lib/stores/conversations.svelte'
 import { createTtsPlayer } from '$lib/stores/tts-player.svelte'
-import type { ThinkingEffort } from '$lib/types'
-import { afterNavigate, goto, invalidateAll } from '$app/navigation'
+import type { SystemPrompt, ThinkingEffort } from '$lib/types'
+import { afterNavigate, goto } from '$app/navigation'
 import { resolve } from '$app/paths'
 import { page } from '$app/state'
 import type { LayoutData } from './$types'
 import type { Snippet } from 'svelte'
-import { setContext } from 'svelte'
+import { onMount, setContext } from 'svelte'
 import { fade } from 'svelte/transition'
 
 let { data, children }: { data: LayoutData; children: Snippet } = $props()
+
+// svelte-ignore state_referenced_locally
+const conversations = createConversationsStore(data.conversations)
+// svelte-ignore state_referenced_locally
+let systemPrompts: SystemPrompt[] = $state(data.systemPrompts)
 
 const SIDEBAR_MIN = 200
 const SIDEBAR_MAX = 500
@@ -82,19 +90,23 @@ const startResize = (e: MouseEvent) => {
 }
 
 const currentConversationId = $derived(page.params.conversationId)
-const currentConversation = $derived(data.conversations.find(c => c.id === currentConversationId))
+const currentConversation = $derived(conversations.conversations.find(c => c.id === currentConversationId))
+
+$effect(() => {
+  conversations.seed(data.conversations)
+})
 
 $effect(() => {
   if (currentConversation) {
-    currentSystemPromptId = currentConversation.systemPromptId ?? data.systemPrompts.find(p => p.isDefault)?.id ?? null
+    currentSystemPromptId = currentConversation.systemPromptId ?? systemPrompts.find(p => p.isDefault)?.id ?? null
   } else {
-    currentSystemPromptId = data.systemPrompts.find(p => p.isDefault)?.id ?? null
+    currentSystemPromptId = systemPrompts.find(p => p.isDefault)?.id ?? null
   }
 })
 
 const changeSystemPrompt = async (promptId: string | null) => {
   if (!currentConversationId) return
-  const prompt = data.systemPrompts.find(p => p.id === promptId)
+  const prompt = systemPrompts.find(p => p.id === promptId)
   await fetch(`/api/conversations/${currentConversationId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -103,7 +115,6 @@ const changeSystemPrompt = async (promptId: string | null) => {
       systemPrompt: prompt?.content ?? null,
     }),
   })
-  await invalidateAll()
 }
 
 afterNavigate(() => {
@@ -156,7 +167,6 @@ const toggleCurrentConversationFavorite = async () => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ favorite: newFav }),
   })
-  await invalidateAll()
 }
 
 const clearSidebarSearch = () => {
@@ -183,6 +193,35 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
     void goToNewChat()
   }
 }
+onMount(() => {
+  conversations.subscribe()
+  let promptsUnsub: (() => void) | null = null
+  let cancelled = false
+  void (async () => {
+    try {
+      promptsUnsub = await pbClient.collection('system_prompts').subscribe('*', e => {
+        if (cancelled) return
+        if (e.action === 'delete') {
+          systemPrompts = systemPrompts.filter(p => p.id !== e.record.id)
+        } else {
+          const mapped = mapSystemPrompt(e.record)
+          systemPrompts = systemPrompts.some(p => p.id === mapped.id) ? systemPrompts.map(p => (p.id === mapped.id ? mapped : p)) : [...systemPrompts, mapped]
+        }
+      })
+    } catch (err) {
+      console.warn('[realtime] system_prompts subscribe failed', err)
+    }
+    if (cancelled) {
+      promptsUnsub?.()
+      promptsUnsub = null
+    }
+  })()
+  return () => {
+    cancelled = true
+    conversations.unsubscribe()
+    promptsUnsub?.()
+  }
+})
 </script>
 
 <svelte:window onkeydown={handleGlobalKeydown} />
@@ -262,7 +301,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
         </div>
       </div>
 
-      <ConversationList conversations={data.conversations} currentId={currentConversationId} {generatingConversationId} bind:searchQuery={sidebarSearchQuery} showFavoritesOnly={showFavoritesOnly} />
+      <ConversationList conversations={conversations.conversations} currentId={currentConversationId} {generatingConversationId} bind:searchQuery={sidebarSearchQuery} showFavoritesOnly={showFavoritesOnly} />
 
       <div class="liquid-glass-bar-bottom absolute inset-x-0 bottom-0 z-10 p-2" style="padding-bottom: max(0.5rem, env(safe-area-inset-bottom))">
         <a href={resolve('/settings')} class="group flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-black/5 dark:hover:bg-white/10">
@@ -323,7 +362,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
           </button>
         {/if}
         <SystemPromptPicker
-          prompts={data.systemPrompts}
+          prompts={systemPrompts}
           bind:selectedId={currentSystemPromptId}
           onchange={changeSystemPrompt}
         />

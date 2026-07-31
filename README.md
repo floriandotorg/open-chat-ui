@@ -21,7 +21,7 @@ Self-hosted, multi-provider LLM chat application. Bring your own API keys, manag
 - **Conversation management** — Create, rename, and delete conversations with auto-generated titles.
 - **Per-user isolation** — All data (API keys, conversations, settings) is scoped per user.
 - **API key encryption** — User API keys are encrypted with AES-256-GCM at rest.
-- **Authentication** — Email/password authentication via better-auth (sign-up disabled by default; users are created via CLI).
+- **Authentication** — Email/password authentication via PocketBase (sign-up disabled; users are created via CLI).
 - **Dark mode** — Full dark mode support.
 
 ## Tech Stack
@@ -31,8 +31,8 @@ Self-hosted, multi-provider LLM chat application. Bring your own API keys, manag
 | Framework | SvelteKit (Svelte 5 runes) |
 | Runtime | Bun (via `svelte-adapter-bun`) |
 | Styling | Tailwind CSS 4 |
-| Database | SQLite (`bun:sqlite`) with Drizzle ORM |
-| Auth | better-auth (email/password) |
+| Database | PocketBase (collections in `pocketbase/pb_schema.json`) |
+| Auth | PocketBase (email/password, proxied through SvelteKit) |
 | Linting | Biome |
 | Testing | Vitest (browser tests via Playwright, server tests via Node) |
 
@@ -60,18 +60,35 @@ cp .env.example .env
 
 | Variable | Description |
 |---|---|
-| `DATABASE_URL` | SQLite database path (e.g. `file:local.db`) |
+| `POCKETBASE_URL` | PocketBase server URL — server-side (e.g. `http://127.0.0.1:8090`) |
+| `PUBLIC_POCKETBASE_URL` | Browser-reachable PocketBase URL for client-side reads + realtime (same as `POCKETBASE_URL` in dev; reverse-proxy in prod) |
+| `POCKETBASE_ADMIN_EMAIL` | PocketBase superuser email (used by the app + scripts) |
+| `POCKETBASE_ADMIN_PASSWORD` | PocketBase superuser password |
 | `ORIGIN` | Application URL (e.g. `http://localhost:5179` for dev, `http://localhost:3000` for production) |
-| `BETTER_AUTH_SECRET` | Auth secret key (32+ random characters for production) |
 | `ENCRYPTION_SECRET` | AES-256-GCM key for API key encryption (32+ random characters) |
 
-### Database Setup
+### PocketBase Setup
 
-Push the schema to the database:
+Download the PocketBase binary and create the superuser:
 
 ```bash
-bun run db:push
+bun run pb:setup
 ```
+
+Start PocketBase and apply the collection schema:
+
+```bash
+bun run pb:serve   # leave running
+bun run pb:schema
+```
+
+To migrate data from a previous Drizzle/SQLite `local.db` into PocketBase:
+
+```bash
+bun run pb:migrate-data -- --password <password>
+```
+
+Every migrated user is assigned the given password (better-auth hashes cannot be imported).
 
 ### Create a User
 
@@ -104,33 +121,25 @@ The production server runs on port `3000`.
 
 ## Docker
 
-### Docker Compose (recommended)
+`compose.yaml` runs two services: `pocketbase` (the database, exposed on port `8090`) and `open-chat-ui` (the app, port `3000`). Set the required env vars in `.env` first (see `.env.example`): `POCKETBASE_ADMIN_EMAIL`, `POCKETBASE_ADMIN_PASSWORD`, `ENCRYPTION_SECRET`, and `PUBLIC_POCKETBASE_URL` (browser-reachable PB URL — defaults to `http://localhost:8090`; in production put PocketBase behind a reverse proxy and point this at its public origin).
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
-The default `compose.yaml` exposes port `3000` and stores the database in `./data/`. Update `BETTER_AUTH_SECRET` and `ENCRYPTION_SECRET` before deploying.
+On first start the app container waits for PocketBase to be healthy, then applies the collection schema (`scripts/apply-pb-schema.ts`) automatically. The PocketBase superuser is created from `POCKETBASE_ADMIN_EMAIL`/`POCKETBASE_ADMIN_PASSWORD`.
 
-To create a user inside the container:
+Create a user inside the app container:
 
 ```bash
 docker compose exec open-chat-ui bun scripts/add-user.ts user@example.com mypassword
 ```
 
-### Docker (manual)
+### Production notes
 
-```bash
-docker build -t open-chat-ui .
-docker run -d \
-  -p 3000:3000 \
-  -v ./data:/data \
-  -e DATABASE_URL=file:/data/chat.db \
-  -e ORIGIN=http://localhost:3000 \
-  -e BETTER_AUTH_SECRET=change-me \
-  -e ENCRYPTION_SECRET=change-me-too \
-  open-chat-ui
-```
+- Expose/reverse-proxy the `pocketbase` service so the browser can reach `PUBLIC_POCKETBASE_URL` (e.g. `https://pb.example.com`). PocketBase allows all origins by default; tighten CORS in production if needed.
+- Both services need persistent volumes (`./pb_data`, `./data`) — already wired in `compose.yaml`.
+- The app assumes a single instance (in-process generation hub). Do not horizontally scale `open-chat-ui` without an external hub.
 
 ## Configuration
 
@@ -149,7 +158,7 @@ src/
 ├── lib/
 │   ├── components/          # Svelte 5 UI components
 │   ├── server/
-│   │   ├── db/              # Drizzle schema + client
+│   │   ├── db/              # PocketBase record mappers + types
 │   │   ├── providers/       # LLM provider adapters (Anthropic, Mistral)
 │   │   └── tools/           # Built-in tools (web search, URL fetch, Reddit)
 │   ├── stores/              # Svelte 5 rune-based state management
@@ -185,8 +194,10 @@ The `LLMProvider` interface requires:
 | `bun run lint` | Lint with Biome |
 | `bun run lint -- --fix` | Lint and auto-fix |
 | `bun run test` | Run tests |
-| `bun run db:push` | Push schema to database |
-| `bun run db:studio` | Open Drizzle Studio (database GUI) |
+| `bun run pb:setup` | Download PocketBase binary + create superuser |
+| `bun run pb:serve` | Run PocketBase locally |
+| `bun run pb:schema` | Apply collection schema to PocketBase |
+| `bun run pb:migrate-data` | Migrate old SQLite `local.db` into PocketBase |
 | `bun run user:add` | Create a new user |
 
 ## License

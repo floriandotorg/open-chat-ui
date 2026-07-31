@@ -1,11 +1,10 @@
 import { getDecryptedKey } from '$lib/server/api-key'
 import { requireUser } from '$lib/server/auth-guard'
-import { db } from '$lib/server/db'
-import { userSettings } from '$lib/server/db/schema'
+import { mapUserSettings } from '$lib/server/db/records'
+import { getFirstOrNull, pb } from '$lib/server/pb'
 import type { RequestHandler } from './$types'
 import { Mistral } from '@mistralai/mistralai'
 import { error, json } from '@sveltejs/kit'
-import { eq } from 'drizzle-orm'
 
 const audioFilename = (mimeType: string): string => {
   const subtype = mimeType.split(';')[0].split('/')[1] ?? 'webm'
@@ -68,7 +67,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     throw error(400, 'No audio data provided')
   }
 
-  const [settings] = await db.select({ dictationProvider: userSettings.dictationProvider }).from(userSettings).where(eq(userSettings.userId, userId))
+  const settings = await getFirstOrNull(
+    pb
+      .collection('user_settings')
+      .getFirstListItem(pb.filter('user = {:u}', { u: userId }))
+      .then(mapUserSettings),
+  )
   const provider = settings?.dictationProvider ?? 'mistral'
 
   try {

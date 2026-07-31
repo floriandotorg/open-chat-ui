@@ -1,16 +1,15 @@
 import { requireUser } from '$lib/server/auth-guard'
 import { encrypt } from '$lib/server/crypto'
-import { db } from '$lib/server/db'
-import { apiKeys } from '$lib/server/db/schema'
+import { mapApiKey, now } from '$lib/server/db/records'
+import { createOrRecover, getFirstOrNull, pb } from '$lib/server/pb'
 import { listProviders } from '$lib/server/providers'
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
-import { and, asc, eq } from 'drizzle-orm'
 
 export const GET: RequestHandler = async ({ locals }) => {
   const userId = requireUser(locals.user).id
 
-  const userKeys = await db.select({ provider: apiKeys.provider }).from(apiKeys).where(eq(apiKeys.userId, userId))
+  const userKeys = await pb.collection('api_keys').getFullList({ filter: pb.filter('user = {:u}', { u: userId }), fields: 'provider' })
   const keyCounts = new Map<string, number>()
   for (const key of userKeys) {
     keyCounts.set(key.provider, (keyCounts.get(key.provider) ?? 0) + 1)
@@ -35,18 +34,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     throw error(400, 'Provider and API key are required')
   }
 
-  const [existing] = await db
-    .select({ id: apiKeys.id })
-    .from(apiKeys)
-    .where(and(eq(apiKeys.userId, userId), eq(apiKeys.provider, provider)))
-    .orderBy(asc(apiKeys.createdAt))
-    .limit(1)
+  const existing = await getFirstOrNull(
+    pb
+      .collection('api_keys')
+      .getFirstListItem(pb.filter('user = {:u} && provider = {:p}', { u: userId, p: provider }), { sort: 'createdAt' })
+      .then(mapApiKey),
+  )
   const { encrypted, iv } = await encrypt(apiKey)
 
   if (existing) {
-    await db.update(apiKeys).set({ encryptedKey: encrypted, iv, updatedAt: new Date() }).where(eq(apiKeys.id, existing.id))
+    await pb.collection('api_keys').update(existing.id, { encryptedKey: encrypted, iv, updatedAt: now() })
   } else {
-    await db.insert(apiKeys).values({ userId, provider, encryptedKey: encrypted, iv })
+    await createOrRecover('api_keys', { user: userId, provider, encryptedKey: encrypted, iv, createdAt: now(), updatedAt: now() }, pb.filter('user = {:u} && provider = {:p}', { u: userId, p: provider }), { encryptedKey: encrypted, iv, updatedAt: now() })
   }
 
   return json({ success: true, keyCount: 1 })

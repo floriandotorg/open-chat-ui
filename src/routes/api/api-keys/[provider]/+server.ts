@@ -1,20 +1,21 @@
 import { requireUser } from '$lib/server/auth-guard'
-import { db } from '$lib/server/db'
-import { apiKeys } from '$lib/server/db/schema'
+import { pb } from '$lib/server/pb'
 import type { RequestHandler } from './$types'
 import { error } from '@sveltejs/kit'
-import { and, eq } from 'drizzle-orm'
 
 export const DELETE: RequestHandler = async ({ params, locals, url }) => {
   const userId = requireUser(locals.user).id
   const keyId = url.searchParams.get('keyId')
 
-  const where = keyId ? and(eq(apiKeys.userId, userId), eq(apiKeys.provider, params.provider), eq(apiKeys.id, keyId)) : and(eq(apiKeys.userId, userId), eq(apiKeys.provider, params.provider))
-  const deleted = await db.delete(apiKeys).where(where).returning({ id: apiKeys.id })
+  const filter = keyId ? pb.filter('user = {:u} && provider = {:p} && id = {:i}', { u: userId, p: params.provider, i: keyId }) : pb.filter('user = {:u} && provider = {:p}', { u: userId, p: params.provider })
 
-  if (deleted.length === 0) {
+  const rows = await pb.collection('api_keys').getFullList({ filter, fields: 'id' })
+
+  if (rows.length === 0) {
     throw error(404, 'API key not found')
   }
+
+  await Promise.all(rows.map(row => pb.collection('api_keys').delete(row.id)))
 
   return new Response(null, { status: 204 })
 }

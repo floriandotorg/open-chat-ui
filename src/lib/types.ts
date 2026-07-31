@@ -53,6 +53,7 @@ export interface Message {
   codeExecutions?: CodeExecutionBlock[]
   siblingIndex?: number
   siblingCount?: number
+  generating?: boolean
   createdAt: Date
   sendError?: string
 }

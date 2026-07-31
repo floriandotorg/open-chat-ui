@@ -1,9 +1,8 @@
 import { requireUser } from '$lib/server/auth-guard'
-import { db } from '$lib/server/db'
-import { conversations, messages } from '$lib/server/db/schema'
+import { mapConversation, mapMessage, now } from '$lib/server/db/records'
+import { getFirstOrNull, pb } from '$lib/server/pb'
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
-import { and, eq } from 'drizzle-orm'
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   const userId = requireUser(locals.user).id
@@ -13,42 +12,44 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     content: string
   }
 
-  const [conversation] = await db
-    .select()
-    .from(conversations)
-    .where(and(eq(conversations.id, conversationId), eq(conversations.userId, userId)))
+  const conversation = await getFirstOrNull(
+    pb
+      .collection('conversations')
+      .getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: conversationId, u: userId }))
+      .then(mapConversation),
+  )
 
   if (!conversation) {
     throw error(404, 'Conversation not found')
   }
 
-  const [targetMsg] = await db
-    .select()
-    .from(messages)
-    .where(and(eq(messages.id, messageId), eq(messages.conversationId, conversationId)))
+  const targetMsg = await getFirstOrNull(
+    pb
+      .collection('messages')
+      .getFirstListItem(pb.filter('id = {:id} && conversation = {:c}', { id: messageId, c: conversationId }))
+      .then(mapMessage),
+  )
   if (targetMsg?.role !== 'user') {
     throw error(400, 'Can only edit user messages')
   }
 
   const newMsgId = crypto.randomUUID()
-  await db.insert(messages).values({
+  await pb.collection('messages').create({
     id: newMsgId,
-    conversationId,
+    conversation: conversationId,
     parentId: targetMsg.parentId,
     role: 'user',
     content,
-    images: targetMsg.images,
-    files: targetMsg.files,
+    images: targetMsg.images ?? null,
+    files: targetMsg.files ?? null,
+    createdAt: now(),
   })
 
-  const branches: Record<string, string> = conversation.activeBranches ? JSON.parse(conversation.activeBranches) : {}
+  const branches: Record<string, string> = conversation.activeBranches ?? {}
   const parentKey = targetMsg.parentId ?? '__root__'
   branches[parentKey] = newMsgId
 
-  await db
-    .update(conversations)
-    .set({ activeBranches: JSON.stringify(branches), updatedAt: new Date() })
-    .where(eq(conversations.id, conversationId))
+  await pb.collection('conversations').update(conversationId, { activeBranches: branches, updatedAt: now() })
 
   return json({ newMessageId: newMsgId })
 }

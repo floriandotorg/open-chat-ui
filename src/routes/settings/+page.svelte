@@ -2,11 +2,13 @@
 import ApiKeyForm from '$lib/components/ApiKeyForm.svelte'
 import ModelManager from '$lib/components/ModelManager.svelte'
 import SystemPromptManager from '$lib/components/SystemPromptManager.svelte'
+import { createSettingsStore } from '$lib/stores/settings.svelte'
 import { enhance } from '$app/forms'
 import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
 import { page } from '$app/state'
 import type { ActionData, PageData } from './$types'
+import { onMount } from 'svelte'
 
 const TABS = ['keys', 'models', 'prompt', 'tools', 'account'] as const
 type Tab = (typeof TABS)[number]
@@ -16,11 +18,47 @@ const DICTATION_PROVIDERS: DictationProvider[] = ['mistral', 'elevenlabs']
 const toDictationProvider = (value: unknown): DictationProvider => DICTATION_PROVIDERS.find(p => p === value) ?? 'mistral'
 
 let { data, form }: { data: PageData; form: ActionData } = $props()
+
+// svelte-ignore state_referenced_locally
+const settingsStore = createSettingsStore({ settings: data.settings ?? null, systemPrompts: data.systemPrompts })
+
 let titleModel = $state('')
+let savingTitleModel = $state(false)
+let titlePristine = $state(true)
 let dictationProvider = $state<DictationProvider>('mistral')
 let savingDictationProvider = $state(false)
+let dictationPristine = $state(true)
+
+$effect(() => {
+  settingsStore.seed({ settings: data.settings ?? null, systemPrompts: data.systemPrompts })
+})
+
+$effect(() => {
+  const remote = settingsStore.settings?.titleModel ?? ''
+  if (titlePristine) titleModel = remote
+  if (!titlePristine && remote === titleModel) titlePristine = true
+})
+
+$effect(() => {
+  const remote = toDictationProvider(settingsStore.settings?.dictationProvider)
+  if (dictationPristine) dictationProvider = remote
+  if (!dictationPristine && remote === dictationProvider) dictationPristine = true
+})
+
+const saveTitleModel = async (value: string) => {
+  titlePristine = false
+  savingTitleModel = true
+  titleModel = value
+  await fetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ titleModel: value || null }),
+  })
+  savingTitleModel = false
+}
 
 const saveDictationProvider = async (value: DictationProvider) => {
+  dictationPristine = false
   savingDictationProvider = true
   dictationProvider = value
   await fetch('/api/settings', {
@@ -30,6 +68,11 @@ const saveDictationProvider = async (value: DictationProvider) => {
   })
   savingDictationProvider = false
 }
+
+onMount(() => {
+  settingsStore.subscribe()
+  return () => settingsStore.unsubscribe()
+})
 
 const activeTab = $derived.by<Tab>(() => {
   const tab = page.url.searchParams.get('tab')
@@ -41,14 +84,6 @@ const setTab = (tab: Tab) => {
   url.searchParams.set('tab', tab)
   goto(url.toString(), { replaceState: true, keepFocus: true, noScroll: true })
 }
-
-$effect(() => {
-  titleModel = data.settings?.titleModel ?? ''
-})
-
-$effect(() => {
-  dictationProvider = toDictationProvider(data.settings?.dictationProvider)
-})
 </script>
 
 <div class="mx-auto max-w-2xl px-4 py-8">
@@ -79,7 +114,7 @@ $effect(() => {
       {/each}
     </div>
   {:else if activeTab === 'models'}
-    <ModelManager providers={data.providers} bind:titleModel />
+    <ModelManager providers={data.providers} {titleModel} {savingTitleModel} onSaveTitleModel={saveTitleModel} />
   {:else if activeTab === 'tools'}
     <div class="space-y-3">
       <p class="text-sm text-gray-500 dark:text-gray-400">
@@ -112,7 +147,7 @@ $effect(() => {
       {/each}
     </div>
   {:else if activeTab === 'prompt'}
-    <SystemPromptManager initial={data.systemPrompts} />
+    <SystemPromptManager prompts={settingsStore.systemPrompts} upsert={settingsStore.upsertPrompt} remove={settingsStore.removePrompt} />
   {:else}
     <div class="space-y-6">
       <div class="rounded-lg border border-gray-200 p-4 dark:border-gray-800">

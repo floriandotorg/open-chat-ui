@@ -2,10 +2,13 @@
 import ChatInput from '$lib/components/ChatInput.svelte'
 import ChatMessage from '$lib/components/ChatMessage.svelte'
 import StreamingText from '$lib/components/StreamingText.svelte'
+import { mapClientMessage, mapConversation } from '$lib/db-mappers'
 import { preserveLocalOrphans } from '$lib/message-tree'
+import { pbClient } from '$lib/pb-client'
 import { createChatStore } from '$lib/stores/chat.svelte'
 import { consumePendingMessage } from '$lib/stores/pending-message'
 import type { Message, ThinkingEffort } from '$lib/types'
+import { browser } from '$app/environment'
 import { invalidateAll, replaceState } from '$app/navigation'
 import { page } from '$app/state'
 import type { PageData } from './$types'
@@ -61,14 +64,11 @@ const onScroll = () => {
 }
 
 chat.onFirstReply = async (conversationId: string) => {
-  const res = await fetch('/api/chat/title', {
+  await fetch('/api/chat/title', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ conversationId }),
   })
-  if (res.ok) {
-    await invalidateAll()
-  }
 }
 
 let activeConvId: string | undefined
@@ -97,7 +97,6 @@ const attachToConversation = (convId: string, generating: boolean) => {
     return
   }
   if (generating) {
-    chat.resumeStream(convId).then(() => chat.processQueue())
     return
   }
   const queryMessage = consumeQueryMessage()
@@ -145,13 +144,70 @@ $effect(() => {
 })
 
 let prevStreaming = false
+let remoteGenerating = $state(false)
+
 $effect(() => {
   const streaming = chat.isStreaming
   ctx.generatingConversationId = streaming ? data.conversation.id : null
-  if (prevStreaming && !streaming) {
+  if (prevStreaming && !streaming && !chat.lastStreamCompleted) {
     invalidateAll()
   }
   prevStreaming = streaming
+})
+
+$effect(() => {
+  const convId = data.conversation.id
+  if (!browser) return
+  remoteGenerating = untrack(() => data.conversation.generating ?? false)
+  let msgUnsub: (() => void) | null = null
+  let convUnsub: (() => void) | null = null
+  let cancelled = false
+  void (async () => {
+    try {
+      msgUnsub = await pbClient.collection('messages').subscribe(
+        '*',
+        e => {
+          if (cancelled) return
+          if (e.action === 'delete') chat.removeMessage(e.record.id)
+          else chat.upsertMessage(mapClientMessage(e.record))
+        },
+        { filter: pbClient.filter('conversation = {:c}', { c: convId }) },
+      )
+    } catch (err) {
+      console.warn('[realtime] messages subscribe failed', err)
+    }
+    try {
+      convUnsub = await pbClient.collection('conversations').subscribe(convId, e => {
+        if (cancelled) return
+        if (e.action === 'delete') return
+        const c = mapConversation(e.record)
+        if (!chat.isStreaming) chat.activeBranches = c.activeBranches ?? {}
+        remoteGenerating = c.generating
+      })
+    } catch (err) {
+      console.warn('[realtime] conversation subscribe failed', err)
+    }
+    if (cancelled) {
+      msgUnsub?.()
+      convUnsub?.()
+      msgUnsub = null
+      convUnsub = null
+    }
+  })()
+  return () => {
+    cancelled = true
+    msgUnsub?.()
+    convUnsub?.()
+  }
+})
+
+let prevRemoteGenerating = false
+$effect(() => {
+  const rg = remoteGenerating
+  if (prevRemoteGenerating && !rg) {
+    untrack(() => chat.processQueue())
+  }
+  prevRemoteGenerating = rg
 })
 
 $effect(() => {
@@ -259,14 +315,27 @@ const autoResizeEdit = () => {
   <div bind:this={messageContainer} onscroll={onScroll} class="flex flex-1 flex-col overflow-y-auto px-4 pt-16 pb-32 lg:px-8">
     <div class="mt-auto w-full space-y-6">
       {#each chat.messages as message (message.id)}
-        <ChatMessage
-          {message}
-          onregenerate={handleRegenerate}
-          onedit={handleEdit}
-          onswitchbranch={handleSwitchBranch}
-          onretry={handleRetry}
-          ondiscard={handleDiscard}
-        />
+        {#if message.generating && !message.content}
+          <div class="flex justify-start">
+            <div class="flex max-w-[90%] gap-3">
+              <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-purple-600 text-xs font-bold text-white">AI</div>
+              <div class="flex items-center gap-1 py-2.5">
+                <span class="h-2 w-2 animate-bounce rounded-full bg-gray-400 dark:bg-neutral-400" style="animation-delay:0ms"></span>
+                <span class="h-2 w-2 animate-bounce rounded-full bg-gray-400 dark:bg-neutral-400" style="animation-delay:150ms"></span>
+                <span class="h-2 w-2 animate-bounce rounded-full bg-gray-400 dark:bg-neutral-400" style="animation-delay:300ms"></span>
+              </div>
+            </div>
+          </div>
+        {:else}
+          <ChatMessage
+            {message}
+            onregenerate={handleRegenerate}
+            onedit={handleEdit}
+            onswitchbranch={handleSwitchBranch}
+            onretry={handleRetry}
+            ondiscard={handleDiscard}
+          />
+        {/if}
       {/each}
       <StreamingText
         text={chat.streamingText}
@@ -345,7 +414,7 @@ const autoResizeEdit = () => {
   <div class="absolute inset-x-0 bottom-0 z-10">
     <ChatInput
       onsubmit={handleSubmit}
-      disabled={!ctx.selectedModel}
+      disabled={!ctx.selectedModel || (remoteGenerating && !chat.isStreaming)}
       isStreaming={chat.isStreaming}
       onstop={chat.stopStreaming}
     />

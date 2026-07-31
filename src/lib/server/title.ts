@@ -1,12 +1,16 @@
 import { parseModelRef } from '$lib/model-ref'
 import { getDecryptedKey } from '$lib/server/api-key'
-import { db } from '$lib/server/db'
-import { conversations, messages, userSettings } from '$lib/server/db/schema'
+import { mapMessage, mapUserSettings, now } from '$lib/server/db/records'
+import { getFirstOrNull, pb } from '$lib/server/pb'
 import { getProviderFactory } from '$lib/server/providers'
-import { asc, eq } from 'drizzle-orm'
 
 export const generateConversationTitle = async (userId: string, conversationId: string): Promise<string | null> => {
-  const [settings] = await db.select().from(userSettings).where(eq(userSettings.userId, userId))
+  const settings = await getFirstOrNull(
+    pb
+      .collection('user_settings')
+      .getFirstListItem(pb.filter('user = {:u}', { u: userId }))
+      .then(mapUserSettings),
+  )
   if (!settings?.titleModel) return null
 
   const { provider, model } = parseModelRef(settings.titleModel)
@@ -14,7 +18,8 @@ export const generateConversationTitle = async (userId: string, conversationId: 
   const apiKey = await getDecryptedKey(userId, provider)
   if (!apiKey) return null
 
-  const history = await db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt)).limit(4)
+  const result = await pb.collection('messages').getList(1, 4, { filter: pb.filter('conversation = {:c}', { c: conversationId }), sort: 'createdAt' })
+  const history = result.items.map(mapMessage)
 
   if (history.length === 0) return null
 
@@ -44,7 +49,7 @@ export const generateConversationTitle = async (userId: string, conversationId: 
     .trim()
   if (!title) return null
 
-  await db.update(conversations).set({ title, updatedAt: new Date() }).where(eq(conversations.id, conversationId))
+  await pb.collection('conversations').update(conversationId, { title, updatedAt: now() })
 
   return title
 }

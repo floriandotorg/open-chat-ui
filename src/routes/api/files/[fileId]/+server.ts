@@ -1,19 +1,20 @@
 import { requireUser } from '$lib/server/auth-guard'
 import { decrypt } from '$lib/server/crypto'
-import { db } from '$lib/server/db'
-import { apiKeys } from '$lib/server/db/schema'
+import { mapApiKey } from '$lib/server/db/records'
+import { getFirstOrNull, pb } from '$lib/server/pb'
 import type { RequestHandler } from './$types'
 import Anthropic from '@anthropic-ai/sdk'
 import { error } from '@sveltejs/kit'
-import { and, eq } from 'drizzle-orm'
 
 export const GET: RequestHandler = async ({ params, locals, url }) => {
   const userId = requireUser(locals.user).id
 
-  const [keyRow] = await db
-    .select()
-    .from(apiKeys)
-    .where(and(eq(apiKeys.userId, userId), eq(apiKeys.provider, 'anthropic')))
+  const keyRow = await getFirstOrNull(
+    pb
+      .collection('api_keys')
+      .getFirstListItem(pb.filter('user = {:u} && provider = "anthropic"', { u: userId }), { sort: 'createdAt' })
+      .then(mapApiKey),
+  )
 
   if (!keyRow) {
     throw error(400, 'No Anthropic API key configured')

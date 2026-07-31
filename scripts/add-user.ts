@@ -1,8 +1,4 @@
-import * as schema from '../src/lib/server/db/auth.schema'
-import { Database } from 'bun:sqlite'
-import { drizzleAdapter } from 'better-auth/adapters/drizzle'
-import { betterAuth } from 'better-auth/minimal'
-import { drizzle } from 'drizzle-orm/bun-sqlite'
+import PocketBase from 'pocketbase'
 
 const [email, password, name] = Bun.argv.slice(2)
 
@@ -11,28 +7,25 @@ if (!email || !password) {
   process.exit(1)
 }
 
-const databaseUrl = process.env.DATABASE_URL
-if (!databaseUrl) {
-  console.error('DATABASE_URL environment variable is required')
+const url = process.env.POCKETBASE_URL ?? 'http://127.0.0.1:8090'
+const adminEmail = process.env.POCKETBASE_ADMIN_EMAIL
+const adminPassword = process.env.POCKETBASE_ADMIN_PASSWORD
+
+if (!adminEmail || !adminPassword) {
+  console.error('POCKETBASE_ADMIN_EMAIL and POCKETBASE_ADMIN_PASSWORD are required')
   process.exit(1)
 }
 
-const secret = process.env.BETTER_AUTH_SECRET
-if (!secret) {
-  console.error('BETTER_AUTH_SECRET environment variable is required')
-  process.exit(1)
-}
+const pb = new PocketBase(url)
+await pb.collection('_superusers').authWithPassword(adminEmail, adminPassword)
 
-const db = drizzle({ client: new Database(databaseUrl), schema })
-
-const auth = betterAuth({
-  secret,
-  database: drizzleAdapter(db, { provider: 'sqlite', schema }),
-  emailAndPassword: { enabled: true, minPasswordLength: 1 },
-})
-
-await auth.api.signUpEmail({
-  body: { email, password, name: name ?? email.split('@')[0] },
+await pb.collection('users').create({
+  email,
+  password,
+  passwordConfirm: password,
+  name: name ?? email.split('@')[0],
+  verified: true,
+  emailVisibility: true,
 })
 
 console.log(`User created: ${email}`)

@@ -1,11 +1,9 @@
-import { auth } from '$lib/server/auth'
 import { requireUser } from '$lib/server/auth-guard'
-import { db } from '$lib/server/db'
-import { apiKeys, systemPrompts, userSettings } from '$lib/server/db/schema'
+import { mapSystemPrompt, mapUserSettings } from '$lib/server/db/records'
+import { getFirstOrNull, pb } from '$lib/server/pb'
 import { listProviders } from '$lib/server/providers'
 import type { Actions, PageServerLoad } from './$types'
 import { fail } from '@sveltejs/kit'
-import { asc, eq } from 'drizzle-orm'
 
 type ToolService = { id: string; name: string; capabilities: string[] }
 
@@ -21,10 +19,18 @@ const TOOL_SERVICES: ToolService[] = [
 export const load: PageServerLoad = async ({ locals }) => {
   const user = requireUser(locals.user)
 
-  const [settings, userKeys, prompts] = await Promise.all([
-    db.select().from(userSettings).where(eq(userSettings.userId, user.id)),
-    db.select({ id: apiKeys.id, provider: apiKeys.provider, createdAt: apiKeys.createdAt }).from(apiKeys).where(eq(apiKeys.userId, user.id)).orderBy(asc(apiKeys.createdAt)),
-    db.select().from(systemPrompts).where(eq(systemPrompts.userId, user.id)).orderBy(asc(systemPrompts.createdAt)),
+  const [settingsRow, userKeys, prompts] = await Promise.all([
+    getFirstOrNull(
+      pb
+        .collection('user_settings')
+        .getFirstListItem(pb.filter('user = {:u}', { u: user.id }))
+        .then(mapUserSettings),
+    ),
+    pb.collection('api_keys').getFullList({ filter: pb.filter('user = {:u}', { u: user.id }), sort: 'createdAt', fields: 'id,provider,createdAt' }),
+    pb
+      .collection('system_prompts')
+      .getFullList({ filter: pb.filter('user = {:u}', { u: user.id }), sort: 'createdAt' })
+      .then(rows => rows.map(mapSystemPrompt)),
   ])
 
   const keyCounts = new Map<string, number>()
@@ -45,7 +51,7 @@ export const load: PageServerLoad = async ({ locals }) => {
   }))
 
   return {
-    settings: settings[0] ?? null,
+    settings: settingsRow,
     providers,
     toolServices,
     systemPrompts: prompts,
@@ -55,10 +61,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 export const actions: Actions = {
   signOut: async event => {
-    await auth.api.signOut({ headers: event.request.headers })
+    event.locals.pb.authStore.clear()
     return { success: true }
   },
   updatePassword: async event => {
+    const user = requireUser(event.locals.user)
     const formData = await event.request.formData()
     const currentPassword = formData.get('currentPassword')?.toString() ?? ''
     const newPassword = formData.get('newPassword')?.toString() ?? ''
@@ -68,10 +75,12 @@ export const actions: Actions = {
     }
 
     try {
-      await auth.api.changePassword({
-        body: { currentPassword, newPassword },
-        headers: event.request.headers,
+      await event.locals.pb.collection('users').update(user.id, {
+        oldPassword: currentPassword,
+        password: newPassword,
+        passwordConfirm: newPassword,
       })
+      await event.locals.pb.collection('users').authWithPassword(user.email, newPassword)
       return { passwordSuccess: true }
     } catch {
       return fail(400, { passwordError: 'Failed to update password. Check your current password.' })

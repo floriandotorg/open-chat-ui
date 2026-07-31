@@ -1,14 +1,13 @@
 import { resolveEffectiveParentId } from '$lib/message-tree'
 import { requireUser } from '$lib/server/auth-guard'
-import { db } from '$lib/server/db'
-import { conversations, messages } from '$lib/server/db/schema'
+import { mapConversation, mapMessage, now } from '$lib/server/db/records'
 import { startGeneration } from '$lib/server/generate'
+import { getFirstOrNull, pb } from '$lib/server/pb'
 import { hubToSSE } from '$lib/server/sse'
 import { getHub } from '$lib/server/stream-hub'
 import type { FileAttachment, ImageAttachment, ThinkingEffort } from '$lib/types'
 import type { RequestHandler } from './$types'
 import { error } from '@sveltejs/kit'
-import { and, asc, eq } from 'drizzle-orm'
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   const userId = requireUser(locals.user).id
@@ -35,10 +34,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     skipUserInsert?: boolean
   }
 
-  const [conversation] = await db
-    .select()
-    .from(conversations)
-    .where(and(eq(conversations.id, conversationId), eq(conversations.userId, userId)))
+  const conversation = await getFirstOrNull(
+    pb
+      .collection('conversations')
+      .getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: conversationId, u: userId }))
+      .then(mapConversation),
+  )
   if (!conversation) {
     throw error(404, 'Conversation not found')
   }
@@ -52,21 +53,22 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
 
   const userMsgId = requestUserMsgId ?? crypto.randomUUID()
-  const priorMsgs = await db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt))
+  const priorMsgs = (await pb.collection('messages').getFullList({ filter: pb.filter('conversation = {:c}', { c: conversationId }), sort: 'createdAt' })).map(mapMessage)
   const effectiveParentId = skipUserInsert ? (requestParentId ?? null) : resolveEffectiveParentId(requestParentId, priorMsgs)
   if (!skipUserInsert) {
-    await db.insert(messages).values({
+    await pb.collection('messages').create({
       id: userMsgId,
-      conversationId,
+      conversation: conversationId,
       parentId: effectiveParentId,
       role: 'user',
       content: message,
-      images: imageIds?.length ? JSON.stringify(imageIds) : null,
-      files: fileAttachments?.length ? JSON.stringify(fileAttachments) : null,
+      images: imageIds?.length ? imageIds : null,
+      files: fileAttachments?.length ? fileAttachments : null,
+      createdAt: now(),
     })
   }
 
-  const allMsgs = skipUserInsert ? priorMsgs : await db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt))
+  const allMsgs = skipUserInsert ? priorMsgs : (await pb.collection('messages').getFullList({ filter: pb.filter('conversation = {:c}', { c: conversationId }), sort: 'createdAt' })).map(mapMessage)
   const byId = new Map(allMsgs.map(m => [m.id, m]))
   const historyIds: string[] = []
   let cur = byId.get(userMsgId)
