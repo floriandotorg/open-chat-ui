@@ -7,7 +7,7 @@ type AnyBlock = Record<string, unknown>
 const CODE_EXEC_TOOL_NAMES = new Set(['code_execution', 'bash_code_execution', 'text_editor_code_execution'])
 const CODE_EXEC_RESULT_TYPES = new Set(['bash_code_execution_tool_result', 'text_editor_code_execution_tool_result', 'code_execution_tool_result'])
 
-const CACHE_CONTROL = { type: 'ephemeral' } as const
+const CACHE_CONTROL = { type: 'ephemeral', ttl: '1h' } as const
 
 const withMessageCacheControl = (messages: Anthropic.MessageParam[]): unknown[] => {
   const last = messages[messages.length - 1]

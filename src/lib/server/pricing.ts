@@ -14,7 +14,7 @@ type RawPricing = {
 }
 
 const PRICING_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/refs/heads/main/model_prices_and_context_window.json'
-const TTL_MS = 6 * 60 * 60 * 1000
+const TTL_MS = 60 * 60 * 1000
 
 let cache: { data: Record<string, RawPricing>; at: number } | null = null
 let pending: Promise<Record<string, RawPricing>> | null = null
