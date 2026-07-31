@@ -71,19 +71,6 @@ onMount(async () => {
       </div>
     </div>
 
-    {#if data.cacheSavings > 0 || data.totalCacheReadInputTokens > 0}
-      <div class="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-900 dark:bg-emerald-900/10">
-        <p class="text-xs uppercase tracking-wide text-emerald-600 dark:text-emerald-400">Prompt caching</p>
-        <div class="mt-1 flex items-baseline gap-2">
-          <p class="text-xl font-semibold text-emerald-700 dark:text-emerald-300">{fmtTokens(data.totalCacheReadInputTokens)} read</p>
-          <span class="text-xs text-emerald-600/80 dark:text-emerald-400/80">+ {fmtTokens(data.totalCacheCreationInputTokens)} written</span>
-        </div>
-        {#if data.cacheSavings > 0}
-          <p class="mt-1 text-xs text-emerald-600/80 dark:text-emerald-400/80">Estimated savings {fmtMoney(data.cacheSavings)} vs. uncached input</p>
-        {/if}
-      </div>
-    {/if}
-
     {#if hasData}
       <div class="rounded-lg border border-gray-200 p-4 dark:border-gray-800">
         <p class="mb-3 text-xs uppercase tracking-wide text-gray-400">Daily cost — {monthName(data.month)}</p>
