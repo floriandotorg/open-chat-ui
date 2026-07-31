@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.pb
-    ports:
-      - "8090:8090"
+    expose:
+      - "8090"
     volumes:
       - ./pb_data:/pb_data
     environment:
@@ -22,7 +22,7 @@ services:
       pocketbase:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      - "3000"
     volumes:
       - ./data:/data
     environment:
