@@ -138,3 +138,37 @@ export const THINKING_EFFORT_LABELS: Record<ThinkingEffort, string> = {
   high: 'High',
   max: 'Max',
 }
+
+export interface DailyUsage {
+  date: string
+  cost: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadInputTokens: number
+  cacheCreationInputTokens: number
+  requests: number
+}
+
+export interface ModelUsage {
+  model: string
+  requests: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadInputTokens: number
+  cacheCreationInputTokens: number
+  cost: number
+  priced: boolean
+}
+
+export interface UsageResponse {
+  month: string
+  totalCost: number
+  totalInputTokens: number
+  totalOutputTokens: number
+  totalCacheReadInputTokens: number
+  totalCacheCreationInputTokens: number
+  totalRequests: number
+  cacheSavings: number
+  daily: DailyUsage[]
+  models: ModelUsage[]
+}

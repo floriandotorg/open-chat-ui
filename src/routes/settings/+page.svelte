@@ -2,6 +2,7 @@
 import ApiKeyForm from '$lib/components/ApiKeyForm.svelte'
 import ModelManager from '$lib/components/ModelManager.svelte'
 import SystemPromptManager from '$lib/components/SystemPromptManager.svelte'
+import UsagePanel from '$lib/components/UsagePanel.svelte'
 import { createSettingsStore } from '$lib/stores/settings.svelte'
 import { enhance } from '$app/forms'
 import { goto } from '$app/navigation'
@@ -10,7 +11,7 @@ import { page } from '$app/state'
 import type { ActionData, PageData } from './$types'
 import { onMount } from 'svelte'
 
-const TABS = ['keys', 'models', 'prompt', 'tools', 'account'] as const
+const TABS = ['keys', 'models', 'prompt', 'tools', 'usage', 'account'] as const
 type Tab = (typeof TABS)[number]
 
 type DictationProvider = 'mistral' | 'elevenlabs'
@@ -95,7 +96,7 @@ const setTab = (tab: Tab) => {
   </div>
 
   <div class="liquid-glass mb-6 flex gap-1 rounded-xl p-1">
-    {#each [['keys', 'API Keys'], ['models', 'Models'], ['prompt', 'System Prompt'], ['tools', 'Tools'], ['account', 'Account']] as [id, label] (id)}
+    {#each [['keys', 'API Keys'], ['models', 'Models'], ['prompt', 'System Prompt'], ['tools', 'Tools'], ['usage', 'Usage'], ['account', 'Account']] as [id, label] (id)}
       <button
         onclick={() => setTab(id as Tab)}
         class="flex-1 rounded-lg px-3 py-2 text-sm font-medium transition {activeTab === id
@@ -146,6 +147,8 @@ const setTab = (tab: Tab) => {
         <ApiKeyForm {provider} />
       {/each}
     </div>
+  {:else if activeTab === 'usage'}
+    <UsagePanel />
   {:else if activeTab === 'prompt'}
     <SystemPromptManager prompts={settingsStore.systemPrompts} upsert={settingsStore.upsertPrompt} remove={settingsStore.removePrompt} />
   {:else}
