@@ -6,6 +6,7 @@ import ThinkingEffortPicker from '$lib/components/ThinkingEffortPicker.svelte'
 import TtsPlayer from '$lib/components/TtsPlayer.svelte'
 import { mapSystemPrompt } from '$lib/db-mappers'
 import { pbClient } from '$lib/pb-client'
+import { chatContext } from '$lib/stores/chat-context.svelte'
 import { createConversationsStore } from '$lib/stores/conversations.svelte'
 import { createTtsPlayer } from '$lib/stores/tts-player.svelte'
 import type { SystemPrompt, ThinkingEffort } from '$lib/types'
@@ -37,15 +38,14 @@ const setCookie = (name: string, value: string) => {
 let sidebarOpen = $state(true)
 let mobileSidebarOpen = $state(false)
 // svelte-ignore state_referenced_locally
-let selectedModel = $state(data.selectedModel ?? '')
+chatContext.selectedModel = data.selectedModel ?? ''
+// svelte-ignore state_referenced_locally
+chatContext.thinkingEffort = (data.thinkingEffort as ThinkingEffort) ?? 'none'
 // svelte-ignore state_referenced_locally
 let selectedModelName = $state(data.selectedModelName ?? '')
 // svelte-ignore state_referenced_locally
-let thinkingEffort = $state<ThinkingEffort>((data.thinkingEffort as ThinkingEffort) ?? 'none')
-// svelte-ignore state_referenced_locally
 let sidebarWidth = $state(data.sidebarWidth ?? SIDEBAR_DEFAULT)
 let isResizing = $state(false)
-let currentSystemPromptId = $state<string | null>(null)
 
 const isMobileViewport = () => window.matchMedia('(max-width: 767px)').matches
 
@@ -66,7 +66,7 @@ const closeSidebar = () => {
 }
 
 $effect(() => {
-  setCookie('thinking-effort', thinkingEffort)
+  setCookie('thinking-effort', chatContext.thinkingEffort)
 })
 
 $effect(() => {
@@ -98,9 +98,9 @@ $effect(() => {
 
 $effect(() => {
   if (currentConversation) {
-    currentSystemPromptId = currentConversation.systemPromptId ?? systemPrompts.find(p => p.isDefault)?.id ?? null
+    chatContext.currentSystemPromptId = currentConversation.systemPromptId ?? systemPrompts.find(p => p.isDefault)?.id ?? null
   } else {
-    currentSystemPromptId = systemPrompts.find(p => p.isDefault)?.id ?? null
+    chatContext.currentSystemPromptId = systemPrompts.find(p => p.isDefault)?.id ?? null
   }
 })
 
@@ -121,40 +121,9 @@ afterNavigate(() => {
   mobileSidebarOpen = false
 })
 
-let generatingConversationId = $state<string | null>(null)
-
 // svelte-ignore state_referenced_locally
 const ttsPlayer = createTtsPlayer(data.ttsSpeed ?? 1)
 setContext('tts-player', ttsPlayer)
-
-let newChatFocusToken = $state(0)
-
-setContext('chat-provider', {
-  get selectedModel() {
-    return selectedModel
-  },
-  set selectedModel(v: string) {
-    selectedModel = v
-  },
-  get thinkingEffort() {
-    return thinkingEffort
-  },
-  set thinkingEffort(v: ThinkingEffort) {
-    thinkingEffort = v
-  },
-  get generatingConversationId() {
-    return generatingConversationId
-  },
-  set generatingConversationId(v: string | null) {
-    generatingConversationId = v
-  },
-  get currentSystemPromptId() {
-    return currentSystemPromptId
-  },
-  get newChatFocusToken() {
-    return newChatFocusToken
-  },
-})
 
 let sidebarSearchQuery = $state('')
 let showFavoritesOnly = $state(false)
@@ -175,7 +144,7 @@ const clearSidebarSearch = () => {
 
 const goToNewChat = async () => {
   await goto(resolve('/chat'))
-  ++newChatFocusToken
+  ++chatContext.newChatFocusToken
 }
 
 const handleModelChange = (id: string, name: string) => {
@@ -301,7 +270,7 @@ onMount(() => {
         </div>
       </div>
 
-      <ConversationList conversations={conversations.conversations} currentId={currentConversationId} {generatingConversationId} bind:searchQuery={sidebarSearchQuery} showFavoritesOnly={showFavoritesOnly} />
+      <ConversationList conversations={conversations.conversations} currentId={currentConversationId} generatingConversationId={chatContext.generatingConversationId} bind:searchQuery={sidebarSearchQuery} showFavoritesOnly={showFavoritesOnly} />
 
       <div class="liquid-glass-bar-bottom absolute inset-x-0 bottom-0 z-10 p-2" style="padding-bottom: max(0.5rem, env(safe-area-inset-bottom))">
         <a href={resolve('/settings')} class="group flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-black/5 dark:hover:bg-white/10">
@@ -341,7 +310,7 @@ onMount(() => {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
           </svg>
         </button>
-        <ModelPicker providers={data.providers} bind:selectedModel modelNameHint={selectedModelName} onmodelchange={handleModelChange} />
+        <ModelPicker providers={data.providers} bind:selectedModel={chatContext.selectedModel} modelNameHint={selectedModelName} onmodelchange={handleModelChange} />
       </div>
       <div class="flex items-center gap-1">
         {#if currentConversation}
@@ -363,10 +332,10 @@ onMount(() => {
         {/if}
         <SystemPromptPicker
           prompts={systemPrompts}
-          bind:selectedId={currentSystemPromptId}
+          bind:selectedId={chatContext.currentSystemPromptId}
           onchange={changeSystemPrompt}
         />
-        <ThinkingEffortPicker bind:thinkingEffort />
+        <ThinkingEffortPicker bind:thinkingEffort={chatContext.thinkingEffort} />
       </div>
     </header>
 

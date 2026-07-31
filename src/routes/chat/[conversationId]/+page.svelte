@@ -6,17 +6,18 @@ import { mapClientMessage, mapConversation } from '$lib/db-mappers'
 import { preserveLocalOrphans } from '$lib/message-tree'
 import { pbClient } from '$lib/pb-client'
 import { createChatStore } from '$lib/stores/chat.svelte'
+import { chatContext } from '$lib/stores/chat-context.svelte'
 import { consumePendingMessage } from '$lib/stores/pending-message'
-import type { Message, ThinkingEffort } from '$lib/types'
+import type { Message } from '$lib/types'
 import { browser } from '$app/environment'
 import { invalidateAll, replaceState } from '$app/navigation'
 import { page } from '$app/state'
 import type { PageData } from './$types'
-import { getContext, tick, untrack } from 'svelte'
+import { tick, untrack } from 'svelte'
 
 let { data }: { data: PageData } = $props()
 
-const ctx: { selectedModel: string; thinkingEffort: ThinkingEffort; generatingConversationId: string | null } = getContext('chat-provider')
+const ctx = chatContext
 
 const mapServerMessages = (serverMsgs: typeof data.allMessages, existing: Message[] = []): Message[] => {
   const thinkingByContent = new Map<string, { thinking?: string; thinkingDuration?: number }>()

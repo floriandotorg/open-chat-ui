@@ -1,12 +1,13 @@
 <script lang="ts">
 import ChatInput from '$lib/components/ChatInput.svelte'
+import { chatContext } from '$lib/stores/chat-context.svelte'
 import { setPendingMessage } from '$lib/stores/pending-message'
 import type { Conversation, FileAttachment, ImageAttachment } from '$lib/types'
 import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
-import { getContext, tick } from 'svelte'
+import { tick } from 'svelte'
 
-const ctx: { selectedModel: string; currentSystemPromptId: string | null; newChatFocusToken: number } = getContext('chat-provider')
+const ctx = chatContext
 
 let error = $state('')
 let textarea: HTMLTextAreaElement | undefined = $state()
