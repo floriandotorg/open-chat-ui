@@ -5,6 +5,7 @@ import StreamingText from '$lib/components/StreamingText.svelte'
 import { mapClientMessage, mapConversation } from '$lib/db-mappers'
 import { preserveLocalOrphans } from '$lib/message-tree'
 import { pbClient } from '$lib/pb-client'
+import { selectionIntersects } from '$lib/selection'
 import { createChatStore } from '$lib/stores/chat.svelte'
 import { chatContext } from '$lib/stores/chat-context.svelte'
 import { consumePendingMessage } from '$lib/stores/pending-message'
@@ -65,12 +66,7 @@ const onScroll = () => {
   stickToBottom = distanceFromBottom(messageContainer) <= SCROLL_THRESHOLD
 }
 
-const selectionInsideContainer = (): boolean => {
-  const sel = window.getSelection()
-  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return false
-  const node = sel.getRangeAt(0).commonAncestorContainer
-  return !!messageContainer && (messageContainer === node || messageContainer.contains(node))
-}
+const selectionInsideContainer = (): boolean => selectionIntersects(messageContainer)
 
 const onPointerDown = () => {
   userInteracting = true

@@ -3,6 +3,7 @@ import { extractCitations, filterReferencedCitations, processCitations } from '$
 import { buildContentSegments } from '$lib/content-segments'
 import { copyCodeAction } from '$lib/copy-code'
 import { renderMarkdown } from '$lib/markdown'
+import { selectionIntersects } from '$lib/selection'
 import type { CodeExecutionBlock, ToolCallInfo } from '$lib/types'
 import CodeExecutionBlockComponent from './CodeExecutionBlock.svelte'
 import SourcesBlock from './SourcesBlock.svelte'
@@ -27,18 +28,36 @@ let {
   paused?: boolean
 } = $props()
 
+let root: HTMLDivElement | undefined = $state()
+let selectionHeld = $state(false)
+
+$effect(() => {
+  const track = () => {
+    selectionHeld = selectionIntersects(root)
+  }
+  track()
+  document.addEventListener('selectionchange', track)
+  return () => document.removeEventListener('selectionchange', track)
+})
+
+let frozen = $derived(paused || selectionHeld)
+
 let displayedText = $state('')
+let displayedThinking = $state('')
+let displayedIsThinking = $state(false)
 let displayedToolCalls = $state<ToolCallInfo[]>([])
 let displayedCodeExecutions = $state<CodeExecutionBlock[]>([])
 
 $effect(() => {
-  if (paused) return
+  if (frozen) return
   displayedText = text
+  displayedThinking = thinking
+  displayedIsThinking = isThinking
   displayedToolCalls = toolCalls
   displayedCodeExecutions = codeExecutions
 })
 
-let showThinking = $derived(thinking || isThinking)
+let showThinking = $derived(displayedThinking || displayedIsThinking)
 let segments = $derived(buildContentSegments(displayedText, displayedToolCalls, displayedCodeExecutions))
 let allCitations = $derived(extractCitations(displayedToolCalls))
 let citations = $derived(filterReferencedCitations(displayedText, allCitations))
@@ -46,14 +65,14 @@ let hasContent = $derived(text || showThinking || toolCalls.length > 0 || codeEx
 </script>
 
 {#if hasContent}
-  <div class="flex justify-start">
+  <div class="flex justify-start" bind:this={root}>
     <div class="flex max-w-[90%] gap-3 min-w-0">
       <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-purple-600 text-xs font-bold text-white">
         AI
       </div>
       <div class="min-w-0">
         {#if showThinking}
-          <ThinkingBlock {thinking} duration={thinkingDuration} isActive={isThinking} />
+          <ThinkingBlock thinking={displayedThinking} duration={thinkingDuration} isActive={displayedIsThinking} />
         {/if}
         {#each segments as segment, idx}
           {#if segment.type === 'tool_call'}
