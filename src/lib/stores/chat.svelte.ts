@@ -570,7 +570,11 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
 
   const upsertMessage = (msg: Message) => {
     if (localAssistantIds.has(msg.id)) return
-    allMessages = allMessages.some(m => m.id === msg.id) ? allMessages.map(m => (m.id === msg.id ? msg : m)) : [...allMessages, msg]
+    const existing = allMessages.find(m => m.id === msg.id)
+    // The server persists the user message before generation, so a realtime upsert
+    // after a failed send would otherwise wipe the local sendError banner
+    const merged = existing?.sendError ? { ...msg, sendError: existing.sendError } : msg
+    allMessages = existing ? allMessages.map(m => (m.id === msg.id ? merged : m)) : [...allMessages, merged]
   }
 
   const removeMessage = (id: string) => {

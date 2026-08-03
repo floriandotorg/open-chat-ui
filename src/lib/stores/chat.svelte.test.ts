@@ -52,6 +52,23 @@ describe('createChatStore.sendMessage failure handling', () => {
     expect(chat.isStreaming).toBe(false)
   })
 
+  it('preserves sendError when a realtime upsert replaces the failed user message with the server version', async () => {
+    installFetch(async () => new Response(JSON.stringify({ message: 'Overloaded' }), { status: 500 }))
+
+    const chat = createChatStore()
+    chat.selectedModel = 'anthropic/claude-test'
+
+    await chat.sendMessage('conv-1', 'hi')
+    await flush()
+
+    const failed = chat.allMessages[0]
+    expect(failed.sendError).toBe('Overloaded')
+
+    chat.upsertMessage({ ...failed, sendError: undefined })
+
+    expect(chat.allMessages[0].sendError).toBe('Overloaded')
+  })
+
   it('falls back to a generic error message when the server returns no message body', async () => {
     installFetch(async () => new Response('not-json', { status: 502 }))
 

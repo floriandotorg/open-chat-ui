@@ -182,9 +182,9 @@ const autoResizeEdit = () => {
         </div>
       {/if}
       {#if displayed.sendError && !isEditing}
-        <div class="mt-1.5 flex items-center gap-2 rounded-lg bg-red-500/10 px-2.5 py-1 text-xs text-red-600 dark:bg-red-500/15 dark:text-red-400">
-          <svg class="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M4.93 19h14.14a2 2 0 001.74-3l-7.07-12.25a2 2 0 00-3.48 0L3.19 16a2 2 0 001.74 3z" /></svg>
-          <span class="min-w-0 flex-1 truncate" title={displayed.sendError}>{displayed.sendError}</span>
+        <div class="mt-1.5 flex items-start gap-2 rounded-lg bg-red-500/10 px-2.5 py-1.5 text-xs text-red-600 dark:bg-red-500/15 dark:text-red-400">
+          <svg class="mt-0.5 h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M4.93 19h14.14a2 2 0 001.74-3l-7.07-12.25a2 2 0 00-3.48 0L3.19 16a2 2 0 001.74 3z" /></svg>
+          <span class="min-w-0 flex-1 wrap-break-word">{displayed.sendError}</span>
           <button onclick={() => onretry?.(message.id)} class="shrink-0 cursor-pointer rounded px-1.5 py-0.5 font-medium hover:bg-red-500/10 dark:hover:bg-red-500/20">Retry</button>
           <button onclick={() => ondiscard?.(message.id)} aria-label="Discard message" class="shrink-0 cursor-pointer rounded p-0.5 hover:bg-red-500/10 dark:hover:bg-red-500/20">
             <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
