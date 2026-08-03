@@ -26,6 +26,9 @@ const settingsStore = createSettingsStore({ settings: data.settings ?? null, sys
 let titleModel = $state('')
 let savingTitleModel = $state(false)
 let titlePristine = $state(true)
+let summarizerModel = $state('')
+let savingSummarizerModel = $state(false)
+let summarizerPristine = $state(true)
 let dictationProvider = $state<DictationProvider>('mistral')
 let savingDictationProvider = $state(false)
 let dictationPristine = $state(true)
@@ -38,6 +41,12 @@ $effect(() => {
   const remote = settingsStore.settings?.titleModel ?? ''
   if (titlePristine) titleModel = remote
   if (!titlePristine && remote === titleModel) titlePristine = true
+})
+
+$effect(() => {
+  const remote = settingsStore.settings?.toolSummarizerModel ?? ''
+  if (summarizerPristine) summarizerModel = remote
+  if (!summarizerPristine && remote === summarizerModel) summarizerPristine = true
 })
 
 $effect(() => {
@@ -56,6 +65,18 @@ const saveTitleModel = async (value: string) => {
     body: JSON.stringify({ titleModel: value || null }),
   })
   savingTitleModel = false
+}
+
+const saveSummarizerModel = async (value: string) => {
+  summarizerPristine = false
+  savingSummarizerModel = true
+  summarizerModel = value
+  await fetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ toolSummarizerModel: value || null }),
+  })
+  savingSummarizerModel = false
 }
 
 const saveDictationProvider = async (value: DictationProvider) => {
@@ -115,7 +136,7 @@ const setTab = (tab: Tab) => {
       {/each}
     </div>
   {:else if activeTab === 'models'}
-    <ModelManager providers={data.providers} {titleModel} {savingTitleModel} onSaveTitleModel={saveTitleModel} />
+    <ModelManager providers={data.providers} {titleModel} {savingTitleModel} onSaveTitleModel={saveTitleModel} {summarizerModel} {savingSummarizerModel} onSaveSummarizerModel={saveSummarizerModel} />
   {:else if activeTab === 'tools'}
     <div class="space-y-3">
       <p class="text-sm text-gray-500 dark:text-gray-400">

@@ -121,7 +121,7 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
         streamingToolCalls = [...streamingToolCalls, { ...event.toolCall, textOffset: streamingText.length }]
       }
       if (event.type === 'tool_result' && event.toolResult) {
-        streamingToolCalls = streamingToolCalls.map(tc => (tc.id === event.toolResult?.toolCallId ? { ...tc, result: event.toolResult.result } : tc))
+        streamingToolCalls = streamingToolCalls.map(tc => (tc.id === event.toolResult?.toolCallId ? { ...tc, result: event.toolResult.result, ...(event.toolResult.rawResult !== undefined ? { rawResult: event.toolResult.rawResult } : {}) } : tc))
       }
       if (event.type === 'code_execution_start' && event.codeExecution) {
         streamingCodeExecutions = [

@@ -86,7 +86,7 @@ export interface ChatStreamEvent {
   cacheCreationInputTokens?: number
   error?: string
   toolCall?: ToolCallInfo
-  toolResult?: { toolCallId: string; toolName: string; result: string }
+  toolResult?: { toolCallId: string; toolName: string; result: string; rawResult?: string }
   messageId?: string
   parentId?: string
   assistantMsgId?: string

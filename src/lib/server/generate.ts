@@ -25,6 +25,7 @@ interface PersistedToolCall {
   arguments: Record<string, unknown>
   textOffset: number
   result: string
+  rawResult?: string
 }
 
 interface PersistedCodeExecution {
@@ -395,9 +396,9 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
 
       chatMessages.push({ role: 'assistant', content: roundText, toolCalls, rawContentBlocks })
 
-      const toolResults = await Promise.all(toolCalls.map(async tc => ({ tc, result: await executeTool(tc.name, tc.arguments, toolContext) })))
+      const toolResults = await Promise.all(toolCalls.map(async tc => ({ tc, ...(await executeTool(tc.name, tc.arguments, toolContext)) })))
 
-      for (const { tc, result } of toolResults) {
+      for (const { tc, result, rawResult } of toolResults) {
         let finalResult = result
         if (CITATION_TOOL_NAMES.has(tc.name)) {
           const { result: renumbered, count } = renumberCitations(result, citationCounter)
@@ -411,10 +412,11 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
           arguments: tc.arguments,
           textOffset: textOffsetForRound,
           result: finalResult,
+          ...(rawResult !== undefined ? { rawResult } : {}),
         })
         emit(hub, {
           type: 'tool_result',
-          toolResult: { toolCallId: tc.id, toolName: tc.name, result: finalResult },
+          toolResult: { toolCallId: tc.id, toolName: tc.name, result: finalResult, ...(rawResult !== undefined ? { rawResult } : {}) },
         })
       }
     }

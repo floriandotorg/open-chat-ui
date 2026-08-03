@@ -17,6 +17,7 @@ export interface ToolCallInfo {
   arguments: Record<string, unknown>
   textOffset?: number
   result?: string
+  rawResult?: string
 }
 
 export interface CodeExecutionFile {
@@ -92,7 +93,7 @@ export interface ChatStreamEvent {
   outputTokens?: number
   error?: string
   toolCall?: { id: string; name: string; arguments: Record<string, unknown> }
-  toolResult?: { toolCallId: string; toolName: string; result: string }
+  toolResult?: { toolCallId: string; toolName: string; result: string; rawResult?: string }
   messageId?: string
   parentId?: string
   assistantMsgId?: string

@@ -66,6 +66,7 @@ export interface UserSettings {
   defaultProvider: string | null
   defaultModel: string | null
   titleModel: string | null
+  toolSummarizerModel: string | null
   dictationProvider: string | null
   updatedAt: Date
 }
@@ -184,6 +185,7 @@ export const mapUserSettings = (r: RecordModel): UserSettings => ({
   defaultProvider: orNull(r.defaultProvider),
   defaultModel: orNull(r.defaultModel),
   titleModel: orNull(r.titleModel),
+  toolSummarizerModel: orNull(r.toolSummarizerModel),
   dictationProvider: orNull(r.dictationProvider),
   updatedAt: toDate(r.updatedAt),
 })

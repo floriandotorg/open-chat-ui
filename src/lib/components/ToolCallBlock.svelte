@@ -10,6 +10,7 @@ const formatToolName = (name: string) => name.replace(/_/g, ' ').replace(/\b\w/g
 
 let label = $derived(toolCall.result ? `Used ${formatToolName(toolCall.name)}` : `Using ${formatToolName(toolCall.name)}\u2026`)
 let renderedResult = $derived(toolCall.result ? renderMarkdown(toolCall.result) : '')
+let renderedRawResult = $derived(toolCall.rawResult ? renderMarkdown(toolCall.rawResult) : '')
 </script>
 
 <div class="my-1.5">
@@ -40,7 +41,16 @@ let renderedResult = $derived(toolCall.result ? renderMarkdown(toolCall.result) 
         <summary class="cursor-pointer text-[11px] font-medium text-gray-400 dark:text-gray-500">Arguments</summary>
         <pre class="mt-1 overflow-x-auto whitespace-pre-wrap break-all font-mono text-[10px]">{JSON.stringify(toolCall.arguments, null, 2)}</pre>
       </details>
+      {#if toolCall.rawResult}
+        <details class="mb-1">
+          <summary class="cursor-pointer text-[11px] font-medium text-gray-400 dark:text-gray-500">Raw output ({Math.round(toolCall.rawResult.length / 1000)}k chars)</summary>
+          <div class="tool-call-result mt-1 overflow-hidden wrap-break-word text-[11px] leading-relaxed">{@html renderedRawResult}</div>
+        </details>
+      {/if}
       {#if toolCall.result}
+        {#if toolCall.rawResult}
+          <div class="mb-1 text-[11px] font-medium text-gray-400 dark:text-gray-500">Summarized output</div>
+        {/if}
         <div class="tool-call-result overflow-hidden wrap-break-word text-[11px] leading-relaxed">{@html renderedResult}</div>
       {/if}
     </div>

@@ -9,11 +9,17 @@ let {
   titleModel,
   savingTitleModel,
   onSaveTitleModel,
+  summarizerModel,
+  savingSummarizerModel,
+  onSaveSummarizerModel,
 }: {
   providers: ProviderInfo[]
   titleModel: string
   savingTitleModel: boolean
   onSaveTitleModel: (value: string) => void
+  summarizerModel: string
+  savingSummarizerModel: boolean
+  onSaveSummarizerModel: (value: string) => void
 } = $props()
 
 let selectedProvider = $state('')
@@ -134,6 +140,31 @@ onMount(() => {
       value={titleModel}
     onchange={(e) => onSaveTitleModel(e.currentTarget.value)}
       disabled={savingTitleModel}
+      class="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+    >
+      <option value="">Disabled</option>
+      {#each availableProviders as provider (provider.id)}
+        {@const providerModels = allModelsByProvider.get(provider.id) ?? []}
+        {#if providerModels.length > 0}
+          <optgroup label={provider.name}>
+            {#each providerModels as model (model.id)}
+              <option value={model.id}>{model.name}</option>
+            {/each}
+          </optgroup>
+        {/if}
+      {/each}
+    </select>
+  </div>
+
+  <div class="rounded-lg border border-gray-200 p-4 dark:border-gray-800">
+    <h3 class="mb-1 text-sm font-medium">Search Result Summarizer</h3>
+    <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+      Model used to filter and condense search tool results (web, news, Reddit, academic) against the research question before they enter the conversation. Saves context tokens. Disabled returns raw results.
+    </p>
+    <select
+      value={summarizerModel}
+      onchange={(e) => onSaveSummarizerModel(e.currentTarget.value)}
+      disabled={savingSummarizerModel}
       class="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
     >
       <option value="">Disabled</option>

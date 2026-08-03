@@ -306,6 +306,19 @@
         "autogeneratePattern": ""
       },
       {
+        "name": "toolSummarizerModel",
+        "type": "text",
+        "system": false,
+        "required": false,
+        "presentable": false,
+        "hidden": false,
+        "help": "",
+        "min": 0,
+        "max": 100000000,
+        "pattern": "",
+        "autogeneratePattern": ""
+      },
+      {
         "name": "dictationProvider",
         "type": "text",
         "system": false,

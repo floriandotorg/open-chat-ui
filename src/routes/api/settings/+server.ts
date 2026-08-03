@@ -9,6 +9,7 @@ const toSettings = (row: UserSettings) => ({
   defaultSystemPrompt: row.defaultSystemPrompt,
   defaultModel: normalizeModelRef(row.defaultProvider, row.defaultModel),
   titleModel: row.titleModel,
+  toolSummarizerModel: row.toolSummarizerModel,
   dictationProvider: row.dictationProvider ?? 'mistral',
 })
 
@@ -29,6 +30,7 @@ export const GET: RequestHandler = async ({ locals }) => {
           defaultSystemPrompt: null,
           defaultModel: null,
           titleModel: null,
+          toolSummarizerModel: null,
           dictationProvider: 'mistral',
         },
   )
@@ -50,6 +52,7 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
       ...(body.defaultSystemPrompt !== undefined && { defaultSystemPrompt: body.defaultSystemPrompt }),
       ...(body.defaultModel !== undefined && { defaultModel: body.defaultModel }),
       ...(body.titleModel !== undefined && { titleModel: body.titleModel }),
+      ...(body.toolSummarizerModel !== undefined && { toolSummarizerModel: body.toolSummarizerModel }),
       ...(body.dictationProvider !== undefined && { dictationProvider: body.dictationProvider }),
       updatedAt: now(),
     })
@@ -63,6 +66,7 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
       defaultSystemPrompt: body.defaultSystemPrompt ?? null,
       defaultModel: body.defaultModel ?? null,
       titleModel: body.titleModel ?? null,
+      toolSummarizerModel: body.toolSummarizerModel ?? null,
       dictationProvider: body.dictationProvider ?? 'mistral',
       updatedAt: now(),
     },
@@ -71,6 +75,7 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
       ...(body.defaultSystemPrompt !== undefined && { defaultSystemPrompt: body.defaultSystemPrompt }),
       ...(body.defaultModel !== undefined && { defaultModel: body.defaultModel }),
       ...(body.titleModel !== undefined && { titleModel: body.titleModel }),
+      ...(body.toolSummarizerModel !== undefined && { toolSummarizerModel: body.toolSummarizerModel }),
       ...(body.dictationProvider !== undefined && { dictationProvider: body.dictationProvider }),
       updatedAt: now(),
     },

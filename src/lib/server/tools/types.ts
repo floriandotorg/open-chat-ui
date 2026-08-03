@@ -6,7 +6,12 @@ export interface ToolDefinition {
     properties: Record<string, { type: string; description: string } & Record<string, unknown>>
     required?: string[]
   }
-  execute: (args: Record<string, unknown>, context: ToolContext) => Promise<string>
+  execute: (args: Record<string, unknown>, context: ToolContext) => Promise<string | ToolExecutionOutput>
+}
+
+export interface ToolExecutionOutput {
+  result: string
+  rawResult?: string
 }
 
 export interface ToolContext {
