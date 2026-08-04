@@ -16,7 +16,7 @@ import { getUploadPath } from '$lib/server/uploads'
 import type { FileAttachment, ImageAttachment, ThinkingEffort } from '$lib/types'
 import Anthropic, { toFile } from '@anthropic-ai/sdk'
 
-const MAX_TOOL_ROUNDS = 10
+const MAX_TOOL_ROUNDS = 30
 const CODE_EXEC_PROVIDERS = new Set(['anthropic'])
 
 interface PersistedToolCall {
