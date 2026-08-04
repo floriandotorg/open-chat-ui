@@ -588,15 +588,84 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
       if (v !== messageId) newBranches[k] = v
     }
     activeBranches = newBranches
+    fetch('/api/chat/discard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId }),
+    }).catch(() => {})
   }
 
   const retryFailedMessage = async (conversationId: string, messageId: string) => {
+    if (isStreaming) return
     const target = allMessages.find(m => m.id === messageId)
     if (target?.role !== 'user' || !target.sendError) {
       return
     }
-    discardFailedMessage(messageId)
-    await sendMessage(conversationId, target.content, undefined, target.images, target.files)
+
+    // The failed message is already persisted; re-trigger generation on the
+    // same record (skipUserInsert) instead of duplicating the user turn.
+    allMessages = allMessages.map(m => (m.id === messageId ? { ...m, sendError: undefined } : m))
+
+    activeConversationId = conversationId
+    partialAttached = false
+    isStreaming = true
+    isThinking = false
+    streamingText = ''
+    streamingThinking = ''
+    thinkingDuration = null
+    streamingToolCalls = []
+    streamingCodeExecutions = []
+    const ctrl = new AbortController()
+    abortController = ctrl
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId,
+          model: selectedModel,
+          message: target.content,
+          images: target.images?.length ? target.images : undefined,
+          files: target.files?.length ? target.files : undefined,
+          thinkingEffort,
+          parentId: target.parentId ?? null,
+          userMsgId: messageId,
+          skipUserInsert: true,
+        }),
+        signal: ctrl.signal,
+      })
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}))
+        throw new Error(err.message ?? 'Request failed')
+      }
+
+      await processStream(response, conversationId, messageId, ctrl)
+    } catch (err) {
+      const isMine = abortController === ctrl
+      if (isMine) {
+        attachStreamedMessage(conversationId, messageId)
+        abortController = null
+      }
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return
+      }
+      if (!partialAttached) {
+        const errorText = err instanceof Error ? err.message : 'Failed to send message'
+        allMessages = allMessages.map(m => (m.id === messageId ? { ...m, sendError: errorText } : m))
+      }
+      messageQueue = []
+      return
+    }
+
+    if (abortController !== ctrl) return
+    abortController = null
+    if (messageQueue.length > 0) {
+      const [next, ...rest] = messageQueue
+      messageQueue = rest
+      await sendMessage(next.conversationId, next.content, next.systemPrompt, next.images, next.files)
+    }
   }
 
   return {

@@ -4,6 +4,7 @@ import { parseModelRef } from '$lib/model-ref'
 import { getDecryptedKey, getDecryptedKeys } from '$lib/server/api-key'
 import { decrypt } from '$lib/server/crypto'
 import { mapApiKey, mapConversation, mapMessage, mapSystemPrompt, mapUserSettings, now } from '$lib/server/db/records'
+import { buildHistoryMessages, type PersistedCodeExecution, type PersistedEntry, type PersistedToolCall } from '$lib/server/history'
 import { getKnowledgeCutoff } from '$lib/server/knowledge-cutoff'
 import { getFirstOrNull, isNotFound, pb } from '$lib/server/pb'
 import { formatCurrentDate, getPostSystemPrompt } from '$lib/server/prompts'
@@ -18,28 +19,6 @@ import Anthropic, { toFile } from '@anthropic-ai/sdk'
 
 const MAX_TOOL_ROUNDS = 30
 const CODE_EXEC_PROVIDERS = new Set(['anthropic'])
-
-interface PersistedToolCall {
-  id: string
-  name: string
-  arguments: Record<string, unknown>
-  textOffset: number
-  result: string
-  rawResult?: string
-}
-
-interface PersistedCodeExecution {
-  type: 'code_execution'
-  id: string
-  name: string
-  input: Record<string, unknown>
-  textOffset: number
-  stdout?: string
-  stderr?: string
-  returnCode?: number
-  error?: string
-  files?: { fileId: string; filename: string; mimeType: string }[]
-}
 
 const loadImageData = (attachment: ImageAttachment): ChatMessageImage => {
   const filePath = getUploadPath(attachment.id)
@@ -184,66 +163,15 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
         await pb.collection('messages').update(m.id, { images: imgs })
       }
     }
-    const parsedToolCalls = m.toolCalls ? (m.toolCalls as (PersistedToolCall | PersistedCodeExecution)[]) : null
-    const allToolCallsParsed = parsedToolCalls ?? []
-    const regularToolCalls = allToolCallsParsed.filter((tc): tc is PersistedToolCall => !('type' in tc && tc.type === 'code_execution'))
-    const hasCodeExec = allToolCallsParsed.some(tc => 'type' in tc && tc.type === 'code_execution')
-    const rawBlocksByOffset = new Map<number, unknown[]>()
-    if (m.rawContentBlocks) {
-      for (const entry of m.rawContentBlocks as { textOffset: number; blocks: unknown[] }[]) {
-        rawBlocksByOffset.set(entry.textOffset, entry.blocks)
-      }
-    }
+    const allToolCallsParsed = (m.toolCalls ?? []) as PersistedEntry[]
+    const rawEntries = (m.rawContentBlocks ?? []) as { textOffset: number; blocks: unknown[] }[]
     const imgsLoaded = imgs.length ? imgs.map(img => (anthropicClient && img.providerFileId ? { data: '', mimeType: img.mimeType, providerFileId: img.providerFileId } : loadImageData(img))) : undefined
 
-    if (m.role === 'assistant' && (regularToolCalls.length || hasCodeExec)) {
-      // The persisted content is the concatenated text from every round; each
-      // tool call's textOffset marks the end of its round's text. Split there
-      // so tool calls and results are interleaved in their original position,
-      // with the final answer text following the last tool round. Rounds with
-      // code execution replay their rawContentBlocks verbatim (server-side
-      // tool_use/result blocks can't be reconstructed from toolCalls alone).
-      const offsets = [...new Set(allToolCallsParsed.map(tc => tc.textOffset))].sort((a, b) => a - b)
-      let prev = 0
-      let firstSegment = true
-      for (const off of offsets) {
-        const roundCalls = regularToolCalls.filter(tc => tc.textOffset === off)
-        const roundBlocks = rawBlocksByOffset.get(off)
-        if (roundBlocks?.length) {
-          chatMessages.push({
-            role: 'assistant',
-            content: m.content.slice(prev, off),
-            rawContentBlocks: roundBlocks,
-            ...(firstSegment && imgsLoaded ? { images: imgsLoaded } : {}),
-          })
-        } else {
-          chatMessages.push({
-            role: 'assistant',
-            content: m.content.slice(prev, off),
-            toolCalls: roundCalls.map(tc => ({ id: tc.id, name: tc.name, arguments: tc.arguments })),
-            ...(firstSegment && imgsLoaded ? { images: imgsLoaded } : {}),
-          })
-        }
-        firstSegment = false
-        for (const tc of roundCalls) {
-          chatMessages.push({ role: 'tool', content: tc.result, toolCallId: tc.id })
-        }
-        prev = off
-      }
-      const tail = m.content.slice(prev)
-      const tailBlocks = rawBlocksByOffset.get(m.content.length)
-      if (tailBlocks?.length) {
-        chatMessages.push({ role: 'assistant', content: tail, rawContentBlocks: tailBlocks })
-      } else if (tail) {
-        chatMessages.push({ role: 'assistant', content: tail })
-      }
-    } else {
-      chatMessages.push({
-        role: m.role as ChatMessage['role'],
-        content: m.content,
-        ...(imgsLoaded ? { images: imgsLoaded } : {}),
-      })
+    const segments = buildHistoryMessages(m.role, m.content, allToolCallsParsed, rawEntries)
+    if (segments[0] && imgsLoaded) {
+      segments[0].images = imgsLoaded
     }
+    chatMessages.push(...segments)
   }
 
   if (allFileIds.length && chatMessages.length) {
@@ -287,6 +215,15 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
     placeholderCreated = true
   } catch {}
 
+  // Retry of a failed send reuses the parent message; clear its stored
+  // error so the banner clears immediately on all attached clients.
+  const triggeringMsg = history.at(-1)
+  if (triggeringMsg?.id === parentId && triggeringMsg.error) {
+    try {
+      await pb.collection('messages').update(parentId, { error: null })
+    } catch {}
+  }
+
   let pendingContent = ''
   let lastFlushAt = 0
   let finalized = false
@@ -314,6 +251,7 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
   }
 
   let streamSucceeded = false
+  let streamError: string | undefined
   try {
     const codeExecInputs = new Map<string, string>()
 
@@ -378,6 +316,7 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
         } else if (event.type === 'done') {
           stopReason = event.stopReason ?? 'end'
         } else if (event.type === 'error') {
+          streamError = event.error ?? 'Generation failed'
           emit(hub, event)
         }
       }
@@ -430,8 +369,8 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
     })
     streamSucceeded = true
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Stream error'
-    emit(hub, { type: 'error', error: msg })
+    streamError = err instanceof Error ? err.message : 'Stream error'
+    emit(hub, { type: 'error', error: streamError })
   }
 
   const persisted = !!(fullText || allToolCalls.length)
@@ -495,6 +434,13 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
     if (placeholderCreated) {
       try {
         await pb.collection('messages').delete(assistantMsgId)
+      } catch {}
+    }
+    // Failure left nothing to persist: record the error on the triggering
+    // user message so the client banner survives reloads and stream re-attaches.
+    if (streamError) {
+      try {
+        await pb.collection('messages').update(parentId, { error: streamError })
       } catch {}
     }
     await pb.collection('conversations').update(conversationId, { generating: false })

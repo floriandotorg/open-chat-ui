@@ -299,7 +299,7 @@ describe('createChatStore.sendMessage failure handling', () => {
     await sending
   })
 
-  it('retryFailedMessage discards the failed message and resends with the same content/images/files', async () => {
+  it('retryFailedMessage reuses the failed message and re-triggers generation via skipUserInsert', async () => {
     let calls = 0
     const sentBodies: unknown[] = []
     installFetch(async (_url, init) => {
@@ -322,7 +322,7 @@ describe('createChatStore.sendMessage failure handling', () => {
     await flush()
 
     expect(chat.allMessages.length).toBe(1)
-    expect(chat.allMessages[0].id).not.toBe(failedId)
+    expect(chat.allMessages[0].id).toBe(failedId)
     expect(chat.allMessages[0].content).toBe('retry me')
     expect(chat.allMessages[0].images).toEqual([{ id: 'img.png', mimeType: 'image/png' }])
     expect(chat.allMessages[0].files).toEqual([{ id: 'f.csv', filename: 'f.csv', mimeType: 'text/csv' }])
@@ -332,5 +332,10 @@ describe('createChatStore.sendMessage failure handling', () => {
     const firstBody = sentBodies[0] as { images: unknown; files: unknown }
     expect(firstBody.images).toEqual([{ id: 'img.png', mimeType: 'image/png' }])
     expect(firstBody.files).toEqual([{ id: 'f.csv', filename: 'f.csv', mimeType: 'text/csv' }])
+
+    const retryBody = sentBodies[1] as { userMsgId: string; parentId: string | null; skipUserInsert: boolean }
+    expect(retryBody.userMsgId).toBe(failedId)
+    expect(retryBody.parentId).toBeNull()
+    expect(retryBody.skipUserInsert).toBe(true)
   })
 })

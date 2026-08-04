@@ -45,6 +45,7 @@ export interface Message {
   cacheCreationInputTokens: number | null
   toolCalls: unknown[] | null
   rawContentBlocks: unknown[] | null
+  error: string | null
   generating?: boolean
   createdAt: Date
 }
@@ -134,6 +135,7 @@ export const mapMessage = (r: RecordModel): Message => ({
   cacheCreationInputTokens: numOrNull(r.cacheCreationInputTokens),
   toolCalls: r.toolCalls ?? null,
   rawContentBlocks: r.rawContentBlocks ?? null,
+  error: orNull(r.error),
   generating: r.generating ?? false,
   createdAt: toDate(r.createdAt),
 })
@@ -163,6 +165,7 @@ export const mapClientMessage = (r: RecordModel): ClientMessage => {
     cacheCreationInputTokens: m.cacheCreationInputTokens,
     toolCalls: toolCalls.length ? toolCalls : undefined,
     codeExecutions: codeExecutions.length ? codeExecutions : undefined,
+    sendError: m.error ?? undefined,
     generating: m.generating,
     createdAt: m.createdAt,
   }

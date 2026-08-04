@@ -819,6 +819,19 @@
         "presentable": false,
         "hidden": false,
         "help": ""
+      },
+      {
+        "name": "error",
+        "type": "text",
+        "system": false,
+        "required": false,
+        "presentable": false,
+        "hidden": false,
+        "help": "",
+        "min": 0,
+        "max": 100000000,
+        "pattern": "",
+        "autogeneratePattern": ""
       }
     ],
     "indexes": ["CREATE INDEX `idx_messages_conversation` ON `messages` (`conversation`)", "CREATE INDEX `idx_messages_parent` ON `messages` (`parentId`)"]
