@@ -13,7 +13,7 @@ import type { ChatMessage, ChatMessageImage, ToolCallInfo } from '$lib/server/pr
 import { createHub, emit, finishHub, getHub, type StreamHub } from '$lib/server/stream-hub'
 import { generateConversationTitle } from '$lib/server/title'
 import { executeTool, getToolSchemas } from '$lib/server/tools'
-import { getUploadPath } from '$lib/server/uploads'
+import { getUploadPath, hasUpload } from '$lib/server/uploads'
 import type { FileAttachment, ImageAttachment, ThinkingEffort } from '$lib/types'
 import Anthropic, { toFile } from '@anthropic-ai/sdk'
 
@@ -135,8 +135,10 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
   const allFileIds: string[] = []
   const chatMessages: ChatMessage[] = []
   for (const m of history) {
-    const imgs = parseImages(m.images)
-    const fls = parseFiles(m.files)
+    // Attachments whose file vanished from disk are dropped so replying to
+    // old conversations keeps working instead of dying on ENOENT.
+    const imgs = parseImages(m.images).filter(img => (!!anthropicClient && !!img.providerFileId) || hasUpload(img.id))
+    const fls = parseFiles(m.files).filter(file => !!file.providerFileId || hasUpload(file.id))
     if (fls.length && anthropicClient) {
       for (const file of fls) {
         if (file.providerFileId) {

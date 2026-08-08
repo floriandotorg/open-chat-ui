@@ -12,6 +12,8 @@ const getUploadDir = () => {
 
 export const getUploadPath = (filename: string) => join(getUploadDir(), filename)
 
+export const hasUpload = (id: string): boolean => existsSync(getUploadPath(id))
+
 const EXT_MAP: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
