@@ -1,6 +1,7 @@
 import { academicSearch } from './academic-search'
 import { braveNewsSearch } from './brave-news-search'
 import { braveSearch } from './brave-search'
+import { dbnomics } from './dbnomics'
 import { exaSearch } from './exa-search'
 import { fetchUrl } from './fetch-url'
 import { searchFlightDates, searchFlights } from './flights'
@@ -12,7 +13,7 @@ import { wikipediaSearch } from './wikipedia-search'
 
 const SUMMARIZED_TOOL_NAMES = new Set(['web_search', 'news_search', 'semantic_web_search', 'reddit_query', 'academic_search', 'wikipedia_search', 'hacker_news_search'])
 
-const rawTools: ToolDefinition[] = [braveSearch, braveNewsSearch, exaSearch, redditQuery, academicSearch, wikipediaSearch, hackerNewsSearch, fetchUrl, searchFlights, searchFlightDates]
+const rawTools: ToolDefinition[] = [braveSearch, braveNewsSearch, exaSearch, redditQuery, academicSearch, wikipediaSearch, hackerNewsSearch, fetchUrl, searchFlights, searchFlightDates, dbnomics]
 const tools: ToolDefinition[] = rawTools.map(tool => (SUMMARIZED_TOOL_NAMES.has(tool.name) ? withSearchSummarization(tool) : tool))
 
 export const getAllTools = (): ToolDefinition[] => tools
