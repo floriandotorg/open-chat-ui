@@ -189,6 +189,16 @@ onMount(() => {
       conversations.unsubscribe()
       promptsSlot.unsubscribe()
     },
+    resync: async () => {
+      const userId = pbClient.authStore.record?.id
+      await conversations.resync()
+      if (!userId) return
+      const rows = await pbClient.collection('system_prompts').getFullList({
+        filter: pbClient.filter('user = {:u}', { u: userId }),
+        sort: 'createdAt',
+      })
+      systemPrompts = rows.map(mapSystemPrompt)
+    },
   })
   return () => {
     deregister()

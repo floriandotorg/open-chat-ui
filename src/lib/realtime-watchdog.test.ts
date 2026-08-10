@@ -85,6 +85,61 @@ describe('realtime watchdog', () => {
     expect(heartbeatSubscribe).toHaveBeenCalledTimes(2)
   })
 
+  it('calls resync on registrations after recovering', async () => {
+    heartbeatSubscribe.mockResolvedValue(vi.fn())
+    const watchdog = await loadWatchdog()
+    watchdog.startRealtimeWatchdog()
+    await vi.advanceTimersByTimeAsync(0)
+
+    const resync = vi.fn()
+    watchdog.registerRealtime({ subscribe: vi.fn(), unsubscribe: vi.fn(), resync })
+
+    await vi.advanceTimersByTimeAsync(51_000)
+    expect(resync).toHaveBeenCalledTimes(1)
+  })
+
+  it('recovers on resume when the heartbeat went stale while backgrounded', async () => {
+    let onBeat: (() => void) | undefined
+    heartbeatSubscribe.mockImplementation((_topic: string, cb: () => void) => {
+      onBeat = cb
+      return Promise.resolve(vi.fn())
+    })
+    let visibilityHandler: (() => void) | undefined
+    vi.stubGlobal('document', {
+      visibilityState: 'visible',
+      addEventListener: vi.fn((event: string, handler: () => void) => {
+        if (event === 'visibilitychange') visibilityHandler = handler
+      }),
+    })
+    const watchdog = await loadWatchdog()
+    watchdog.startRealtimeWatchdog()
+    await vi.advanceTimersByTimeAsync(0)
+    onBeat?.()
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(realtimeUnsubscribe).not.toHaveBeenCalled()
+
+    visibilityHandler?.()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(realtimeUnsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it('recovers when the heartbeat subscription is missing', async () => {
+    heartbeatSubscribe.mockRejectedValue(new Error('network down'))
+    const watchdog = await loadWatchdog()
+    watchdog.startRealtimeWatchdog()
+    await vi.advanceTimersByTimeAsync(0)
+
+    const subscribe = vi.fn()
+    const unsubscribe = vi.fn()
+    watchdog.registerRealtime({ subscribe, unsubscribe })
+
+    heartbeatSubscribe.mockResolvedValue(vi.fn())
+    await vi.advanceTimersByTimeAsync(11_000)
+    expect(realtimeUnsubscribe).toHaveBeenCalled()
+    expect(subscribe).toHaveBeenCalled()
+  })
+
   it('does not recover while the tab is hidden', async () => {
     heartbeatSubscribe.mockResolvedValue(vi.fn())
     const watchdog = await loadWatchdog()

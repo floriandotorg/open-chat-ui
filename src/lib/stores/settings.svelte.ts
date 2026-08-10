@@ -74,6 +74,29 @@ export const createSettingsStore = (initial: { settings: UserSettings | null; sy
     promptsUnsub = null
   }
 
+  const resync = async () => {
+    if (!browser || cancelled) return
+    const userId = pbClient.authStore.record?.id
+    if (!userId) return
+    try {
+      const filter = pbClient.filter('user = {:u}', { u: userId })
+      const [settingsRow, promptRows] = await Promise.all([
+        pbClient
+          .collection('user_settings')
+          .getFirstListItem(filter)
+          .catch(() => null),
+        pbClient.collection('system_prompts').getFullList({ filter, sort: 'createdAt' }),
+      ])
+      if (cancelled) return
+      seed({
+        settings: settingsRow ? mapUserSettings(settingsRow) : null,
+        systemPrompts: promptRows.map(mapSystemPrompt),
+      })
+    } catch (err) {
+      console.warn('[realtime] settings resync failed', err)
+    }
+  }
+
   return {
     get settings() {
       return settings
@@ -87,5 +110,6 @@ export const createSettingsStore = (initial: { settings: UserSettings | null; sy
     replaceSettings,
     subscribe,
     unsubscribe,
+    resync,
   }
 }

@@ -106,11 +106,13 @@ const refetchProviderModels = async (provider: string) => {
 
 onMount(() => {
   if (!browser) return
-  const slot = createRealtimeSlot(() =>
-    pbClient.collection('provider_models').subscribe('*', e => {
-      const provider = e.record.provider as string
-      void refetchProviderModels(provider)
-    }),
+  const slot = createRealtimeSlot(
+    () =>
+      pbClient.collection('provider_models').subscribe('*', e => {
+        const provider = e.record.provider as string
+        void refetchProviderModels(provider)
+      }),
+    () => refetchProviderModels(selectedProvider),
   )
   void slot.subscribe()
   const deregister = registerRealtime(slot)

@@ -80,6 +80,28 @@ export const createConversationsStore = (initial: Conversation[]) => {
     unsub = null
   }
 
+  const resync = async () => {
+    if (!browser || cancelled) return
+    const userId = pbClient.authStore.record?.id
+    if (!userId) return
+    try {
+      const rows = await pbClient.collection('conversations').getFullList({
+        filter: pbClient.filter('user = {:u}', { u: userId }),
+        sort: '-updatedAt',
+      })
+      if (!cancelled) {
+        seed(
+          rows.map(mapConversation).map(c => {
+            const patch = pendingPatches.get(c.id)
+            return patch ? { ...c, ...patch } : c
+          }),
+        )
+      }
+    } catch (err) {
+      console.warn('[realtime] conversations resync failed', err)
+    }
+  }
+
   return {
     get conversations() {
       return conversations
@@ -91,5 +113,6 @@ export const createConversationsStore = (initial: Conversation[]) => {
     patch,
     subscribe,
     unsubscribe,
+    resync,
   }
 }

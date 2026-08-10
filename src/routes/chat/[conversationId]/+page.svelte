@@ -151,15 +151,31 @@ $effect(() => {
   const initialGenerating = untrack(() => data.conversation.generating ?? false)
   remoteGenerating = initialGenerating
   chat.setConversationGenerating(initialGenerating)
-  const messagesSlot = createRealtimeSlot(() =>
-    pbClient.collection('messages').subscribe(
-      '*',
-      e => {
-        if (e.action === 'delete') chat.removeMessage(e.record.id)
-        else chat.upsertMessage(mapClientMessage(e.record))
-      },
-      { filter: pbClient.filter('conversation = {:c}', { c: convId }) },
-    ),
+  const messagesSlot = createRealtimeSlot(
+    () =>
+      pbClient.collection('messages').subscribe(
+        '*',
+        e => {
+          if (e.action === 'delete') chat.removeMessage(e.record.id)
+          else chat.upsertMessage(mapClientMessage(e.record))
+        },
+        { filter: pbClient.filter('conversation = {:c}', { c: convId }) },
+      ),
+    async isCurrent => {
+      if (chat.isStreaming) return
+      const [rows, convRecord] = await Promise.all([
+        pbClient.collection('messages').getFullList({
+          filter: pbClient.filter('conversation = {:c}', { c: convId }),
+          sort: 'createdAt',
+        }),
+        pbClient.collection('conversations').getOne(convId),
+      ])
+      if (!isCurrent() || chat.isStreaming) return
+      const conv = mapConversation(convRecord)
+      chat.seed(convId, rows.map(mapClientMessage), conv.activeBranches ?? {})
+      remoteGenerating = conv.generating ?? false
+      chat.setConversationGenerating(remoteGenerating)
+    },
   )
   const conversationSlot = createRealtimeSlot(() =>
     pbClient.collection('conversations').subscribe(convId, e => {

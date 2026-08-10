@@ -3,11 +3,16 @@ import { browser } from '$app/environment'
 
 const HEARTBEAT_COLLECTION = 'heartbeat'
 const STALL_MS = 45_000
+// One missed server beat (15s interval) plus grace: on resume we don't wait
+// for the full stall window because backgrounded PWAs get their SSE
+// connection suspended silently.
+const RESUME_STALE_MS = 25_000
 const CHECK_INTERVAL_MS = 10_000
 
 export interface RealtimeRegistration {
   subscribe: () => void | Promise<void>
   unsubscribe: () => void
+  resync?: () => void | Promise<void>
 }
 
 const registrations = new Set<RealtimeRegistration>()
@@ -24,21 +29,27 @@ export const registerRealtime = (...entries: RealtimeRegistration[]): (() => voi
   }
 }
 
-const ensureHeartbeat = async () => {
-  if (heartbeatUnsub) return
-  try {
-    heartbeatUnsub = await pbClient.collection(HEARTBEAT_COLLECTION).subscribe('*', () => {
-      lastEventAt = Date.now()
-    })
-  } catch {
-    heartbeatUnsub = null
-  }
+let heartbeatPromise: Promise<void> | null = null
+
+const ensureHeartbeat = () => {
+  if (heartbeatUnsub) return Promise.resolve()
+  heartbeatPromise ??= (async () => {
+    try {
+      heartbeatUnsub = await pbClient.collection(HEARTBEAT_COLLECTION).subscribe('*', () => {
+        lastEventAt = Date.now()
+      })
+    } catch {
+      heartbeatUnsub = null
+    } finally {
+      heartbeatPromise = null
+    }
+  })()
+  return heartbeatPromise
 }
 
 const recover = async () => {
   if (recovering) return
   recovering = true
-  lastEventAt = Date.now()
   try {
     heartbeatUnsub?.()
     heartbeatUnsub = null
@@ -50,12 +61,20 @@ const recover = async () => {
     // Removing the last subscription auto-closes the SSE connection, so the
     // re-subscribes below start from a fresh connection and clientId.
     await pbClient.realtime.unsubscribe()
+    await ensureHeartbeat()
     for (const entry of registrations) {
       try {
         await entry.subscribe()
       } catch {}
     }
-    await ensureHeartbeat()
+    // Events fired while the connection was dead cannot be replayed, so each
+    // registration re-pulls its data after re-subscribing.
+    for (const entry of registrations) {
+      try {
+        await entry.resync?.()
+      } catch {}
+    }
+    lastEventAt = Date.now()
   } finally {
     recovering = false
   }
@@ -63,11 +82,14 @@ const recover = async () => {
 
 const check = () => {
   if (!browser || !navigator.onLine || document.visibilityState !== 'visible') return
-  if (!heartbeatUnsub) {
-    void ensureHeartbeat()
-    return
+  if (!heartbeatUnsub || Date.now() - lastEventAt > STALL_MS) {
+    void recover()
   }
-  if (Date.now() - lastEventAt > STALL_MS) {
+}
+
+const onResume = () => {
+  if (!browser || !navigator.onLine || document.visibilityState !== 'visible') return
+  if (!heartbeatUnsub || Date.now() - lastEventAt > RESUME_STALE_MS) {
     void recover()
   }
 }
@@ -77,22 +99,27 @@ export const startRealtimeWatchdog = () => {
   started = true
   void ensureHeartbeat()
   setInterval(check, CHECK_INTERVAL_MS)
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') check()
-  })
-  window.addEventListener('pageshow', check)
-  window.addEventListener('online', check)
+  document.addEventListener('visibilitychange', onResume)
+  window.addEventListener('pageshow', onResume)
+  window.addEventListener('online', onResume)
 }
 
 export interface RealtimeSlot extends RealtimeRegistration {
   cancel: () => void
 }
 
-export const createRealtimeSlot = (subscribeFn: () => Promise<() => void>): RealtimeSlot => {
+export const createRealtimeSlot = (subscribeFn: () => Promise<() => void>, resyncFn?: (isCurrent: () => boolean) => void | Promise<void>): RealtimeSlot => {
   let unsub: (() => void) | null = null
   let generation = 0
   let cancelled = false
   return {
+    resync: resyncFn
+      ? async () => {
+          if (cancelled) return
+          const g = generation
+          await resyncFn(() => !cancelled && g === generation)
+        }
+      : undefined,
     subscribe: async () => {
       if (cancelled) return
       const g = ++generation
