@@ -23,6 +23,7 @@ let { data, children }: { data: LayoutData; children: Snippet } = $props()
 
 // svelte-ignore state_referenced_locally
 const conversations = createConversationsStore(data.conversations)
+chatContext.conversationsStore = conversations
 // svelte-ignore state_referenced_locally
 let systemPrompts: SystemPrompt[] = $state(data.systemPrompts)
 
@@ -108,6 +109,7 @@ $effect(() => {
 const changeSystemPrompt = async (promptId: string | null) => {
   if (!currentConversationId) return
   const prompt = systemPrompts.find(p => p.id === promptId)
+  conversations.patch(currentConversationId, { systemPromptId: promptId, systemPrompt: prompt?.content ?? null })
   await fetch(`/api/conversations/${currentConversationId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -132,6 +134,7 @@ let showFavoritesOnly = $state(false)
 const toggleCurrentConversationFavorite = async () => {
   if (!currentConversation) return
   const newFav = !currentConversation.favorite
+  conversations.patch(currentConversation.id, { favorite: newFav })
   await fetch(`/api/conversations/${currentConversation.id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -272,7 +275,7 @@ onMount(() => {
         </div>
       </div>
 
-      <ConversationList conversations={conversations.conversations} currentId={currentConversationId} generatingConversationId={chatContext.generatingConversationId} bind:searchQuery={sidebarSearchQuery} showFavoritesOnly={showFavoritesOnly} />
+      <ConversationList conversations={conversations.conversations} currentId={currentConversationId} generatingConversationId={chatContext.generatingConversationId} bind:searchQuery={sidebarSearchQuery} showFavoritesOnly={showFavoritesOnly} onpatch={conversations.patch} onremove={conversations.remove} />
 
       <div class="liquid-glass-bar-bottom absolute inset-x-0 bottom-0 z-10 p-2" style="padding-bottom: max(0.5rem, env(safe-area-inset-bottom))">
         <a href={resolve('/settings')} class="group flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-black/5 dark:hover:bg-white/10">

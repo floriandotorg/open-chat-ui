@@ -4,13 +4,13 @@ import { parseModelRef } from '$lib/model-ref'
 import { getDecryptedKey, getDecryptedKeys } from '$lib/server/api-key'
 import { decrypt } from '$lib/server/crypto'
 import { mapApiKey, mapConversation, mapMessage, mapSystemPrompt, mapUserSettings, now } from '$lib/server/db/records'
+import { type ActiveGeneration, finishGeneration, getGeneration, registerGeneration } from '$lib/server/generations'
 import { buildHistoryMessages, type PersistedCodeExecution, type PersistedEntry, type PersistedToolCall } from '$lib/server/history'
 import { getKnowledgeCutoff } from '$lib/server/knowledge-cutoff'
 import { getFirstOrNull, isNotFound, pb } from '$lib/server/pb'
 import { formatCurrentDate, getPostSystemPrompt } from '$lib/server/prompts'
 import { getProviderFactory } from '$lib/server/providers'
 import type { ChatMessage, ChatMessageImage, ToolCallInfo } from '$lib/server/providers/types'
-import { createHub, emit, finishHub, getHub, type StreamHub } from '$lib/server/stream-hub'
 import { generateConversationTitle } from '$lib/server/title'
 import { executeTool, getToolSchemas } from '$lib/server/tools'
 import { getUploadPath, hasUpload } from '$lib/server/uploads'
@@ -52,29 +52,44 @@ export interface GenerationParams {
   titleOnFirst: boolean
 }
 
-export const startGeneration = (params: GenerationParams): StreamHub => {
-  const existing = getHub(params.conversationId)
+type LiveToolCall = (Omit<PersistedToolCall, 'result'> & { result?: string }) | PersistedCodeExecution
+
+export const startGeneration = (params: GenerationParams): ActiveGeneration => {
+  const existing = getGeneration(params.conversationId)
   if (existing) return existing
-  const hub = createHub(params.conversationId, params.userId)
+  const generation = registerGeneration(params.conversationId, params.userId)
   ;(async () => {
     try {
       await pb.collection('conversations').update(params.conversationId, { generating: true })
-      await runGeneration(hub, params)
+      await runGeneration(generation, params)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Generation error'
-      emit(hub, { type: 'error', error: msg })
+      const message = err instanceof Error ? err.message : 'Generation error'
+      try {
+        await pb.collection('messages').update(params.parentId, { error: message })
+      } catch {}
       try {
         await pb.collection('conversations').update(params.conversationId, { generating: false })
       } catch {}
-      finishHub(hub)
+      finishGeneration(params.conversationId)
     }
   })()
-  return hub
+  return generation
 }
 
-const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
+const mergeBranchPointers = async (conversationId: string, entries: Record<string, string | null>) => {
+  const row = await pb.collection('conversations').getOne(conversationId, { fields: 'activeBranches' })
+  const branches: Record<string, string> = (row.activeBranches as Record<string, string> | null) ?? {}
+  for (const [key, value] of Object.entries(entries)) {
+    if (value === null) delete branches[key]
+    else branches[key] = value
+  }
+  await pb.collection('conversations').update(conversationId, { activeBranches: branches })
+}
+
+const runGeneration = async (generation: ActiveGeneration, params: GenerationParams) => {
   const { userId, conversationId, modelRef, thinkingEffort, assistantMsgId, parentId, historyMessageIds, branchParentKey, titleOnFirst } = params
   const { provider, model } = parseModelRef(modelRef)
+  const signal = generation.abort.signal
 
   const conversation = await getFirstOrNull(
     pb
@@ -193,13 +208,21 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
   }
 
   let fullText = ''
+  let thinkingText = ''
+  let thinkingSeconds = 0
+  let thinkingStartedAt: number | null = null
+  const closeThinkingPhase = () => {
+    if (thinkingStartedAt !== null) {
+      thinkingSeconds += Math.round((Date.now() - thinkingStartedAt) / 1000)
+      thinkingStartedAt = null
+    }
+  }
   const totalUsage = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }
   const allToolCalls: (PersistedToolCall | PersistedCodeExecution)[] = []
   const allRawContentBlocks: { textOffset: number; blocks: unknown[] }[] = []
+  const liveToolCalls: LiveToolCall[] = []
   let citationCounter = 0
   let container: string | undefined = conversation.container ?? undefined
-
-  emit(hub, { type: 'stream_meta', parentId, assistantMsgId })
 
   let placeholderCreated = false
   try {
@@ -215,6 +238,11 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
       createdAt: now(),
     })
     placeholderCreated = true
+    const branchEntries: Record<string, string> = { [parentId]: assistantMsgId }
+    if (branchParentKey) {
+      branchEntries[branchParentKey] = parentId
+    }
+    await mergeBranchPointers(conversationId, branchEntries)
   } catch {}
 
   // Retry of a failed send reuses the parent message; clear its stored
@@ -226,39 +254,44 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
     } catch {}
   }
 
-  let pendingContent = ''
-  let lastFlushAt = 0
-  let finalized = false
+  // Live streaming state is flushed into the placeholder record on every
+  // delta; clients render straight from PocketBase realtime events. Flushes
+  // are serialized and coalesced: while one write is in flight further
+  // deltas only set the dirty flag, so cadence adapts to PB write latency.
   let flushing = false
-  let flushPromise: Promise<void> | null = null
-  const FLUSH_INTERVAL = 500
-  const flushPartial = () => {
-    if (!placeholderCreated || finalized || flushing) return
-    if (Date.now() - lastFlushAt < FLUSH_INTERVAL) return
-    if (!pendingContent) return
+  let dirty = false
+  let finalized = false
+  const flush = async (): Promise<void> => {
+    if (finalized || !placeholderCreated) return
+    if (flushing) {
+      dirty = true
+      return
+    }
     flushing = true
-    lastFlushAt = Date.now()
-    const content = pendingContent
-    flushPromise = pb
-      .collection('messages')
-      .update(assistantMsgId, { content, generating: true })
-      .then(() => {
-        flushing = false
-        flushPromise = null
+    try {
+      await pb.collection('messages').update(assistantMsgId, {
+        content: fullText,
+        thinking: thinkingText || null,
+        toolCalls: liveToolCalls.length ? [...liveToolCalls] : null,
+        generating: true,
       })
-      .catch(() => {
-        flushing = false
-        flushPromise = null
-      })
+    } catch {}
+    flushing = false
+    if (dirty) {
+      dirty = false
+      await flush()
+    }
+  }
+  const scheduleFlush = () => {
+    void flush()
   }
 
-  let streamSucceeded = false
   let streamError: string | undefined
   try {
     const codeExecInputs = new Map<string, string>()
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; ++round) {
-      if (hub.abort.signal.aborted) break
+      if (signal.aborted) break
       let roundText = ''
       const toolCalls: ToolCallInfo[] = []
       const pendingCodeExecResults: { type: 'code_execution'; id: string; name: string; input: Record<string, unknown>; stdout?: string; stderr?: string; returnCode?: number; error?: string; files?: { fileId: string; filename: string; mimeType: string }[] }[] = []
@@ -273,25 +306,38 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
         tools: toolSchemas.length > 0 ? toolSchemas : undefined,
         codeExecution: useCodeExecution,
         container,
-        signal: hub.abort.signal,
+        signal,
       })) {
-        if (hub.abort.signal.aborted) break
+        if (signal.aborted) break
         if (event.type === 'text_delta') {
+          closeThinkingPhase()
           roundText += event.text ?? ''
-          pendingContent = fullText + roundText
-          emit(hub, event)
-          flushPartial()
+          fullText += event.text ?? ''
+          scheduleFlush()
         } else if (event.type === 'thinking_delta') {
-          emit(hub, event)
+          if (thinkingStartedAt === null) thinkingStartedAt = Date.now()
+          thinkingText += event.thinking ?? ''
+          scheduleFlush()
         } else if (event.type === 'tool_call' && event.toolCall) {
           toolCalls.push(event.toolCall)
-          emit(hub, event)
+          liveToolCalls.push({ id: event.toolCall.id, name: event.toolCall.name, arguments: event.toolCall.arguments, textOffset: fullText.length })
+          scheduleFlush()
         } else if (event.type === 'code_execution_start' && event.codeExecution) {
-          emit(hub, event)
+          liveToolCalls.push({ type: 'code_execution', id: event.codeExecution.id, name: event.codeExecution.name, input: {}, textOffset: fullText.length })
+          scheduleFlush()
         } else if (event.type === 'code_execution_delta' && event.codeExecutionDelta) {
           const { id, partialInput } = event.codeExecutionDelta
           codeExecInputs.set(id, (codeExecInputs.get(id) ?? '') + partialInput)
-          emit(hub, event)
+          const live = liveToolCalls.find((tc): tc is PersistedCodeExecution => 'type' in tc && tc.type === 'code_execution' && tc.id === id)
+          if (live) {
+            const raw = codeExecInputs.get(id) ?? ''
+            try {
+              live.input = JSON.parse(raw)
+            } catch {
+              live.input = { code: raw }
+            }
+            scheduleFlush()
+          }
         } else if (event.type === 'code_execution_result' && event.codeExecutionResult) {
           const { id, ...result } = event.codeExecutionResult
           const inputJson = codeExecInputs.get(id) ?? '{}'
@@ -301,12 +347,20 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
           } catch {}
           pendingCodeExecResults.push({ type: 'code_execution', id, name: 'bash_code_execution', input, ...result })
           codeExecInputs.delete(id)
-          emit(hub, event)
+          const live = liveToolCalls.find((tc): tc is PersistedCodeExecution => 'type' in tc && tc.type === 'code_execution' && tc.id === id)
+          if (live) {
+            Object.assign(live, { input, ...result })
+            scheduleFlush()
+          }
         } else if (event.type === 'code_execution_files' && event.codeExecutionFiles) {
           const { id, files } = event.codeExecutionFiles
           const existing = pendingCodeExecResults.find(tc => tc.id === id)
           if (existing) existing.files = files
-          emit(hub, event)
+          const live = liveToolCalls.find((tc): tc is PersistedCodeExecution => 'type' in tc && tc.type === 'code_execution' && tc.id === id)
+          if (live) {
+            live.files = files
+            scheduleFlush()
+          }
         } else if (event.type === 'raw_assistant_content') {
           rawContentBlocks = event.rawAssistantContent
           if (event.container) container = event.container
@@ -319,12 +373,10 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
           stopReason = event.stopReason ?? 'end'
         } else if (event.type === 'error') {
           streamError = event.error ?? 'Generation failed'
-          emit(hub, event)
         }
       }
 
-      const textOffsetForRound = fullText.length + roundText.length
-      fullText += roundText
+      const textOffsetForRound = fullText.length
 
       for (const ce of pendingCodeExecResults) {
         allToolCalls.push({ ...ce, textOffset: textOffsetForRound })
@@ -355,80 +407,63 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
           result: finalResult,
           ...(rawResult !== undefined ? { rawResult } : {}),
         })
-        emit(hub, {
-          type: 'tool_result',
-          toolResult: { toolCallId: tc.id, toolName: tc.name, result: finalResult, ...(rawResult !== undefined ? { rawResult } : {}) },
-        })
+        const live = liveToolCalls.find(entry => entry.id === tc.id)
+        if (live && !('type' in live)) {
+          live.result = finalResult
+          if (rawResult !== undefined) live.rawResult = rawResult
+        }
+        scheduleFlush()
       }
     }
-
-    emit(hub, {
-      type: 'usage',
-      inputTokens: totalUsage.inputTokens,
-      outputTokens: totalUsage.outputTokens,
-      cacheReadInputTokens: totalUsage.cacheReadInputTokens,
-      cacheCreationInputTokens: totalUsage.cacheCreationInputTokens,
-    })
-    streamSucceeded = true
   } catch (err) {
     streamError = err instanceof Error ? err.message : 'Stream error'
-    emit(hub, { type: 'error', error: streamError })
   }
 
+  closeThinkingPhase()
   const persisted = !!(fullText || allToolCalls.length)
 
   finalized = true
-  if (flushPromise) {
-    try {
-      await flushPromise
-    } catch {}
+  dirty = false
+  while (flushing) {
+    await new Promise(r => setTimeout(r, 10))
   }
 
   if (persisted) {
+    const finalFields = {
+      parentId,
+      role: 'assistant',
+      content: fullText,
+      provider,
+      model: modelRef,
+      thinking: thinkingText || null,
+      thinkingDuration: thinkingText ? thinkingSeconds : undefined,
+      inputTokens: totalUsage.inputTokens || undefined,
+      outputTokens: totalUsage.outputTokens || undefined,
+      cacheReadInputTokens: totalUsage.cacheReadInputTokens || undefined,
+      cacheCreationInputTokens: totalUsage.cacheCreationInputTokens || undefined,
+      toolCalls: allToolCalls.length ? allToolCalls : null,
+      rawContentBlocks: allRawContentBlocks.length ? allRawContentBlocks : null,
+      generating: false,
+    }
     if (placeholderCreated) {
-      await pb.collection('messages').update(assistantMsgId, {
-        parentId,
-        role: 'assistant',
-        content: fullText,
-        provider,
-        model: modelRef,
-        inputTokens: totalUsage.inputTokens || undefined,
-        outputTokens: totalUsage.outputTokens || undefined,
-        cacheReadInputTokens: totalUsage.cacheReadInputTokens || undefined,
-        cacheCreationInputTokens: totalUsage.cacheCreationInputTokens || undefined,
-        toolCalls: allToolCalls.length ? allToolCalls : null,
-        rawContentBlocks: allRawContentBlocks.length ? allRawContentBlocks : null,
-        generating: false,
-      })
+      await pb.collection('messages').update(assistantMsgId, finalFields)
     } else {
       await pb.collection('messages').create({
         id: assistantMsgId,
         conversation: conversationId,
-        parentId,
-        role: 'assistant',
-        content: fullText,
-        provider,
-        model: modelRef,
-        inputTokens: totalUsage.inputTokens || undefined,
-        outputTokens: totalUsage.outputTokens || undefined,
-        cacheReadInputTokens: totalUsage.cacheReadInputTokens || undefined,
-        cacheCreationInputTokens: totalUsage.cacheCreationInputTokens || undefined,
-        toolCalls: allToolCalls.length ? allToolCalls : null,
-        rawContentBlocks: allRawContentBlocks.length ? allRawContentBlocks : null,
-        generating: false,
+        ...finalFields,
         createdAt: now(),
       })
     }
 
-    const existingBranches: Record<string, string> = conversation.activeBranches ?? {}
+    const branchEntries: Record<string, string> = { [parentId]: assistantMsgId }
     if (branchParentKey) {
-      existingBranches[branchParentKey] = parentId
+      branchEntries[branchParentKey] = parentId
     }
-    existingBranches[parentId] = assistantMsgId
+    await mergeBranchPointers(conversationId, branchEntries)
 
     await pb.collection('conversations').update(conversationId, {
       updatedAt: now(),
-      activeBranches: existingBranches,
       generating: false,
       ...(container ? { container } : {}),
     })
@@ -437,9 +472,13 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
       try {
         await pb.collection('messages').delete(assistantMsgId)
       } catch {}
+      const revertEntries: Record<string, string | null> = { [parentId]: null }
+      try {
+        await mergeBranchPointers(conversationId, revertEntries)
+      } catch {}
     }
     // Failure left nothing to persist: record the error on the triggering
-    // user message so the client banner survives reloads and stream re-attaches.
+    // user message so the client banner survives reloads and re-attaches.
     if (streamError) {
       try {
         await pb.collection('messages').update(parentId, { error: streamError })
@@ -448,13 +487,9 @@ const runGeneration = async (hub: StreamHub, params: GenerationParams) => {
     await pb.collection('conversations').update(conversationId, { generating: false })
   }
 
-  if (streamSucceeded) {
-    emit(hub, { type: 'done', messageId: persisted ? assistantMsgId : undefined })
-  }
-
   if (persisted && titleOnFirst && conversation.title === 'New Chat') {
     generateConversationTitle(userId, conversationId).catch(() => {})
   }
 
-  finishHub(hub)
+  finishGeneration(conversationId)
 }

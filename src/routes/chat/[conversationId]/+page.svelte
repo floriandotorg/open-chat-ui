@@ -1,9 +1,7 @@
 <script lang="ts">
 import ChatInput from '$lib/components/ChatInput.svelte'
 import ChatMessage from '$lib/components/ChatMessage.svelte'
-import StreamingText from '$lib/components/StreamingText.svelte'
 import { mapClientMessage, mapConversation } from '$lib/db-mappers'
-import { preserveLocalOrphans } from '$lib/message-tree'
 import { pbClient } from '$lib/pb-client'
 import { createRealtimeSlot, registerRealtime } from '$lib/realtime-watchdog'
 import { selectionIntersects } from '$lib/selection'
@@ -12,7 +10,7 @@ import { chatContext } from '$lib/stores/chat-context.svelte'
 import { consumePendingMessage } from '$lib/stores/pending-message'
 import type { Message } from '$lib/types'
 import { browser } from '$app/environment'
-import { invalidateAll, replaceState } from '$app/navigation'
+import { replaceState } from '$app/navigation'
 import { page } from '$app/state'
 import type { PageData } from './$types'
 import { tick, untrack } from 'svelte'
@@ -21,25 +19,12 @@ let { data }: { data: PageData } = $props()
 
 const ctx = chatContext
 
-const mapServerMessages = (serverMsgs: typeof data.allMessages, existing: Message[] = []): Message[] => {
-  const thinkingByContent = new Map<string, { thinking?: string; thinkingDuration?: number }>()
-  for (const m of existing) {
-    if (m.thinking) {
-      thinkingByContent.set(`${m.role}:${m.content}`, { thinking: m.thinking, thinkingDuration: m.thinkingDuration })
-    }
-  }
-  const mapped = serverMsgs.map(m => {
-    const cached = thinkingByContent.get(`${m.role}:${m.content}`)
-    return {
-      ...m,
-      role: m.role as Message['role'],
-      createdAt: new Date(m.createdAt),
-      thinking: cached?.thinking,
-      thinkingDuration: cached?.thinkingDuration,
-    } as Message
-  })
-  return preserveLocalOrphans(mapped, existing)
-}
+const mapServerMessages = (serverMsgs: typeof data.allMessages): Message[] =>
+  serverMsgs.map(m => ({
+    ...m,
+    role: m.role as Message['role'],
+    createdAt: new Date(m.createdAt),
+  }))
 
 const chat = createChatStore({
   // svelte-ignore state_referenced_locally
@@ -103,7 +88,7 @@ const consumeQueryMessage = (): string | null => {
   return q
 }
 
-const attachToConversation = (convId: string, generating: boolean) => {
+const attachToConversation = (convId: string) => {
   const key = `chat-queue-${convId}`
   const stored = localStorage.getItem(key)
   const parsed = stored ? JSON.parse(stored) : null
@@ -112,13 +97,6 @@ const attachToConversation = (convId: string, generating: boolean) => {
   const { message, images, files } = consumePendingMessage()
   if (message) {
     chat.sendMessage(convId, message, undefined, images ?? undefined, files ?? undefined)
-    return
-  }
-  if (generating) {
-    chat.resumeStream(convId).then(resumed => {
-      if (resumed) chat.processQueue()
-      else invalidateAll()
-    })
     return
   }
   const queryMessage = consumeQueryMessage()
@@ -133,25 +111,17 @@ $effect(() => {
   const serverAllMessages = data.allMessages
   const serverBranches = data.activeBranches
   const convId = data.conversation.id
-  const generating = data.conversation.generating ?? false
-  const existing = untrack(() => chat.allMessages)
-
-  const conversationChanged = activeConvId !== undefined && activeConvId !== convId
   const isFirstAttach = activeConvId === undefined
+  const convChanged = !isFirstAttach && activeConvId !== convId
   activeConvId = convId
 
-  if (conversationChanged) {
-    untrack(() => chat.detachStream())
+  if (convChanged || !untrack(() => chat.isStreaming)) {
+    untrack(() => chat.seed(convId, mapServerMessages(serverAllMessages), serverBranches))
   }
 
-  if (!untrack(() => chat.isStreaming)) {
-    chat.allMessages = mapServerMessages(serverAllMessages, existing)
-    chat.activeBranches = serverBranches
-  }
-
-  if (isFirstAttach || conversationChanged) {
+  if (isFirstAttach) {
     untrack(() => {
-      attachToConversation(convId, generating)
+      attachToConversation(convId)
       queueMounted = true
     })
   }
@@ -165,22 +135,22 @@ $effect(() => {
   chat.thinkingEffort = ctx.thinkingEffort
 })
 
-let prevStreaming = false
 let remoteGenerating = $state(false)
 
 $effect(() => {
-  const streaming = chat.isStreaming
-  ctx.generatingConversationId = streaming ? data.conversation.id : null
-  if (prevStreaming && !streaming && !chat.lastStreamCompleted) {
-    invalidateAll()
+  const convId = data.conversation.id
+  ctx.generatingConversationId = chat.isStreaming || remoteGenerating ? convId : null
+  return () => {
+    if (ctx.generatingConversationId === convId) ctx.generatingConversationId = null
   }
-  prevStreaming = streaming
 })
 
 $effect(() => {
   const convId = data.conversation.id
   if (!browser) return
-  remoteGenerating = untrack(() => data.conversation.generating ?? false)
+  const initialGenerating = untrack(() => data.conversation.generating ?? false)
+  remoteGenerating = initialGenerating
+  chat.setConversationGenerating(initialGenerating)
   const messagesSlot = createRealtimeSlot(() =>
     pbClient.collection('messages').subscribe(
       '*',
@@ -195,8 +165,9 @@ $effect(() => {
     pbClient.collection('conversations').subscribe(convId, e => {
       if (e.action === 'delete') return
       const c = mapConversation(e.record)
-      if (!chat.isStreaming) chat.activeBranches = c.activeBranches ?? {}
-      remoteGenerating = c.generating
+      chat.applyServerBranches(c.activeBranches ?? {})
+      remoteGenerating = c.generating ?? false
+      chat.setConversationGenerating(remoteGenerating)
     }),
   )
   void messagesSlot.subscribe()
@@ -209,19 +180,10 @@ $effect(() => {
   }
 })
 
-let prevRemoteGenerating = false
-$effect(() => {
-  const rg = remoteGenerating
-  if (prevRemoteGenerating && !rg) {
-    untrack(() => chat.processQueue())
-  }
-  prevRemoteGenerating = rg
-})
-
 $effect(() => {
   void chat.messages.length
-  void chat.streamingText
-  void chat.streamingThinking
+  void chat.streamingMessage?.content
+  void chat.streamingMessage?.thinking
   void chat.messageQueue.length
   if (stickToBottom && messageContainer && !userInteracting) {
     messageContainer.scrollTop = messageContainer.scrollHeight
@@ -317,6 +279,8 @@ const autoResizeEdit = () => {
   editTextarea.style.height = 'auto'
   editTextarea.style.height = `${editTextarea.scrollHeight}px`
 }
+
+const isEmptyGeneration = (message: Message) => message.generating && !message.content && !message.thinking && !message.toolCalls?.length && !message.codeExecutions?.length
 </script>
 
 <svelte:window onpointerdown={onPointerDown} onpointerup={onPointerUp} onselectionchange={onSelectionChange} />
@@ -324,7 +288,7 @@ const autoResizeEdit = () => {
   <div bind:this={messageContainer} onscroll={onScroll} class="flex flex-1 flex-col overflow-y-auto px-4 pt-16 pb-32 lg:px-8">
     <div class="mt-auto w-full space-y-6">
       {#each chat.messages as message (message.id)}
-        {#if message.generating && !message.content}
+        {#if isEmptyGeneration(message)}
           <div class="flex justify-start">
             <div class="flex max-w-[90%] gap-3">
               <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-purple-600 text-xs font-bold text-white">AI</div>
@@ -346,15 +310,6 @@ const autoResizeEdit = () => {
           />
         {/if}
       {/each}
-      <StreamingText
-        text={chat.streamingText}
-        thinking={chat.streamingThinking}
-        thinkingDuration={chat.thinkingDuration}
-        isThinking={chat.isThinking}
-        toolCalls={chat.streamingToolCalls}
-        codeExecutions={chat.streamingCodeExecutions}
-        paused={userInteracting}
-      />
       {#each chat.messageQueue as entry (entry.id)}
         <div class="flex justify-end">
           <div class="flex max-w-[80%] flex-col items-end">
@@ -424,8 +379,8 @@ const autoResizeEdit = () => {
   <div class="absolute inset-x-0 bottom-0 z-10">
     <ChatInput
       onsubmit={handleSubmit}
-      disabled={!ctx.selectedModel || (remoteGenerating && !chat.isStreaming)}
-      isStreaming={chat.isStreaming}
+      disabled={!ctx.selectedModel}
+      isStreaming={chat.isStreaming || remoteGenerating}
       onstop={chat.stopStreaming}
     />
   </div>

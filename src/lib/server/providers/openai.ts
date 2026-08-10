@@ -2,8 +2,6 @@ import { formatModelRef } from '$lib/model-ref'
 import type { ChatMessage, ChatRequest, ChatStreamEvent, LLMProvider, ModelInfo, ProviderFactory, ToolCallInfo } from './types'
 import OpenAI from 'openai'
 
-type OpenAIContent = string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>
-
 const REASONING_MODEL = /^(o[0-9]|gpt-5)/
 
 const MODEL_META: Record<string, { contextWindow: number; maxOutputTokens: number }> = {
@@ -38,48 +36,44 @@ const formatModelName = (id: string) =>
     .replace(/\bOmni\b/g, 'Omni')
 const mapEffort = (effort: 'low' | 'medium' | 'high' | 'max'): 'low' | 'medium' | 'high' => (effort === 'max' ? 'high' : effort)
 
-const buildOpenAIContent = (m: ChatMessage): OpenAIContent => {
+const minimalEffort = (model: string): 'none' | 'minimal' | 'low' => (/^gpt-5\.[1-9]/.test(model) ? 'none' : /^gpt-5/.test(model) ? 'minimal' : 'low')
+
+type InputContent = string | Array<{ type: 'input_text'; text: string } | { type: 'input_image'; image_url: string; detail: 'auto' }>
+
+const buildInputContent = (m: ChatMessage): InputContent => {
   if (!m.images?.length) return m.content
-  const parts: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> = m.images.map(img => ({
-    type: 'image_url',
-    image_url: { url: `data:${img.mimeType};base64,${img.data}` },
+  const parts: Exclude<InputContent, string> = m.images.map(img => ({
+    type: 'input_image' as const,
+    image_url: `data:${img.mimeType};base64,${img.data}`,
+    detail: 'auto' as const,
   }))
   if (m.content) {
-    parts.push({ type: 'text', text: m.content })
+    parts.push({ type: 'input_text', text: m.content })
   }
   return parts
 }
 
-const buildOpenAIMessages = (messages: ChatMessage[], systemPrompt?: string) => {
-  const result: Array<Record<string, unknown>> = []
-
-  if (systemPrompt) {
-    result.push({ role: 'system', content: systemPrompt })
-  }
+const buildResponsesInput = (messages: ChatMessage[]): OpenAI.Responses.ResponseInput => {
+  const input: OpenAI.Responses.ResponseInput = []
 
   for (const m of messages) {
-    if (m.role === 'system') {
-      result.push({ role: 'system', content: m.content })
-    } else if (m.role === 'tool') {
-      result.push({ role: 'tool', content: m.content, tool_call_id: m.toolCallId })
-    } else if (m.role === 'assistant' && m.toolCalls?.length) {
-      result.push({
-        role: 'assistant',
-        content: m.content || '',
-        tool_calls: m.toolCalls.map(tc => ({
-          id: tc.id,
-          type: 'function',
-          function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
-        })),
-      })
-    } else if (m.role === 'user') {
-      result.push({ role: 'user', content: buildOpenAIContent(m) })
-    } else {
-      result.push({ role: m.role, content: m.content })
+    if (m.role === 'user') {
+      input.push({ role: 'user', content: buildInputContent(m) })
+    } else if (m.role === 'assistant') {
+      if (m.content) {
+        input.push({ role: 'assistant', content: m.content })
+      }
+      for (const tc of m.toolCalls ?? []) {
+        input.push({ type: 'function_call', call_id: tc.id, name: tc.name, arguments: JSON.stringify(tc.arguments) })
+      }
+    } else if (m.role === 'tool' && m.toolCallId) {
+      input.push({ type: 'function_call_output', call_id: m.toolCallId, output: m.content })
+    } else if (m.role === 'system') {
+      input.push({ role: 'developer', content: m.content })
     }
   }
 
-  return result
+  return input
 }
 
 const createOpenAIAdapter = (apiKey: string): LLMProvider => ({
@@ -115,11 +109,10 @@ const createOpenAIAdapter = (apiKey: string): LLMProvider => ({
 
     const params: Record<string, unknown> = {
       model: request.model,
-      max_completion_tokens: reasoning ? (request.maxTokens ?? 4096) : undefined,
-      max_tokens: reasoning ? undefined : (request.maxTokens ?? 4096),
-      messages: buildOpenAIMessages(request.messages, request.systemPrompt),
+      max_output_tokens: request.maxTokens ?? 4096,
+      instructions: request.systemPrompt,
+      input: buildResponsesInput(request.messages),
       stream: true,
-      stream_options: { include_usage: true },
     }
 
     if (!reasoning) {
@@ -127,75 +120,71 @@ const createOpenAIAdapter = (apiKey: string): LLMProvider => ({
     }
 
     if (reasoning) {
-      params.reasoning_effort = request.tools?.length ? 'none' : useThinking ? mapEffort(request.thinkingEffort as 'low' | 'medium' | 'high' | 'max') : 'none'
+      params.reasoning = {
+        effort: useThinking ? mapEffort(request.thinkingEffort as 'low' | 'medium' | 'high' | 'max') : minimalEffort(request.model),
+        ...(useThinking ? { summary: 'auto' } : {}),
+      }
     }
 
     if (request.tools?.length) {
       params.tools = request.tools.map(t => ({
         type: 'function',
-        function: { name: t.name, description: t.description, parameters: t.parameters },
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters,
+        strict: false,
       }))
     }
 
     try {
-      const stream = await client.chat.completions.create(params as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming, { signal: request.signal })
+      const stream = await client.responses.create(params as unknown as OpenAI.Responses.ResponseCreateParamsStreaming, { signal: request.signal })
 
-      let usage = { promptTokens: 0, completionTokens: 0, cachedTokens: 0 }
-      let stopReason: 'end' | 'tool_use' = 'end'
-      const toolCallAccumulator = new Map<number, { id: string; name: string; args: string }>()
+      let usage: OpenAI.Responses.ResponseUsage | undefined
+      let failed: string | undefined
+      const toolCalls = new Map<string, ToolCallInfo>()
 
-      for await (const chunk of stream) {
-        const choice = chunk.choices[0]
-        const delta = choice?.delta as Record<string, unknown> | undefined
-
-        if (typeof delta?.content === 'string' && delta.content) {
-          yield { type: 'text_delta', text: delta.content }
-        }
-
-        const reasoningText = (delta?.reasoning ?? delta?.reasoning_content) as string | undefined
-        if (typeof reasoningText === 'string' && reasoningText) {
-          yield { type: 'thinking_delta', thinking: reasoningText }
-        }
-
-        if (Array.isArray(delta?.tool_calls)) {
-          for (const tc of delta.tool_calls as Array<Record<string, unknown>>) {
-            const idx = (tc.index as number) ?? 0
-            if (!toolCallAccumulator.has(idx)) {
-              toolCallAccumulator.set(idx, { id: '', name: '', args: '' })
+      for await (const event of stream) {
+        if (event.type === 'response.output_text.delta') {
+          yield { type: 'text_delta', text: event.delta }
+        } else if (event.type === 'response.reasoning_summary_text.delta') {
+          yield { type: 'thinking_delta', thinking: event.delta }
+        } else if (event.type === 'response.output_item.added' && event.item.type === 'function_call') {
+          toolCalls.set(event.item.id ?? event.item.call_id, { id: event.item.call_id, name: event.item.name, arguments: {} })
+        } else if (event.type === 'response.function_call_arguments.done') {
+          const tc = toolCalls.get(event.item_id)
+          if (tc) {
+            try {
+              tc.arguments = JSON.parse(event.arguments || '{}')
+            } catch {
+              tc.arguments = {}
             }
-            const acc = toolCallAccumulator.get(idx)
-            if (!acc) continue
-            const fn = tc.function as Record<string, unknown> | undefined
-            if (typeof tc.id === 'string') acc.id = tc.id
-            if (typeof fn?.name === 'string') acc.name = fn.name
-            if (typeof fn?.arguments === 'string') acc.args += fn.arguments
           }
-        }
-
-        if (choice?.finish_reason === 'tool_calls') {
-          stopReason = 'tool_use'
-        }
-
-        if (chunk.usage) {
-          usage = {
-            promptTokens: chunk.usage.prompt_tokens ?? 0,
-            completionTokens: chunk.usage.completion_tokens ?? 0,
-            cachedTokens: chunk.usage.prompt_tokens_details?.cached_tokens ?? 0,
-          }
+        } else if (event.type === 'response.completed') {
+          usage = event.response.usage
+        } else if (event.type === 'response.failed' || event.type === 'response.incomplete') {
+          failed = event.response.error?.message ?? event.response.incomplete_details?.reason ?? `Response ${event.response.status}`
+        } else if (event.type === 'error') {
+          failed = event.message
         }
       }
 
-      for (const [, tc] of toolCallAccumulator) {
-        const toolCall: ToolCallInfo = {
-          id: tc.id,
-          name: tc.name,
-          arguments: JSON.parse(tc.args || '{}'),
-        }
-        yield { type: 'tool_call', toolCall }
+      if (failed && toolCalls.size === 0) {
+        yield { type: 'error', error: failed }
+        return
       }
 
-      yield { type: 'usage', inputTokens: usage.promptTokens - usage.cachedTokens, outputTokens: usage.completionTokens, cacheReadInputTokens: usage.cachedTokens }
-      yield { type: 'done', stopReason }
+      for (const tc of toolCalls.values()) {
+        yield { type: 'tool_call', toolCall: tc }
+      }
+
+      const cachedTokens = usage?.input_tokens_details.cached_tokens ?? 0
+      yield {
+        type: 'usage',
+        inputTokens: (usage?.input_tokens ?? 0) - cachedTokens,
+        outputTokens: usage?.output_tokens ?? 0,
+        cacheReadInputTokens: cachedTokens,
+      }
+      yield { type: 'done', stopReason: toolCalls.size > 0 ? 'tool_use' : 'end' }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       yield { type: 'error', error: message }

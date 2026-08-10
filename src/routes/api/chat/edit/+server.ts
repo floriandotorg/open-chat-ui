@@ -6,10 +6,11 @@ import { error, json } from '@sveltejs/kit'
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   const userId = requireUser(locals.user).id
-  const { conversationId, messageId, content } = (await request.json()) as {
+  const { conversationId, messageId, content, newMessageId } = (await request.json()) as {
     conversationId: string
     messageId: string
     content: string
+    newMessageId?: string
   }
 
   const conversation = await getFirstOrNull(
@@ -33,7 +34,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     throw error(400, 'Can only edit user messages')
   }
 
-  const newMsgId = crypto.randomUUID()
+  const newMsgId = newMessageId ?? crypto.randomUUID()
   await pb.collection('messages').create({
     id: newMsgId,
     conversation: conversationId,

@@ -62,19 +62,6 @@ export interface Message {
   sendError?: string
 }
 
-export interface Conversation {
-  id: string
-  userId: string
-  title: string
-  systemPrompt?: string | null
-  systemPromptId?: string | null
-  defaultModel?: string | null
-  generating?: boolean | null
-  favorite?: boolean | null
-  createdAt: Date
-  updatedAt: Date
-}
-
 export interface SystemPrompt {
   id: string
   userId: string
@@ -83,25 +70,6 @@ export interface SystemPrompt {
   isDefault: boolean
   createdAt: Date
   updatedAt: Date
-}
-
-export interface ChatStreamEvent {
-  type: 'text_delta' | 'thinking_delta' | 'usage' | 'done' | 'error' | 'tool_call' | 'tool_result' | 'code_execution_start' | 'code_execution_delta' | 'code_execution_result' | 'code_execution_files' | 'stream_meta' | 'stream_end'
-  text?: string
-  thinking?: string
-  inputTokens?: number
-  outputTokens?: number
-  error?: string
-  toolCall?: { id: string; name: string; arguments: Record<string, unknown> }
-  toolResult?: { toolCallId: string; toolName: string; result: string; rawResult?: string }
-  messageId?: string
-  parentId?: string
-  assistantMsgId?: string
-  stopReason?: 'end' | 'tool_use'
-  codeExecution?: { id: string; name: string }
-  codeExecutionDelta?: { id: string; partialInput: string }
-  codeExecutionResult?: { id: string; stdout?: string; stderr?: string; returnCode?: number; error?: string; files?: CodeExecutionFile[] }
-  codeExecutionFiles?: { id: string; files: CodeExecutionFile[] }
 }
 
 export interface ApiKeySummary {

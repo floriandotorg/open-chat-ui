@@ -1,7 +1,7 @@
 import type { ToolDefinition } from './types'
 import Exa from 'exa-js'
 
-const CATEGORIES = ['company', 'people', 'research paper', 'news', 'personal site', 'financial report'] as const
+const CATEGORIES = ['company', 'people', 'publication', 'news', 'personal site', 'financial report'] as const
 type Category = (typeof CATEGORIES)[number]
 
 const isCategory = (v: string): v is Category => (CATEGORIES as readonly string[]).includes(v)
@@ -39,7 +39,7 @@ export const exaSearch: ToolDefinition = {
     'Optionally narrow with a category to focus on a content type. Category examples:',
     '- company: Profitable AI infrastructure startups founded after 2022',
     '- people: ML researchers leading post-training work at frontier AI labs',
-    '- research paper: Recent papers on long-context retrieval-augmented generation',
+    '- publication: Recent papers on long-context retrieval-augmented generation',
     '- news: Latest news on US-China AI chip export restrictions',
     '- personal site: Blog posts about building with local LLMs',
     '- financial report: AI infrastructure companies with strong gross margins in 2024',

@@ -832,6 +832,31 @@
         "max": 100000000,
         "pattern": "",
         "autogeneratePattern": ""
+      },
+      {
+        "name": "thinking",
+        "type": "text",
+        "system": false,
+        "required": false,
+        "presentable": false,
+        "hidden": false,
+        "help": "",
+        "min": 0,
+        "max": 100000000,
+        "pattern": "",
+        "autogeneratePattern": ""
+      },
+      {
+        "name": "thinkingDuration",
+        "type": "number",
+        "system": false,
+        "required": false,
+        "presentable": false,
+        "hidden": false,
+        "help": "",
+        "min": 0,
+        "max": 2147483647,
+        "onlyInt": true
       }
     ],
     "indexes": ["CREATE INDEX `idx_messages_conversation` ON `messages` (`conversation`)", "CREATE INDEX `idx_messages_parent` ON `messages` (`parentId`)"]

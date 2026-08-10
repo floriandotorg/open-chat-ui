@@ -1,25 +1,58 @@
 import type { Conversation } from '$lib/db-mappers'
 import { mapConversation } from '$lib/db-mappers'
 import { pbClient } from '$lib/pb-client'
+import { createOptimisticMap } from '$lib/stores/optimistic.svelte'
 import { browser } from '$app/environment'
 
 export const createConversationsStore = (initial: Conversation[]) => {
   let byId = $state<Map<string, Conversation>>(new Map(initial.map(c => [c.id, c])))
+  const pending = createOptimisticMap<Conversation>()
+  const pendingPatches = new Map<string, Partial<Conversation>>()
 
-  const conversations = $derived([...byId.values()].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()))
+  const conversations = $derived([...byId.values(), ...pending.values().filter(c => !byId.has(c.id))].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()))
 
   const upsert = (c: Conversation) => {
+    if (!byId.has(c.id) && !pending.has(c.id) && byId.size >= 100) return
+    pending.confirm(c.id)
+    const patch = pendingPatches.get(c.id)
+    let merged = c
+    if (patch) {
+      const leftover: Partial<Conversation> = {}
+      merged = { ...c }
+      for (const [key, value] of Object.entries(patch) as [keyof Conversation, unknown][]) {
+        if (JSON.stringify(c[key]) === JSON.stringify(value)) {
+          pendingPatches.delete(c.id)
+        } else {
+          Object.assign(merged, { [key]: value })
+          Object.assign(leftover, { [key]: value })
+        }
+      }
+      if (Object.keys(leftover).length) pendingPatches.set(c.id, leftover)
+    }
     const next = new Map(byId)
-    next.set(c.id, c)
+    next.set(c.id, merged)
     byId = next
   }
   const remove = (id: string) => {
+    pending.remove(id)
+    pendingPatches.delete(id)
     const next = new Map(byId)
     next.delete(id)
     byId = next
   }
   const seed = (list: Conversation[]) => {
     byId = new Map(list.map(c => [c.id, c]))
+  }
+  const addPending = (c: Conversation) => {
+    pending.add(c)
+  }
+  const patch = (id: string, partial: Partial<Conversation>) => {
+    const current = byId.get(id)
+    if (!current) return
+    pendingPatches.set(id, { ...pendingPatches.get(id), ...partial })
+    const next = new Map(byId)
+    next.set(id, { ...current, ...partial })
+    byId = next
   }
 
   let unsub: (() => void) | null = null
@@ -54,6 +87,8 @@ export const createConversationsStore = (initial: Conversation[]) => {
     upsert,
     remove,
     seed,
+    addPending,
+    patch,
     subscribe,
     unsubscribe,
   }

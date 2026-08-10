@@ -46,6 +46,8 @@ export interface Message {
   toolCalls: unknown[] | null
   rawContentBlocks: unknown[] | null
   error: string | null
+  thinking: string | null
+  thinkingDuration: number | null
   generating?: boolean
   createdAt: Date
 }
@@ -136,6 +138,8 @@ export const mapMessage = (r: RecordModel): Message => ({
   toolCalls: r.toolCalls ?? null,
   rawContentBlocks: r.rawContentBlocks ?? null,
   error: orNull(r.error),
+  thinking: orNull(r.thinking),
+  thinkingDuration: numOrNull(r.thinkingDuration),
   generating: r.generating ?? false,
   createdAt: toDate(r.createdAt),
 })
@@ -166,6 +170,8 @@ export const mapClientMessage = (r: RecordModel): ClientMessage => {
     toolCalls: toolCalls.length ? toolCalls : undefined,
     codeExecutions: codeExecutions.length ? codeExecutions : undefined,
     sendError: m.error ?? undefined,
+    thinking: m.thinking ?? undefined,
+    thinkingDuration: m.thinkingDuration ?? undefined,
     generating: m.generating,
     createdAt: m.createdAt,
   }

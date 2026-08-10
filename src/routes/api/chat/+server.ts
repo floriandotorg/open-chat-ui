@@ -2,12 +2,11 @@ import { resolveEffectiveParentId } from '$lib/message-tree'
 import { requireUser } from '$lib/server/auth-guard'
 import { mapConversation, mapMessage, now } from '$lib/server/db/records'
 import { startGeneration } from '$lib/server/generate'
+import { getGeneration } from '$lib/server/generations'
 import { getFirstOrNull, pb } from '$lib/server/pb'
-import { hubToSSE } from '$lib/server/sse'
-import { getHub } from '$lib/server/stream-hub'
 import type { FileAttachment, ImageAttachment, ThinkingEffort } from '$lib/types'
 import type { RequestHandler } from './$types'
-import { error } from '@sveltejs/kit'
+import { error, json } from '@sveltejs/kit'
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   const userId = requireUser(locals.user).id
@@ -44,12 +43,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     throw error(404, 'Conversation not found')
   }
 
-  const existingHub = getHub(conversationId)
-  if (existingHub) {
-    if (existingHub.userId !== userId) {
+  const existing = getGeneration(conversationId)
+  if (existing) {
+    if (existing.userId !== userId) {
       throw error(403, 'Forbidden')
     }
-    return hubToSSE(existingHub)
+    throw error(409, 'Generation already in progress')
   }
 
   const userMsgId = requestUserMsgId ?? crypto.randomUUID()
@@ -66,6 +65,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       files: fileAttachments?.length ? fileAttachments : null,
       createdAt: now(),
     })
+    // Point the branch at the new user message immediately so every client
+    // renders it via realtime instead of waiting for generation to finish.
+    const branches: Record<string, string> = { ...(conversation.activeBranches ?? {}), [effectiveParentId ?? '__root__']: userMsgId }
+    await pb.collection('conversations').update(conversationId, { activeBranches: branches, updatedAt: now() })
   }
 
   const allMsgs = skipUserInsert ? priorMsgs : (await pb.collection('messages').getFullList({ filter: pb.filter('conversation = {:c}', { c: conversationId }), sort: 'createdAt' })).map(mapMessage)
@@ -78,7 +81,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
 
   const assistantMsgId = crypto.randomUUID()
-  const hub = startGeneration({
+  startGeneration({
     userId,
     conversationId,
     modelRef,
@@ -90,5 +93,5 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     titleOnFirst: true,
   })
 
-  return hubToSSE(hub)
+  return json({ ok: true })
 }

@@ -1,6 +1,6 @@
 <script lang="ts">
+import type { Conversation } from '$lib/db-mappers'
 import { splitByTerms } from '$lib/highlight'
-import type { Conversation } from '$lib/types'
 import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
 import ConfirmDialog from './ConfirmDialog.svelte'
@@ -11,12 +11,16 @@ let {
   generatingConversationId,
   searchQuery = $bindable(''),
   showFavoritesOnly = false,
+  onpatch,
+  onremove,
 }: {
   conversations: Conversation[]
   currentId?: string
   generatingConversationId?: string | null
   searchQuery?: string
   showFavoritesOnly?: boolean
+  onpatch?: (id: string, partial: Partial<Conversation>) => void
+  onremove?: (id: string) => void
 } = $props()
 
 interface SearchHit {
@@ -120,6 +124,7 @@ const confirmDelete = async () => {
   if (!deleteTarget) return
   const id = deleteTarget.id
   deleteTarget = null
+  onremove?.(id)
   await fetch(`/api/conversations/${id}`, { method: 'DELETE' })
   if (currentId === id) {
     await goto(resolve('/chat'))
@@ -130,6 +135,7 @@ const toggleFavorite = async (e: Event, convId: string, currentFavorite: boolean
   e.stopPropagation()
   e.preventDefault()
   const newFavorite = !currentFavorite
+  onpatch?.(convId, { favorite: newFavorite })
   await fetch(`/api/conversations/${convId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },

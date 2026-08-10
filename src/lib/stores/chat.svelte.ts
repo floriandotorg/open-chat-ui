@@ -1,79 +1,52 @@
 import type { BranchMap } from '$lib/message-tree'
 import { resolveAndAnnotate } from '$lib/message-tree'
-import type { ChatStreamEvent, CodeExecutionBlock, FileAttachment, ImageAttachment, Message, ThinkingEffort, ToolCallInfo } from '$lib/types'
+import { createOptimisticMap } from '$lib/stores/optimistic.svelte'
+import type { FileAttachment, ImageAttachment, Message, ThinkingEffort } from '$lib/types'
+
+interface QueueEntry {
+  id: string
+  conversationId: string
+  content: string
+  systemPrompt?: string
+  images?: ImageAttachment[]
+  files?: FileAttachment[]
+}
+
+const ROOT_KEY = '__root__'
 
 export const createChatStore = (initialData?: { allMessages: Message[]; activeBranches: BranchMap }) => {
-  let allMessages = $state<Message[]>(initialData?.allMessages ?? [])
+  let confirmed = $state<Message[]>(initialData?.allMessages ?? [])
   let activeBranches = $state<BranchMap>(initialData?.activeBranches ?? {})
-  const messages = $derived<(Message & { siblingIndex: number; siblingCount: number })[]>(resolveAndAnnotate(allMessages, activeBranches))
-  let streamingText = $state('')
-  let streamingThinking = $state('')
-  let thinkingDuration = $state<number | null>(null)
-  let isStreaming = $state(false)
-  let isThinking = $state(false)
-  let streamingToolCalls = $state<ToolCallInfo[]>([])
-  let streamingCodeExecutions = $state<CodeExecutionBlock[]>([])
-  let selectedModel = $state('')
-  let thinkingEffort = $state<ThinkingEffort>('none')
-  let abortController = $state<AbortController | null>(null)
-  let onFirstReply = $state<((conversationId: string) => void) | null>(null)
-  let activeConversationId = $state<string | null>(null)
-
-  interface QueueEntry {
-    id: string
-    conversationId: string
-    content: string
-    systemPrompt?: string
-    images?: ImageAttachment[]
-    files?: FileAttachment[]
-  }
+  let currentConversationId = $state<string | null>(initialData?.allMessages[0]?.conversationId ?? null)
+  const pending = createOptimisticMap<Message>()
+  const pendingBranchWrites = new Map<string, string>()
+  const discardedIds = new Set<string>()
 
   let messageQueue = $state<QueueEntry[]>([])
-  let serverAssistantId: string | null = null
-  let partialAttached = false
-  let lastStreamCompleted = $state(false)
-  const localAssistantIds = new Set<string>()
+  let selectedModel = $state('')
+  let thinkingEffort = $state<ThinkingEffort>('none')
+  let awaitingGeneration = $state(false)
+  let serverGenerating = $state(false)
+  let onFirstReply = $state<((conversationId: string) => void) | null>(null)
+  let activeConversationId: string | null = null
 
-  const resetStreamingState = () => {
-    serverAssistantId = null
-    streamingText = ''
-    streamingThinking = ''
-    thinkingDuration = null
-    streamingToolCalls = []
-    streamingCodeExecutions = []
-    isStreaming = false
-    isThinking = false
+  const allMessages = $derived<Message[]>([...confirmed, ...pending.values().filter(m => m.conversationId === currentConversationId && !confirmed.some(c => c.id === m.id))])
+  const messages = $derived<(Message & { siblingIndex: number; siblingCount: number })[]>(resolveAndAnnotate(allMessages, activeBranches))
+  const streamingMessage = $derived(allMessages.find(m => m.role === 'assistant' && m.generating))
+  const isStreaming = $derived(awaitingGeneration || serverGenerating || !!streamingMessage)
+
+  const setBranchLocal = (parentKey: string, messageId: string) => {
+    pendingBranchWrites.set(parentKey, messageId)
+    activeBranches = { ...activeBranches, [parentKey]: messageId }
   }
 
-  const buildMessage = (conversationId: string, parentId?: string | null): Message => ({
-    id: serverAssistantId ?? crypto.randomUUID(),
-    conversationId,
-    parentId,
-    role: 'assistant',
-    content: streamingText,
-    model: selectedModel,
-    thinking: streamingThinking || undefined,
-    thinkingDuration: thinkingDuration ?? undefined,
-    toolCalls: streamingToolCalls.length ? [...streamingToolCalls] : undefined,
-    codeExecutions: streamingCodeExecutions.length ? [...streamingCodeExecutions] : undefined,
-    createdAt: new Date(),
-  })
-
-  const attachStreamedMessage = (conversationId: string, parentId?: string | null): boolean => {
-    const hasContent = !!(streamingText || streamingToolCalls.length || streamingCodeExecutions.length)
-    if (hasContent) {
-      const assistantMsg = buildMessage(conversationId, parentId ?? null)
-      localAssistantIds.add(assistantMsg.id)
-      if (!allMessages.some(m => m.id === assistantMsg.id)) {
-        allMessages = [...allMessages, assistantMsg]
-      }
-      if (parentId) {
-        activeBranches = { ...activeBranches, [parentId]: assistantMsg.id }
-      }
-      partialAttached = true
+  const applyServerBranches = (branches: BranchMap) => {
+    const merged = { ...branches }
+    for (const [key, value] of pendingBranchWrites) {
+      if (branches[key] === value) pendingBranchWrites.delete(key)
+      else merged[key] = value
     }
-    resetStreamingState()
-    return hasContent
+    activeBranches = merged
   }
 
   const getLastMessageId = (): string | null => {
@@ -81,227 +54,51 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     return resolved.length > 0 ? resolved[resolved.length - 1].id : null
   }
 
-  const processStream = async (initialResponse: Response, conversationId: string, initialParentId: string | null, controller: AbortController) => {
-    const STALL_MS = 20_000
-    const STALL_CHECK_MS = 5_000
-    const codeExecRawInputs = new Map<string, string>()
-    let thinkingStartTime: number | null = null
-    let parentId: string | null = initialParentId
-    let cursor = 0
-    let completed = false
-    lastStreamCompleted = false
-
-    const handleEvent = (event: ChatStreamEvent) => {
-      if (event.type === 'stream_meta') {
-        if (event.parentId) parentId = event.parentId
-        if (event.assistantMsgId) {
-          serverAssistantId = event.assistantMsgId
-          localAssistantIds.add(event.assistantMsgId)
-          allMessages = allMessages.filter(m => m.id !== event.assistantMsgId)
-        }
-        return
-      }
-      if (event.type === 'stream_end') {
-        completed = true
-        return
-      }
-      if (event.type === 'thinking_delta') {
-        if (!thinkingStartTime) {
-          thinkingStartTime = Date.now()
-          isThinking = true
-        }
-        streamingThinking += event.thinking ?? ''
-      }
-      if (event.type === 'text_delta') {
-        if (isThinking) {
-          isThinking = false
-          thinkingDuration = thinkingStartTime ? Math.round((Date.now() - thinkingStartTime) / 1000) : null
-        }
-        streamingText += event.text ?? ''
-      }
-      if (event.type === 'tool_call' && event.toolCall) {
-        streamingToolCalls = [...streamingToolCalls, { ...event.toolCall, textOffset: streamingText.length }]
-      }
-      if (event.type === 'tool_result' && event.toolResult) {
-        streamingToolCalls = streamingToolCalls.map(tc => (tc.id === event.toolResult?.toolCallId ? { ...tc, result: event.toolResult.result, ...(event.toolResult.rawResult !== undefined ? { rawResult: event.toolResult.rawResult } : {}) } : tc))
-      }
-      if (event.type === 'code_execution_start' && event.codeExecution) {
-        streamingCodeExecutions = [
-          ...streamingCodeExecutions,
-          {
-            id: event.codeExecution.id,
-            name: event.codeExecution.name,
-            input: {},
-            textOffset: streamingText.length,
-          },
-        ]
-      }
-      if (event.type === 'code_execution_delta' && event.codeExecutionDelta) {
-        const { id, partialInput } = event.codeExecutionDelta
-        const raw = (codeExecRawInputs.get(id) ?? '') + partialInput
-        codeExecRawInputs.set(id, raw)
-        let input: Record<string, unknown>
-        try {
-          input = JSON.parse(raw)
-        } catch {
-          input = { _raw: raw }
-        }
-        streamingCodeExecutions = streamingCodeExecutions.map(ce => (ce.id === id ? { ...ce, input } : ce))
-      }
-      if (event.type === 'code_execution_result' && event.codeExecutionResult) {
-        const { id, ...result } = event.codeExecutionResult
-        streamingCodeExecutions = streamingCodeExecutions.map(ce => (ce.id === id ? { ...ce, ...result } : ce))
-      }
-      if (event.type === 'code_execution_files' && event.codeExecutionFiles) {
-        const { id, files } = event.codeExecutionFiles
-        streamingCodeExecutions = streamingCodeExecutions.map(ce => (ce.id === id ? { ...ce, files } : ce))
-      }
-      if (event.type === 'error') {
-        completed = true
-        attachStreamedMessage(conversationId, parentId)
-        throw new Error(event.error ?? 'Stream error')
-      }
-      if (event.type === 'done') {
-        if (isThinking) {
-          isThinking = false
-          thinkingDuration = thinkingStartTime ? Math.round((Date.now() - thinkingStartTime) / 1000) : null
-        }
-        // Mirror the server's persist rule: an empty completion is never written
-        // to the DB, so creating a local message would produce a phantom parent
-        // that breaks the next turn's server-side history walk (context loss).
-        const hasContent = !!(streamingText || streamingToolCalls.length || streamingCodeExecutions.length)
-        if (hasContent) {
-          const assistantMsg = buildMessage(conversationId, parentId)
-          if (event.messageId) {
-            assistantMsg.id = event.messageId
-          }
-          localAssistantIds.add(assistantMsg.id)
-          if (!allMessages.some(m => m.id === assistantMsg.id)) {
-            allMessages = [...allMessages, assistantMsg]
-          }
-          if (parentId) {
-            activeBranches = { ...activeBranches, [parentId]: assistantMsg.id }
-          }
-        }
-        lastStreamCompleted = true
-        resetStreamingState()
-      }
-    }
-
-    const consumeResponse = async (response: Response) => {
-      const reader = response.body?.getReader()
-      if (!reader) throw new Error('Response body is not readable')
-      const decoder = new TextDecoder()
-      let buffer = ''
-      // The server heartbeats every few seconds; a longer silence means the
-      // connection half-opened (PWA backgrounded, NAT reap) and read() would
-      // pend forever. Cancelling drops us into the cursor-reconnect loop.
-      let lastChunkAt = Date.now()
-      const stallWatchdog = setInterval(() => {
-        if (Date.now() - lastChunkAt > STALL_MS) {
-          reader.cancel().catch(() => {})
-        }
-      }, STALL_CHECK_MS)
-      try {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) return
-          lastChunkAt = Date.now()
-          buffer += decoder.decode(value, { stream: true })
-          const blocks = buffer.split('\n\n')
-          buffer = blocks.pop() ?? ''
-          for (const block of blocks) {
-            if (abortController !== controller) {
-              reader.cancel().catch(() => {})
-              return
-            }
-            let idLine: string | undefined
-            let dataLine: string | undefined
-            for (const line of block.split('\n')) {
-              if (line.startsWith('id: ')) idLine = line.slice(4)
-              else if (line.startsWith('data: ')) dataLine = line.slice(6)
-            }
-            if (!dataLine) continue
-            let event: ChatStreamEvent
-            try {
-              event = JSON.parse(dataLine)
-            } catch {
-              continue
-            }
-            handleEvent(event)
-            if (idLine !== undefined) cursor = Number(idLine) + 1
-            if (completed) return
-          }
-        }
-      } finally {
-        clearInterval(stallWatchdog)
-      }
-    }
-
-    try {
-      await consumeResponse(initialResponse)
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') throw err
-      if (completed || abortController !== controller) throw err
-    }
-
-    while (!completed && abortController === controller) {
-      let reconnect: Response
-      try {
-        reconnect = await fetch(`/api/chat/stream/${conversationId}?cursor=${cursor}`, {
-          signal: controller.signal,
-        })
-      } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') throw err
-        await new Promise(r => setTimeout(r, 500))
-        continue
-      }
-      if (reconnect.status === 404) {
-        attachStreamedMessage(conversationId, parentId)
-        return
-      }
-      if (!reconnect.ok) {
-        throw new Error('Failed to reconnect to stream')
-      }
-      try {
-        await consumeResponse(reconnect)
-      } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') throw err
-        if (completed) return
-        await new Promise(r => setTimeout(r, 500))
-      }
+  const postCommand = async (url: string, body: Record<string, unknown>) => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { message?: string }
+      throw new Error(err.message ?? 'Request failed')
     }
   }
 
+  const markSendFailed = (messageId: string, err: unknown) => {
+    awaitingGeneration = false
+    const sendError = err instanceof Error ? err.message : 'Failed to send message'
+    pending.patch(messageId, { sendError })
+    if (!pending.has(messageId)) {
+      confirmed = confirmed.map(m => (m.id === messageId ? { ...m, sendError } : m))
+    }
+    messageQueue = []
+  }
+
+  const triggerGeneration = (conversationId: string, message: string, parentId: string | null, userMsgId: string, skipUserInsert: boolean, systemPrompt?: string, images?: ImageAttachment[], files?: FileAttachment[]) =>
+    postCommand('/api/chat', {
+      conversationId,
+      model: selectedModel,
+      message,
+      images: images?.length ? images : undefined,
+      files: files?.length ? files : undefined,
+      systemPrompt,
+      thinkingEffort,
+      parentId,
+      userMsgId,
+      skipUserInsert,
+    })
+
   const sendMessage = async (conversationId: string, content: string, systemPrompt?: string, images?: ImageAttachment[], files?: FileAttachment[]) => {
     if (isStreaming) {
-      messageQueue = [
-        ...messageQueue,
-        {
-          id: crypto.randomUUID(),
-          conversationId,
-          content,
-          systemPrompt,
-          images,
-          files,
-        },
-      ]
+      messageQueue = [...messageQueue, { id: crypto.randomUUID(), conversationId, content, systemPrompt, images, files }]
       return
     }
 
-    const isFirstMessage = allMessages.length === 0
     activeConversationId = conversationId
-    partialAttached = false
-    isStreaming = true
-    isThinking = false
-    streamingText = ''
-    streamingThinking = ''
-    thinkingDuration = null
-    streamingToolCalls = []
-    streamingCodeExecutions = []
-    const ctrl = new AbortController()
-    abortController = ctrl
-
+    currentConversationId = conversationId
+    const isFirstMessage = allMessages.length === 0
     const parentId = getLastMessageId()
 
     const userMsg: Message = {
@@ -314,65 +111,15 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
       files: files?.length ? files : undefined,
       createdAt: new Date(),
     }
-    allMessages = [...allMessages, userMsg]
-    const parentKey = parentId ?? '__root__'
-    activeBranches = { ...activeBranches, [parentKey]: userMsg.id }
+    pending.add(userMsg)
+    setBranchLocal(userMsg.parentId ?? ROOT_KEY, userMsg.id)
+    awaitingGeneration = true
 
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationId,
-          model: selectedModel,
-          message: content,
-          images: images?.length ? images : undefined,
-          files: files?.length ? files : undefined,
-          systemPrompt,
-          thinkingEffort,
-          parentId,
-          userMsgId: userMsg.id,
-        }),
-        signal: ctrl.signal,
-      })
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}))
-        throw new Error(err.message ?? 'Request failed')
-      }
-
-      await processStream(response, conversationId, userMsg.id, ctrl)
-
-      if (isFirstMessage && onFirstReply) {
-        onFirstReply(conversationId)
-      }
+      await triggerGeneration(conversationId, content, parentId, userMsg.id, false, systemPrompt, images, files)
+      if (isFirstMessage) onFirstReply?.(conversationId)
     } catch (err) {
-      const isMine = abortController === ctrl
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        if (isMine) {
-          attachStreamedMessage(conversationId, userMsg.id)
-          abortController = null
-        }
-        return
-      }
-      if (isMine) {
-        attachStreamedMessage(conversationId, userMsg.id)
-        if (!partialAttached) {
-          const errorText = err instanceof Error ? err.message : 'Failed to send message'
-          allMessages = allMessages.map(m => (m.id === userMsg.id ? { ...m, sendError: errorText } : m))
-        }
-        messageQueue = []
-        abortController = null
-      }
-      return
-    }
-
-    if (abortController !== ctrl) return
-    abortController = null
-    if (messageQueue.length > 0) {
-      const [next, ...rest] = messageQueue
-      messageQueue = rest
-      await sendMessage(next.conversationId, next.content, next.systemPrompt, next.images, next.files)
+      markSendFailed(userMsg.id, err)
     }
   }
 
@@ -380,141 +127,85 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     if (isStreaming) return
 
     activeConversationId = conversationId
-    partialAttached = false
-    isStreaming = true
-    isThinking = false
-    streamingText = ''
-    streamingThinking = ''
-    thinkingDuration = null
-    streamingToolCalls = []
-    streamingCodeExecutions = []
-    const ctrl = new AbortController()
-    abortController = ctrl
-
-    const targetMsg = allMessages.find(m => m.id === messageId)
-    const userParentId = targetMsg?.parentId ?? null
-
+    awaitingGeneration = true
     try {
-      const response = await fetch('/api/chat/regenerate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationId,
-          messageId,
-          model: selectedModel,
-          thinkingEffort,
-        }),
-        signal: ctrl.signal,
-      })
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}))
-        throw new Error(err.message ?? 'Request failed')
-      }
-
-      await processStream(response, conversationId, userParentId, ctrl)
+      await postCommand('/api/chat/regenerate', { conversationId, messageId, model: selectedModel, thinkingEffort })
     } catch (err) {
-      const isMine = abortController === ctrl
-      if (isMine) {
-        attachStreamedMessage(conversationId, userParentId)
-        abortController = null
-      }
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        return
-      }
+      awaitingGeneration = false
       throw err
     }
-
-    if (abortController === ctrl) abortController = null
   }
 
   const editMessage = async (conversationId: string, messageId: string, newContent: string) => {
     if (isStreaming) return
 
     const targetMsg = allMessages.find(m => m.id === messageId)
-    if (targetMsg?.role !== 'user') {
-      return
-    }
+    if (targetMsg?.role !== 'user') return
 
-    const res = await fetch('/api/chat/edit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversationId, messageId, content: newContent }),
-    })
-
-    if (!res.ok) return
-
-    const { newMessageId } = await res.json()
-
+    activeConversationId = conversationId
     const newUserMsg: Message = {
-      id: newMessageId,
+      id: crypto.randomUUID(),
       conversationId,
-      parentId: targetMsg.parentId,
+      parentId: targetMsg.parentId ?? null,
       role: 'user',
       content: newContent,
       images: targetMsg.images,
       files: targetMsg.files,
       createdAt: new Date(),
     }
-
-    allMessages = [...allMessages, newUserMsg]
-    const parentKey = targetMsg.parentId ?? '__root__'
-    activeBranches = { ...activeBranches, [parentKey]: newMessageId }
-
-    activeConversationId = conversationId
-    partialAttached = false
-    isStreaming = true
-    isThinking = false
-    streamingText = ''
-    streamingThinking = ''
-    thinkingDuration = null
-    streamingToolCalls = []
-    streamingCodeExecutions = []
-    const ctrl = new AbortController()
-    abortController = ctrl
+    pending.add(newUserMsg)
+    setBranchLocal(newUserMsg.parentId ?? ROOT_KEY, newUserMsg.id)
+    awaitingGeneration = true
 
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationId,
-          model: selectedModel,
-          message: newContent,
-          images: targetMsg.images?.length ? targetMsg.images : undefined,
-          files: targetMsg.files?.length ? targetMsg.files : undefined,
-          thinkingEffort,
-          parentId: targetMsg.parentId,
-          userMsgId: newMessageId,
-          skipUserInsert: true,
-        }),
-        signal: ctrl.signal,
-      })
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}))
-        throw new Error(err.message ?? 'Request failed')
-      }
-
-      await processStream(response, conversationId, newMessageId, ctrl)
+      await postCommand('/api/chat/edit', { conversationId, messageId, content: newContent, newMessageId: newUserMsg.id })
+      await triggerGeneration(conversationId, newContent, newUserMsg.parentId ?? null, newUserMsg.id, true, undefined, targetMsg.images, targetMsg.files)
     } catch (err) {
-      const isMine = abortController === ctrl
-      if (isMine) {
-        attachStreamedMessage(conversationId, newMessageId)
-        abortController = null
-      }
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        return
-      }
-      throw err
+      markSendFailed(newUserMsg.id, err)
+    }
+  }
+
+  const retryFailedMessage = async (conversationId: string, messageId: string) => {
+    if (isStreaming) return
+
+    const target = allMessages.find(m => m.id === messageId)
+    if (target?.role !== 'user' || !target.sendError) return
+
+    activeConversationId = conversationId
+    awaitingGeneration = true
+    pending.patch(messageId, { sendError: undefined })
+    if (!pending.has(messageId)) {
+      confirmed = confirmed.map(m => (m.id === messageId ? { ...m, sendError: undefined } : m))
     }
 
-    if (abortController === ctrl) abortController = null
+    try {
+      await triggerGeneration(conversationId, target.content, target.parentId ?? null, messageId, !pending.has(messageId), undefined, target.images, target.files)
+    } catch (err) {
+      markSendFailed(messageId, err)
+      return
+    }
+
+    if (messageQueue.length > 0) processQueue()
+  }
+
+  const discardFailedMessage = (messageId: string) => {
+    discardedIds.add(messageId)
+    pending.remove(messageId)
+    confirmed = confirmed.filter(m => m.id !== messageId)
+    const nextBranches: BranchMap = {}
+    for (const [key, value] of Object.entries(activeBranches)) {
+      if (value !== messageId) nextBranches[key] = value
+    }
+    activeBranches = nextBranches
+    fetch('/api/chat/discard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId }),
+    }).catch(() => {})
   }
 
   const switchBranch = async (conversationId: string, parentKey: string, targetMessageId: string) => {
-    activeBranches = { ...activeBranches, [parentKey]: targetMessageId }
-
+    setBranchLocal(parentKey, targetMessageId)
     await fetch('/api/chat/branch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -524,202 +215,82 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
 
   const stopStreaming = () => {
     messageQueue = []
-    const convId = activeConversationId
-    abortController?.abort()
+    awaitingGeneration = false
+    const convId = activeConversationId ?? currentConversationId
     if (convId) {
-      fetch(`/api/chat/stream/${convId}`, { method: 'DELETE' }).catch(() => {})
+      fetch('/api/chat/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId: convId }),
+      }).catch(() => {})
     }
   }
 
-  const detachStream = () => {
-    abortController?.abort()
-    abortController = null
-    activeConversationId = null
-    resetStreamingState()
-  }
-
-  const resumeStream = async (conversationId: string): Promise<boolean> => {
-    if (isStreaming && activeConversationId === conversationId) return true
-    activeConversationId = conversationId
-    partialAttached = false
-    lastStreamCompleted = false
-    isStreaming = true
-    isThinking = false
-    streamingText = ''
-    streamingThinking = ''
-    thinkingDuration = null
-    streamingToolCalls = []
-    streamingCodeExecutions = []
-    const ctrl = new AbortController()
-    abortController = ctrl
-    try {
-      const response = await fetch(`/api/chat/stream/${conversationId}?cursor=0`, {
-        signal: ctrl.signal,
-      })
-      if (!response.ok) {
-        if (abortController === ctrl) {
-          resetStreamingState()
-          abortController = null
-        }
-        return false
-      }
-      await processStream(response, conversationId, null, ctrl)
-    } catch {
-      if (abortController === ctrl) {
-        resetStreamingState()
-        abortController = null
-      }
-      return false
-    }
-    if (abortController !== ctrl) return true
-    abortController = null
-    return true
-  }
-
-  const editQueuedMessage = (id: string, content: string) => {
-    messageQueue = messageQueue.map(m => (m.id === id ? { ...m, content } : m))
-  }
-
-  const deleteQueuedMessage = (id: string) => {
-    messageQueue = messageQueue.filter(m => m.id !== id)
+  const processQueue = () => {
+    if (isStreaming || messageQueue.length === 0) return
+    const [next, ...rest] = messageQueue
+    messageQueue = rest
+    void sendMessage(next.conversationId, next.content, next.systemPrompt, next.images, next.files)
   }
 
   const upsertMessage = (msg: Message) => {
-    if (localAssistantIds.has(msg.id)) return
-    const existing = allMessages.find(m => m.id === msg.id)
-    // The server persists the user message before generation, so a realtime upsert
-    // after a failed send would otherwise wipe the local sendError banner
-    const merged = existing?.sendError ? { ...msg, sendError: existing.sendError } : msg
-    allMessages = existing ? allMessages.map(m => (m.id === msg.id ? merged : m)) : [...allMessages, merged]
+    if (discardedIds.has(msg.id)) return
+    if (msg.generating) awaitingGeneration = false
+    const inheritedError = (confirmed.find(m => m.id === msg.id) ?? pending.get(msg.id))?.sendError
+    pending.confirm(msg.id)
+    const existing = confirmed.find(m => m.id === msg.id)
+    const merged = inheritedError && !msg.sendError ? { ...msg, sendError: inheritedError } : msg
+    confirmed = existing ? confirmed.map(m => (m.id === msg.id ? merged : m)) : [...confirmed, merged]
   }
 
   const removeMessage = (id: string) => {
-    if (localAssistantIds.has(id)) return
-    allMessages = allMessages.filter(m => m.id !== id)
-  }
-  const discardFailedMessage = (messageId: string) => {
-    allMessages = allMessages.filter(m => m.id !== messageId)
-    const newBranches: BranchMap = {}
-    for (const [k, v] of Object.entries(activeBranches)) {
-      if (v !== messageId) newBranches[k] = v
-    }
-    activeBranches = newBranches
-    fetch('/api/chat/discard', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messageId }),
-    }).catch(() => {})
+    pending.remove(id)
+    confirmed = confirmed.filter(m => m.id !== id)
   }
 
-  const retryFailedMessage = async (conversationId: string, messageId: string) => {
-    if (isStreaming) return
-    const target = allMessages.find(m => m.id === messageId)
-    if (target?.role !== 'user' || !target.sendError) {
-      return
+  const seed = (conversationId: string, allMsgs: Message[], branches: BranchMap) => {
+    if (conversationId !== currentConversationId) {
+      currentConversationId = conversationId
+      awaitingGeneration = false
+      serverGenerating = false
     }
-
-    // The failed message is already persisted; re-trigger generation on the
-    // same record (skipUserInsert) instead of duplicating the user turn.
-    allMessages = allMessages.map(m => (m.id === messageId ? { ...m, sendError: undefined } : m))
-
-    activeConversationId = conversationId
-    partialAttached = false
-    isStreaming = true
-    isThinking = false
-    streamingText = ''
-    streamingThinking = ''
-    thinkingDuration = null
-    streamingToolCalls = []
-    streamingCodeExecutions = []
-    const ctrl = new AbortController()
-    abortController = ctrl
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationId,
-          model: selectedModel,
-          message: target.content,
-          images: target.images?.length ? target.images : undefined,
-          files: target.files?.length ? target.files : undefined,
-          thinkingEffort,
-          parentId: target.parentId ?? null,
-          userMsgId: messageId,
-          skipUserInsert: true,
-        }),
-        signal: ctrl.signal,
-      })
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}))
-        throw new Error(err.message ?? 'Request failed')
-      }
-
-      await processStream(response, conversationId, messageId, ctrl)
-    } catch (err) {
-      const isMine = abortController === ctrl
-      if (isMine) {
-        attachStreamedMessage(conversationId, messageId)
-        abortController = null
-      }
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        return
-      }
-      if (!partialAttached) {
-        const errorText = err instanceof Error ? err.message : 'Failed to send message'
-        allMessages = allMessages.map(m => (m.id === messageId ? { ...m, sendError: errorText } : m))
-      }
-      messageQueue = []
-      return
-    }
-
-    if (abortController !== ctrl) return
-    abortController = null
-    if (messageQueue.length > 0) {
-      const [next, ...rest] = messageQueue
-      messageQueue = rest
-      await sendMessage(next.conversationId, next.content, next.systemPrompt, next.images, next.files)
-    }
+    confirmed = allMsgs
+    pendingBranchWrites.clear()
+    activeBranches = branches
   }
+
+  const setConversationGenerating = (generating: boolean) => {
+    serverGenerating = generating
+    if (generating) awaitingGeneration = false
+  }
+
+  $effect.root(() => {
+    let wasStreaming = false
+    $effect(() => {
+      const streaming = isStreaming
+      if (wasStreaming && !streaming) queueMicrotask(processQueue)
+      wasStreaming = streaming
+    })
+  })
 
   return {
+    get currentConversationId() {
+      return currentConversationId
+    },
     get messages() {
       return messages
     },
     get allMessages() {
       return allMessages
     },
-    set allMessages(v: Message[]) {
-      allMessages = v
-    },
     get activeBranches() {
       return activeBranches
     },
-    set activeBranches(v: BranchMap) {
-      activeBranches = v
-    },
-    get streamingText() {
-      return streamingText
-    },
-    get streamingThinking() {
-      return streamingThinking
-    },
-    get thinkingDuration() {
-      return thinkingDuration
+    get streamingMessage() {
+      return streamingMessage
     },
     get isStreaming() {
       return isStreaming
-    },
-    get isThinking() {
-      return isThinking
-    },
-    get streamingToolCalls() {
-      return streamingToolCalls
-    },
-    get streamingCodeExecutions() {
-      return streamingCodeExecutions
     },
     get messageQueue() {
       return messageQueue
@@ -745,9 +316,6 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     set onFirstReply(v: ((conversationId: string) => void) | null) {
       onFirstReply = v
     },
-    get lastStreamCompleted() {
-      return lastStreamCompleted
-    },
     sendMessage,
     regenerateMessage,
     editMessage,
@@ -755,17 +323,17 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     discardFailedMessage,
     switchBranch,
     stopStreaming,
-    detachStream,
-    resumeStream,
-    editQueuedMessage,
-    deleteQueuedMessage,
+    processQueue,
+    editQueuedMessage: (id: string, content: string) => {
+      messageQueue = messageQueue.map(m => (m.id === id ? { ...m, content } : m))
+    },
+    deleteQueuedMessage: (id: string) => {
+      messageQueue = messageQueue.filter(m => m.id !== id)
+    },
     upsertMessage,
     removeMessage,
-    processQueue: () => {
-      if (isStreaming || messageQueue.length === 0) return
-      const [next, ...rest] = messageQueue
-      messageQueue = rest
-      sendMessage(next.conversationId, next.content, next.systemPrompt, next.images, next.files)
-    },
+    applyServerBranches,
+    setConversationGenerating,
+    seed,
   }
 }

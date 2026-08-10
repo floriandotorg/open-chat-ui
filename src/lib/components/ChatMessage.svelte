@@ -237,18 +237,22 @@ const autoResizeEdit = () => {
           <div class="mb-1 text-xs font-medium text-gray-400 dark:text-neutral-500">{displayed.model}</div>
         {/if}
         {#if displayed.thinking}
-          <ThinkingBlock thinking={displayed.thinking} duration={displayed.thinkingDuration} />
+          <ThinkingBlock thinking={displayed.thinking} duration={displayed.thinkingDuration} isActive={!!displayed.generating && !displayed.content} />
         {/if}
-        {#each segments as segment}
+        {#each segments as segment, idx}
           {#if segment.type === 'tool_call'}
             <ToolCallBlock toolCall={segment.toolCall} />
           {:else if segment.type === 'code_execution'}
             <CodeExecutionBlock codeExecution={segment.codeExecution} />
           {:else}
-            <div class="prose prose-sm dark:prose-invert max-w-none" use:copyCodeAction>{@html processCitations(renderMarkdown(segment.content), citations)}</div>
+            <div class="prose prose-sm dark:prose-invert max-w-none" use:copyCodeAction>{@html processCitations(renderMarkdown(segment.content), citations)}{#if displayed.generating && idx === segments.length - 1}<span class="inline-block h-4 w-0.5 animate-pulse bg-gray-400 dark:bg-neutral-400"></span>{/if}</div>
           {/if}
         {/each}
+        {#if displayed.generating && segments.length === 0}
+          <span class="inline-block h-4 w-0.5 animate-pulse bg-gray-400 dark:bg-neutral-400"></span>
+        {/if}
         <SourcesBlock {citations} />
+        {#if !displayed.generating}
         <div class="mt-1 flex items-center gap-0.5">
           {#if hasBranches}
             <div class="flex items-center gap-0.5 mr-1">
@@ -292,6 +296,7 @@ const autoResizeEdit = () => {
             <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
           </button>
         </div>
+        {/if}
       </div>
     </div>
   {/if}
