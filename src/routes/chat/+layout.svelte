@@ -6,6 +6,7 @@ import ThinkingEffortPicker from '$lib/components/ThinkingEffortPicker.svelte'
 import TtsPlayer from '$lib/components/TtsPlayer.svelte'
 import { mapSystemPrompt } from '$lib/db-mappers'
 import { pbClient } from '$lib/pb-client'
+import { createRealtimeSlot, registerRealtime, startRealtimeWatchdog } from '$lib/realtime-watchdog'
 import { chatContext } from '$lib/stores/chat-context.svelte'
 import { createConversationsStore } from '$lib/stores/conversations.svelte'
 import { createTtsPlayer } from '$lib/stores/tts-player.svelte'
@@ -163,32 +164,33 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
   }
 }
 onMount(() => {
+  startRealtimeWatchdog()
+  const promptsSlot = createRealtimeSlot(() =>
+    pbClient.collection('system_prompts').subscribe('*', e => {
+      if (e.action === 'delete') {
+        systemPrompts = systemPrompts.filter(p => p.id !== e.record.id)
+      } else {
+        const mapped = mapSystemPrompt(e.record)
+        systemPrompts = systemPrompts.some(p => p.id === mapped.id) ? systemPrompts.map(p => (p.id === mapped.id ? mapped : p)) : [...systemPrompts, mapped]
+      }
+    }),
+  )
   conversations.subscribe()
-  let promptsUnsub: (() => void) | null = null
-  let cancelled = false
-  void (async () => {
-    try {
-      promptsUnsub = await pbClient.collection('system_prompts').subscribe('*', e => {
-        if (cancelled) return
-        if (e.action === 'delete') {
-          systemPrompts = systemPrompts.filter(p => p.id !== e.record.id)
-        } else {
-          const mapped = mapSystemPrompt(e.record)
-          systemPrompts = systemPrompts.some(p => p.id === mapped.id) ? systemPrompts.map(p => (p.id === mapped.id ? mapped : p)) : [...systemPrompts, mapped]
-        }
-      })
-    } catch (err) {
-      console.warn('[realtime] system_prompts subscribe failed', err)
-    }
-    if (cancelled) {
-      promptsUnsub?.()
-      promptsUnsub = null
-    }
-  })()
+  void promptsSlot.subscribe()
+  const deregister = registerRealtime({
+    subscribe: () => {
+      conversations.subscribe()
+      void promptsSlot.subscribe()
+    },
+    unsubscribe: () => {
+      conversations.unsubscribe()
+      promptsSlot.unsubscribe()
+    },
+  })
   return () => {
-    cancelled = true
+    deregister()
     conversations.unsubscribe()
-    promptsUnsub?.()
+    promptsSlot.cancel()
   }
 })
 </script>

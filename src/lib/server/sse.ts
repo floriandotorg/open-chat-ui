@@ -1,6 +1,6 @@
 import { type StreamHub, subscribe } from '$lib/server/stream-hub'
 
-const HEARTBEAT_MS = 15000
+const HEARTBEAT_MS = 5000
 
 export const hubToSSE = (hub: StreamHub, cursor = 0): Response => {
   const encoder = new TextEncoder()

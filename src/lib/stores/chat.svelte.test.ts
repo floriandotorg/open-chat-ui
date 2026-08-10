@@ -299,6 +299,46 @@ describe('createChatStore.sendMessage failure handling', () => {
     await sending
   })
 
+  it('reconnects with cursor when the stream goes silent mid-generation (stall watchdog)', async () => {
+    vi.useFakeTimers()
+    const chat = createChatStore()
+    try {
+      let calls = 0
+      installFetch(async url => {
+        ++calls
+        if (calls === 1) {
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode('id: 0\ndata: {"type":"stream_meta","assistantMsgId":"srv-stall-1"}\n\nid: 1\ndata: {"type":"text_delta","text":"first "}\n\n'))
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+          )
+        }
+        expect(String(url)).toContain('/api/chat/stream/conv-1?cursor=2')
+        return sseResponse('id: 2\ndata: {"type":"text_delta","text":"second"}\n\nid: 3\ndata: {"type":"done","messageId":"srv-stall-1"}\n\nid: 4\ndata: {"type":"stream_end"}\n\n')
+      })
+
+      chat.selectedModel = 'anthropic/claude-test'
+
+      const sending = chat.sendMessage('conv-1', 'hello')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(chat.streamingText).toBe('first ')
+
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(calls).toBe(2)
+      await sending
+
+      expect(chat.isStreaming).toBe(false)
+      expect(chat.allMessages.length).toBe(2)
+      expect(chat.allMessages[1].content).toBe('first second')
+    } finally {
+      chat.stopStreaming()
+      vi.useRealTimers()
+    }
+  })
+
   it('retryFailedMessage reuses the failed message and re-triggers generation via skipUserInsert', async () => {
     let calls = 0
     const sentBodies: unknown[] = []

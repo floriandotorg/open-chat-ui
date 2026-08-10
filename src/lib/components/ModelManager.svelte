@@ -1,5 +1,6 @@
 <script lang="ts">
 import { pbClient } from '$lib/pb-client'
+import { createRealtimeSlot, registerRealtime } from '$lib/realtime-watchdog'
 import type { ModelInfo, ProviderInfo } from '$lib/types'
 import { browser } from '$app/environment'
 import { onMount } from 'svelte'
@@ -90,9 +91,6 @@ let allEnabled = $derived(models.length > 0 && enabledCount === models.length)
 let noneEnabled = $derived(enabledCount === 0)
 let availableProviders = $derived(providers.filter(p => p.hasKey))
 
-let modelsUnsub: (() => void) | null = null
-let realtimeCancelled = false
-
 const refetchProviderModels = async (provider: string) => {
   if (!provider) return
   const res = await fetch(`/api/models/manage?provider=${provider}`)
@@ -108,26 +106,17 @@ const refetchProviderModels = async (provider: string) => {
 
 onMount(() => {
   if (!browser) return
-  realtimeCancelled = false
-  void (async () => {
-    try {
-      modelsUnsub = await pbClient.collection('provider_models').subscribe('*', e => {
-        if (realtimeCancelled) return
-        const provider = e.record.provider as string
-        void refetchProviderModels(provider)
-      })
-    } catch (err) {
-      console.warn('[realtime] provider_models subscribe failed', err)
-    }
-    if (realtimeCancelled) {
-      modelsUnsub?.()
-      modelsUnsub = null
-    }
-  })()
+  const slot = createRealtimeSlot(() =>
+    pbClient.collection('provider_models').subscribe('*', e => {
+      const provider = e.record.provider as string
+      void refetchProviderModels(provider)
+    }),
+  )
+  void slot.subscribe()
+  const deregister = registerRealtime(slot)
   return () => {
-    realtimeCancelled = true
-    modelsUnsub?.()
-    modelsUnsub = null
+    deregister()
+    slot.cancel()
   }
 })
 </script>

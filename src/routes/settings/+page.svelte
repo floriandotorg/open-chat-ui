@@ -3,6 +3,7 @@ import ApiKeyForm from '$lib/components/ApiKeyForm.svelte'
 import ModelManager from '$lib/components/ModelManager.svelte'
 import SystemPromptManager from '$lib/components/SystemPromptManager.svelte'
 import UsagePanel from '$lib/components/UsagePanel.svelte'
+import { registerRealtime, startRealtimeWatchdog } from '$lib/realtime-watchdog'
 import { createSettingsStore } from '$lib/stores/settings.svelte'
 import { enhance } from '$app/forms'
 import { goto } from '$app/navigation'
@@ -92,8 +93,13 @@ const saveDictationProvider = async (value: DictationProvider) => {
 }
 
 onMount(() => {
+  startRealtimeWatchdog()
   settingsStore.subscribe()
-  return () => settingsStore.unsubscribe()
+  const deregister = registerRealtime(settingsStore)
+  return () => {
+    deregister()
+    settingsStore.unsubscribe()
+  }
 })
 
 const activeTab = $derived.by<Tab>(() => {

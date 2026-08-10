@@ -1,3 +1,4 @@
+import { startServerHeartbeat } from '$lib/server/heartbeat'
 import { reapStaleGenerations } from '$lib/server/reaper'
 import { building, dev } from '$app/environment'
 import type { Handle, HandleServerError } from '@sveltejs/kit'
@@ -9,6 +10,7 @@ if (!building) {
   reapStaleGenerations().catch(err => {
     console.error('[reaper] startup reap failed:', err)
   })
+  startServerHeartbeat()
 }
 
 export const handleError: HandleServerError = ({ error, event, status, message }) => {

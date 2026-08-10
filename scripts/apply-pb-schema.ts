@@ -91,7 +91,7 @@ const resolveRelations = (fields: Field[]): Field[] =>
   })
 
 const baseDefs = schema.filter(c => c.type === 'base')
-const order = ['api_keys', 'system_prompts', 'user_settings', 'provider_models', 'conversations', 'messages']
+const order = ['api_keys', 'system_prompts', 'user_settings', 'provider_models', 'conversations', 'messages', 'heartbeat']
 const ordered = [...baseDefs].sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name))
 
 for (const def of ordered) {

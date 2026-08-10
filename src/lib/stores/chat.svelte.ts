@@ -82,6 +82,8 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
   }
 
   const processStream = async (initialResponse: Response, conversationId: string, initialParentId: string | null, controller: AbortController) => {
+    const STALL_MS = 20_000
+    const STALL_CHECK_MS = 5_000
     const codeExecRawInputs = new Map<string, string>()
     let thinkingStartTime: number | null = null
     let parentId: string | null = initialParentId
@@ -191,34 +193,48 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
       if (!reader) throw new Error('Response body is not readable')
       const decoder = new TextDecoder()
       let buffer = ''
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) return
-        buffer += decoder.decode(value, { stream: true })
-        const blocks = buffer.split('\n\n')
-        buffer = blocks.pop() ?? ''
-        for (const block of blocks) {
-          if (abortController !== controller) {
-            reader.cancel().catch(() => {})
-            return
-          }
-          let idLine: string | undefined
-          let dataLine: string | undefined
-          for (const line of block.split('\n')) {
-            if (line.startsWith('id: ')) idLine = line.slice(4)
-            else if (line.startsWith('data: ')) dataLine = line.slice(6)
-          }
-          if (!dataLine) continue
-          let event: ChatStreamEvent
-          try {
-            event = JSON.parse(dataLine)
-          } catch {
-            continue
-          }
-          handleEvent(event)
-          if (idLine !== undefined) cursor = Number(idLine) + 1
-          if (completed) return
+      // The server heartbeats every few seconds; a longer silence means the
+      // connection half-opened (PWA backgrounded, NAT reap) and read() would
+      // pend forever. Cancelling drops us into the cursor-reconnect loop.
+      let lastChunkAt = Date.now()
+      const stallWatchdog = setInterval(() => {
+        if (Date.now() - lastChunkAt > STALL_MS) {
+          reader.cancel().catch(() => {})
         }
+      }, STALL_CHECK_MS)
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) return
+          lastChunkAt = Date.now()
+          buffer += decoder.decode(value, { stream: true })
+          const blocks = buffer.split('\n\n')
+          buffer = blocks.pop() ?? ''
+          for (const block of blocks) {
+            if (abortController !== controller) {
+              reader.cancel().catch(() => {})
+              return
+            }
+            let idLine: string | undefined
+            let dataLine: string | undefined
+            for (const line of block.split('\n')) {
+              if (line.startsWith('id: ')) idLine = line.slice(4)
+              else if (line.startsWith('data: ')) dataLine = line.slice(6)
+            }
+            if (!dataLine) continue
+            let event: ChatStreamEvent
+            try {
+              event = JSON.parse(dataLine)
+            } catch {
+              continue
+            }
+            handleEvent(event)
+            if (idLine !== undefined) cursor = Number(idLine) + 1
+            if (completed) return
+          }
+        }
+      } finally {
+        clearInterval(stallWatchdog)
       }
     }
 

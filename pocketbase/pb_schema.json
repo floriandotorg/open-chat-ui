@@ -835,5 +835,41 @@
       }
     ],
     "indexes": ["CREATE INDEX `idx_messages_conversation` ON `messages` (`conversation`)", "CREATE INDEX `idx_messages_parent` ON `messages` (`parentId`)"]
+  },
+  {
+    "name": "heartbeat",
+    "type": "base",
+    "listRule": "@request.auth.id != ''",
+    "viewRule": "@request.auth.id != ''",
+    "createRule": null,
+    "updateRule": null,
+    "deleteRule": null,
+    "fields": [
+      {
+        "name": "id",
+        "type": "text",
+        "system": true,
+        "primaryKey": true,
+        "required": true,
+        "presentable": false,
+        "hidden": false,
+        "help": "",
+        "autogeneratePattern": "[a-z0-9]{15}",
+        "min": 15,
+        "max": 36,
+        "pattern": "^[a-zA-Z0-9-]+$"
+      },
+      {
+        "name": "updated",
+        "type": "date",
+        "system": false,
+        "required": true,
+        "presentable": false,
+        "hidden": false,
+        "help": "",
+        "min": "",
+        "max": ""
+      }
+    ]
   }
 ]

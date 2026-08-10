@@ -5,6 +5,7 @@ import StreamingText from '$lib/components/StreamingText.svelte'
 import { mapClientMessage, mapConversation } from '$lib/db-mappers'
 import { preserveLocalOrphans } from '$lib/message-tree'
 import { pbClient } from '$lib/pb-client'
+import { createRealtimeSlot, registerRealtime } from '$lib/realtime-watchdog'
 import { selectionIntersects } from '$lib/selection'
 import { createChatStore } from '$lib/stores/chat.svelte'
 import { chatContext } from '$lib/stores/chat-context.svelte'
@@ -180,45 +181,31 @@ $effect(() => {
   const convId = data.conversation.id
   if (!browser) return
   remoteGenerating = untrack(() => data.conversation.generating ?? false)
-  let msgUnsub: (() => void) | null = null
-  let convUnsub: (() => void) | null = null
-  let cancelled = false
-  void (async () => {
-    try {
-      msgUnsub = await pbClient.collection('messages').subscribe(
-        '*',
-        e => {
-          if (cancelled) return
-          if (e.action === 'delete') chat.removeMessage(e.record.id)
-          else chat.upsertMessage(mapClientMessage(e.record))
-        },
-        { filter: pbClient.filter('conversation = {:c}', { c: convId }) },
-      )
-    } catch (err) {
-      console.warn('[realtime] messages subscribe failed', err)
-    }
-    try {
-      convUnsub = await pbClient.collection('conversations').subscribe(convId, e => {
-        if (cancelled) return
-        if (e.action === 'delete') return
-        const c = mapConversation(e.record)
-        if (!chat.isStreaming) chat.activeBranches = c.activeBranches ?? {}
-        remoteGenerating = c.generating
-      })
-    } catch (err) {
-      console.warn('[realtime] conversation subscribe failed', err)
-    }
-    if (cancelled) {
-      msgUnsub?.()
-      convUnsub?.()
-      msgUnsub = null
-      convUnsub = null
-    }
-  })()
+  const messagesSlot = createRealtimeSlot(() =>
+    pbClient.collection('messages').subscribe(
+      '*',
+      e => {
+        if (e.action === 'delete') chat.removeMessage(e.record.id)
+        else chat.upsertMessage(mapClientMessage(e.record))
+      },
+      { filter: pbClient.filter('conversation = {:c}', { c: convId }) },
+    ),
+  )
+  const conversationSlot = createRealtimeSlot(() =>
+    pbClient.collection('conversations').subscribe(convId, e => {
+      if (e.action === 'delete') return
+      const c = mapConversation(e.record)
+      if (!chat.isStreaming) chat.activeBranches = c.activeBranches ?? {}
+      remoteGenerating = c.generating
+    }),
+  )
+  void messagesSlot.subscribe()
+  void conversationSlot.subscribe()
+  const deregister = registerRealtime(messagesSlot, conversationSlot)
   return () => {
-    cancelled = true
-    msgUnsub?.()
-    convUnsub?.()
+    deregister()
+    messagesSlot.cancel()
+    conversationSlot.cancel()
   }
 })
 
