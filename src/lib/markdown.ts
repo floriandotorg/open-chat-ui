@@ -1,7 +1,7 @@
 import { findMarkdownCodeRegions } from './markdown-code-regions'
 import hljs from 'highlight.js'
 import katex from 'katex'
-import { Marked, type Token, type Tokens } from 'marked'
+import { Marked, Parser, type Token, type Tokens } from 'marked'
 
 const escapeHtml = (str: string) => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
@@ -9,7 +9,15 @@ const DANGEROUS_PROTOCOL = /^\s*(javascript|vbscript|data):/i
 
 const marked = new Marked()
 
+const EXTERNAL_HREF = /^(https?:)?\/\//i
+
 const renderer = {
+  link({ href, title, tokens }: Tokens.Link) {
+    const external = EXTERNAL_HREF.test(href)
+    const attrs = external ? ' target="_blank" rel="noopener noreferrer"' : ''
+    const titleAttr = title ? ` title="${escapeHtml(title)}"` : ''
+    return `<a href="${escapeHtml(href)}"${titleAttr}${attrs}>${Parser.parseInline(tokens)}</a>`
+  },
   code({ text, lang }: Tokens.Code) {
     const language = lang ?? ''
     const highlighted = language && hljs.getLanguage(language) ? hljs.highlight(text, { language }).value : hljs.highlightAuto(text).value
