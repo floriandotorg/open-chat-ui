@@ -19,8 +19,7 @@
     "enabled": true,
     "rules": {
       "nursery": {
-        "useSortedClasses": "error",
-        "useSpread": "error"
+        "useSortedClasses": "error"
       },
       "suspicious": {
         "noIrregularWhitespace": "error",
