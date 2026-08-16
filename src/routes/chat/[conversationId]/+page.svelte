@@ -115,6 +115,10 @@ $effect(() => {
   const convChanged = !isFirstAttach && activeConvId !== convId
   activeConvId = convId
 
+  if (convChanged) {
+    stickToBottom = true
+  }
+
   if (convChanged || !untrack(() => chat.isStreaming)) {
     untrack(() => chat.seed(convId, mapServerMessages(serverAllMessages), serverBranches))
   }
