@@ -8,6 +8,9 @@ const ADMIN_PASSWORD = env.POCKETBASE_ADMIN_PASSWORD
 
 export const pb = new PocketBase(env.POCKETBASE_URL)
 
+// Shared across all requests/users: identical concurrent queries must not cancel each other
+pb.autoCancellation(false)
+
 let authPromise: Promise<void> | null = null
 
 const authWithPassword = async () => {
