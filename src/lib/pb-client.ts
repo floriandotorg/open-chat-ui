@@ -10,4 +10,13 @@ if (browser) {
     // biome-ignore lint/suspicious/noDocumentCookie: js-sdk hydration persists auth cookie client-side
     document.cookie = pbClient.authStore.exportToCookie({ httpOnly: false, secure: location.protocol === 'https:' })
   })
+  // hooks.server.ts refreshes the auth cookie on every response, but the SDK
+  // keeps its token in memory only: re-sync from the cookie once the in-memory
+  // token expires, or long-lived sessions (installed PWA) lose realtime for good.
+  pbClient.beforeSend = (url, options) => {
+    if (!pbClient.authStore.isValid) {
+      pbClient.authStore.loadFromCookie(document.cookie)
+    }
+    return { url, options }
+  }
 }

@@ -17,7 +17,7 @@ test('dropdown portals to body, escaping nested backdrop-filter contexts', async
 
   instance = mount(ModelPicker, {
     target: header,
-    props: { providers: [], selectedModel: null },
+    props: { providers: [], selectedModel: '' },
   }) as Record<string, unknown>
 
   const trigger = header.querySelector('button')

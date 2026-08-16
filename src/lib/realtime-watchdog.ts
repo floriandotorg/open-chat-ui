@@ -13,6 +13,7 @@ export interface RealtimeRegistration {
   subscribe: () => void | Promise<void>
   unsubscribe: () => void
   resync?: () => void | Promise<void>
+  isHealthy?: () => boolean
 }
 
 const registrations = new Set<RealtimeRegistration>()
@@ -80,9 +81,16 @@ const recover = async () => {
   }
 }
 
+const hasUnhealthyRegistration = () => {
+  for (const entry of registrations) {
+    if (entry.isHealthy?.() === false) return true
+  }
+  return false
+}
+
 const check = () => {
   if (!browser || !navigator.onLine || document.visibilityState !== 'visible') return
-  if (!heartbeatUnsub || Date.now() - lastEventAt > STALL_MS) {
+  if (!heartbeatUnsub || Date.now() - lastEventAt > STALL_MS || hasUnhealthyRegistration()) {
     void recover()
   }
 }
@@ -94,9 +102,19 @@ const onResume = () => {
   }
 }
 
+// The SDK re-submits all subscriptions on reconnect by itself, but events
+// emitted while the connection was down are lost (PocketBase has no replay):
+// every established-connection drop triggers a recover so registrations
+// resubscribe AND re-pull their data, instead of waiting for a heartbeat stall.
+const onRealtimeDisconnect = () => {
+  if (!browser || !registrations.size) return
+  void recover()
+}
+
 export const startRealtimeWatchdog = () => {
   if (!browser || started) return
   started = true
+  pbClient.realtime.onDisconnect = onRealtimeDisconnect
   void ensureHeartbeat()
   setInterval(check, CHECK_INTERVAL_MS)
   document.addEventListener('visibilitychange', onResume)
@@ -106,6 +124,7 @@ export const startRealtimeWatchdog = () => {
 
 export interface RealtimeSlot extends RealtimeRegistration {
   cancel: () => void
+  isHealthy: () => boolean
 }
 
 export const createRealtimeSlot = (subscribeFn: () => Promise<() => void>, resyncFn?: (isCurrent: () => boolean) => void | Promise<void>): RealtimeSlot => {
@@ -145,5 +164,6 @@ export const createRealtimeSlot = (subscribeFn: () => Promise<() => void>, resyn
       unsub?.()
       unsub = null
     },
+    isHealthy: () => cancelled || !!unsub,
   }
 }

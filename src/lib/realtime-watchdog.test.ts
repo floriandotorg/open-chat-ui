@@ -140,6 +140,46 @@ describe('realtime watchdog', () => {
     expect(subscribe).toHaveBeenCalled()
   })
 
+  it('recovers immediately when the realtime connection drops', async () => {
+    heartbeatSubscribe.mockResolvedValue(vi.fn())
+    const watchdog = await loadWatchdog()
+    const { pbClient } = await import('$lib/pb-client')
+    watchdog.startRealtimeWatchdog()
+    await vi.advanceTimersByTimeAsync(0)
+
+    const subscribe = vi.fn()
+    const unsubscribe = vi.fn()
+    const resync = vi.fn()
+    watchdog.registerRealtime({ subscribe, unsubscribe, resync })
+    expect(realtimeUnsubscribe).not.toHaveBeenCalled()
+
+    pbClient.realtime.onDisconnect?.([])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(realtimeUnsubscribe).toHaveBeenCalledTimes(1)
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+    expect(subscribe).toHaveBeenCalledTimes(1)
+    expect(resync).toHaveBeenCalledTimes(1)
+  })
+
+  it('recovers when a registration reports unhealthy', async () => {
+    let onBeat: (() => void) | undefined
+    heartbeatSubscribe.mockImplementation((_topic: string, cb: () => void) => {
+      onBeat = cb
+      return Promise.resolve(vi.fn())
+    })
+    const watchdog = await loadWatchdog()
+    watchdog.startRealtimeWatchdog()
+    await vi.advanceTimersByTimeAsync(0)
+    onBeat?.()
+
+    const subscribe = vi.fn()
+    watchdog.registerRealtime({ subscribe, unsubscribe: vi.fn(), isHealthy: () => false })
+
+    await vi.advanceTimersByTimeAsync(11_000)
+    expect(realtimeUnsubscribe).toHaveBeenCalled()
+    expect(subscribe).toHaveBeenCalled()
+  })
+
   it('does not recover while the tab is hidden', async () => {
     heartbeatSubscribe.mockResolvedValue(vi.fn())
     const watchdog = await loadWatchdog()

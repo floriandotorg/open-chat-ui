@@ -12,7 +12,6 @@ export const createConversationsStore = (initial: Conversation[]) => {
   const conversations = $derived([...byId.values(), ...pending.values().filter(c => !byId.has(c.id))].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()))
 
   const upsert = (c: Conversation) => {
-    if (!byId.has(c.id) && !pending.has(c.id) && byId.size >= 100) return
     pending.confirm(c.id)
     const patch = pendingPatches.get(c.id)
     let merged = c
@@ -57,15 +56,17 @@ export const createConversationsStore = (initial: Conversation[]) => {
 
   let unsub: (() => void) | null = null
   let cancelled = false
+  let generation = 0
   const subscribe = async () => {
     if (!browser || unsub) return
     cancelled = false
+    const gen = ++generation
     try {
       const u = await pbClient.collection('conversations').subscribe('*', e => {
         if (e.action === 'delete') remove(e.record.id)
         else upsert(mapConversation(e.record))
       })
-      if (cancelled) {
+      if (cancelled || gen !== generation) {
         u()
         return
       }
@@ -76,6 +77,7 @@ export const createConversationsStore = (initial: Conversation[]) => {
   }
   const unsubscribe = () => {
     cancelled = true
+    ++generation
     unsub?.()
     unsub = null
   }
@@ -114,5 +116,6 @@ export const createConversationsStore = (initial: Conversation[]) => {
     subscribe,
     unsubscribe,
     resync,
+    isSubscribed: () => cancelled || !!unsub,
   }
 }

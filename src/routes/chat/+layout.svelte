@@ -189,6 +189,7 @@ onMount(() => {
       conversations.unsubscribe()
       promptsSlot.unsubscribe()
     },
+    isHealthy: () => conversations.isSubscribed() && promptsSlot.isHealthy(),
     resync: async () => {
       const userId = pbClient.authStore.record?.id
       await conversations.resync()
