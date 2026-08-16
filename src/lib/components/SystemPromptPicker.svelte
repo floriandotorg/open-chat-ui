@@ -1,4 +1,5 @@
 <script lang="ts">
+import { createPopover, portal } from '$lib/popover.svelte'
 import type { SystemPrompt } from '$lib/types'
 
 let {
@@ -11,32 +12,33 @@ let {
   onchange: (promptId: string | null) => void
 } = $props()
 
-let open = $state(false)
+const popover = createPopover('right')
 
 const selected = $derived(prompts.find(p => p.id === selectedId))
 const label = $derived(selected?.title ?? prompts.find(p => p.isDefault)?.title ?? 'System Prompt')
 
 const select = (id: string | null) => {
   selectedId = id
-  open = false
+  popover.close()
   onchange(id)
-}
-
-const handleKeydown = (e: KeyboardEvent) => {
-  if (e.key === 'Escape') open = false
 }
 </script>
 
-<svelte:window onkeydown={open ? handleKeydown : undefined} />
+<svelte:window
+  onkeydown={popover.open ? popover.handleKeydown : undefined}
+  onresize={popover.open ? popover.close : undefined}
+  onscrollcapture={popover.open ? popover.handleScroll : undefined}
+/>
 
 {#if prompts.length > 0}
-  {#if open}
-    <button class="fixed inset-0 z-40" onclick={() => open = false} tabindex="-1" aria-label="Close"></button>
+  {#if popover.open}
+    <button use:portal class="fixed inset-0 z-40" onclick={popover.close} tabindex="-1" aria-label="Close"></button>
   {/if}
 
-  <div class="relative">
+  <div>
     <button
-      onclick={() => open = !open}
+      bind:this={popover.trigger}
+      onclick={popover.toggle}
       class="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700 {selectedId && !selected?.isDefault ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}"
       title="System prompt: {label}"
       aria-label="System prompt: {label}"
@@ -53,8 +55,8 @@ const handleKeydown = (e: KeyboardEvent) => {
       </svg>
     </button>
 
-    {#if open}
-      <div class="liquid-glass absolute right-0 top-full z-50 mt-1 min-w-[200px] max-w-[280px] rounded-xl py-1">
+    {#if popover.open}
+      <div use:portal bind:this={popover.content} style={popover.style} class="liquid-glass fixed z-50 min-w-[200px] max-w-[280px] rounded-xl py-1">
         {#each prompts as prompt (prompt.id)}
           <button
             onclick={() => select(prompt.id)}

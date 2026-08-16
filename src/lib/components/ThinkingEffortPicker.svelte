@@ -1,4 +1,5 @@
 <script lang="ts">
+import { createPopover, portal } from '$lib/popover.svelte'
 import { THINKING_EFFORT_LABELS, type ThinkingEffort } from '$lib/types'
 
 let {
@@ -9,33 +10,30 @@ let {
 
 const efforts: ThinkingEffort[] = ['none', 'low', 'medium', 'high', 'max']
 
-let open = $state(false)
-
-const toggle = () => {
-  open = !open
-}
+const popover = createPopover('right')
 
 const select = (effort: ThinkingEffort) => {
   thinkingEffort = effort
-  open = false
-}
-
-const handleKeydown = (e: KeyboardEvent) => {
-  if (e.key === 'Escape') open = false
+  popover.close()
 }
 
 const barCount = (effort: ThinkingEffort): number => ({ none: 0, low: 1, medium: 2, high: 3, max: 4 })[effort]
 </script>
 
-<svelte:window onkeydown={open ? handleKeydown : undefined} />
+<svelte:window
+  onkeydown={popover.open ? popover.handleKeydown : undefined}
+  onresize={popover.open ? popover.close : undefined}
+  onscrollcapture={popover.open ? popover.handleScroll : undefined}
+/>
 
-{#if open}
-  <button class="fixed inset-0 z-40" onclick={() => open = false} tabindex="-1" aria-label="Close"></button>
+{#if popover.open}
+  <button use:portal class="fixed inset-0 z-40" onclick={popover.close} tabindex="-1" aria-label="Close"></button>
 {/if}
 
-<div class="relative">
+<div>
   <button
-    onclick={toggle}
+    bind:this={popover.trigger}
+    onclick={popover.toggle}
     class="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700"
     aria-label="Thinking effort: {THINKING_EFFORT_LABELS[thinkingEffort]}"
     title="Thinking effort"
@@ -55,8 +53,8 @@ const barCount = (effort: ThinkingEffort): number => ({ none: 0, low: 1, medium:
     </div>
   </button>
 
-  {#if open}
-    <div class="liquid-glass absolute right-0 top-full z-50 mt-1 min-w-[140px] rounded-xl py-1">
+  {#if popover.open}
+    <div use:portal bind:this={popover.content} style={popover.style} class="liquid-glass fixed z-50 min-w-[140px] rounded-xl py-1">
       {#each efforts as effort (effort)}
         <button
           onclick={() => select(effort)}

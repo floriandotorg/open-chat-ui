@@ -1,4 +1,5 @@
 <script lang="ts">
+import { createPopover, portal } from '$lib/popover.svelte'
 import type { ModelInfo, ProviderInfo } from '$lib/types'
 import { onMount } from 'svelte'
 
@@ -16,7 +17,7 @@ let {
 
 let models = $state<ModelInfo[]>([])
 let loaded = $state(false)
-let open = $state(false)
+const popover = createPopover()
 
 const fetchAllModels = async () => {
   const available = providers.filter(p => p.hasKey)
@@ -45,33 +46,30 @@ onMount(() => {
   fetchAllModels()
 })
 
-const toggleOpen = () => {
-  open = !open
-}
-
 const label = $derived(models.find(m => m.id === selectedModel)?.name ?? (selectedModel ? modelNameHint || 'Select model' : 'Select model'))
 
 const select = (id: string) => {
   selectedModel = id
   const found = models.find(m => m.id === id)
   if (found) onmodelchange?.(found.id, found.name)
-  open = false
-}
-
-const handleKeydown = (e: KeyboardEvent) => {
-  if (e.key === 'Escape') open = false
+  popover.close()
 }
 </script>
 
-<svelte:window onkeydown={open ? handleKeydown : undefined} />
+<svelte:window
+  onkeydown={popover.open ? popover.handleKeydown : undefined}
+  onresize={popover.open ? popover.close : undefined}
+  onscrollcapture={popover.open ? popover.handleScroll : undefined}
+/>
 
-{#if open}
-  <button class="fixed inset-0 z-40" onclick={() => open = false} tabindex="-1" aria-label="Close"></button>
+{#if popover.open}
+  <button use:portal class="fixed inset-0 z-40" onclick={popover.close} tabindex="-1" aria-label="Close"></button>
 {/if}
 
-<div class="relative">
+<div>
   <button
-    onclick={toggleOpen}
+    bind:this={popover.trigger}
+    onclick={popover.toggle}
     class="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-neutral-700 dark:text-white"
     title={label}
     aria-label="Model: {label}"
@@ -82,8 +80,8 @@ const handleKeydown = (e: KeyboardEvent) => {
     </svg>
   </button>
 
-  {#if open}
-    <div class="liquid-glass absolute left-0 top-full z-50 mt-1 min-w-[240px] max-w-[320px] max-h-[400px] overflow-y-auto rounded-xl py-1">
+  {#if popover.open}
+    <div use:portal bind:this={popover.content} style={popover.style} class="liquid-glass fixed z-50 min-w-[240px] max-w-[320px] max-h-[400px] overflow-y-auto rounded-xl py-1">
       {#each models as model (model.id)}
         <button
           onclick={() => select(model.id)}
