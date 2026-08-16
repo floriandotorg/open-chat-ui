@@ -35,9 +35,11 @@ const isCodeExecution = (tc: PersistedEntry): tc is PersistedCodeExecution => 't
 // persisted content is the concatenated text of every tool round; each round's
 // textOffset marks where its text ends. Rounds with code execution replay
 // rawContentBlocks verbatim (server-side tool_use/result blocks can't be
-// reconstructed otherwise). Every rawContentBlocks offset is also a tool-call
-// offset, so the round loop below already emits those turns — the text tail
-// after the final round is always plain text, never a block replay.
+// reconstructed otherwise). A rawContentBlocks offset without any tool-call
+// entry is a round whose server_tool_use never received its result
+// (pause_turn); it is still replayed so a later round's orphaned result keeps
+// its partner. The text tail after the final round is always plain text,
+// never a block replay.
 //
 // Rounds with empty text share a textOffset, so one offset can hold several
 // rounds. Each raw-block entry is replayed as its own assistant turn, and
@@ -60,8 +62,9 @@ const toolUseIdsIn = (blocks: unknown[]): Set<string> => {
 export const buildHistoryMessages = (role: string, content: string, toolCalls: PersistedEntry[], rawEntries: RawContentBlockEntry[] | null | undefined): ChatMessage[] => {
   const regularToolCalls = toolCalls.filter((tc): tc is PersistedToolCall => !isCodeExecution(tc))
   const hasCodeExec = toolCalls.some(isCodeExecution)
+  const hasRawBlocks = (rawEntries ?? []).some(entry => entry.blocks.length > 0)
 
-  if (role !== 'assistant' || (!regularToolCalls.length && !hasCodeExec)) {
+  if (role !== 'assistant' || (!regularToolCalls.length && !hasCodeExec && !hasRawBlocks)) {
     return [{ role: role as ChatMessage['role'], content }]
   }
 
@@ -72,7 +75,7 @@ export const buildHistoryMessages = (role: string, content: string, toolCalls: P
     rawBlocksByOffset.set(entry.textOffset, list)
   }
 
-  const offsets = [...new Set(toolCalls.map(tc => tc.textOffset))].sort((a, b) => a - b)
+  const offsets = [...new Set([...toolCalls.map(tc => tc.textOffset), ...(rawEntries ?? []).map(entry => entry.textOffset)])].sort((a, b) => a - b)
   const result: ChatMessage[] = []
   let prev = 0
   for (const off of offsets) {

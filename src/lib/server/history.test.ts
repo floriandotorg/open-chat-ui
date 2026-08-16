@@ -77,6 +77,33 @@ describe('buildHistoryMessages', () => {
     ])
   })
 
+  it('replays a raw round whose server_tool_use never got a result', () => {
+    const dangling = [{ type: 'server_tool_use', id: 'srvtoolu_1', name: 'bash_code_execution' }]
+    const entries = buildHistoryMessages('assistant', 'hello', [], [{ textOffset: 5, blocks: dangling }])
+    expect(entries).toEqual([{ role: 'assistant', content: 'hello', rawContentBlocks: dangling }])
+  })
+
+  it('replays a dangling server_tool_use round and a later orphan result round as separate turns', () => {
+    const dangling = [{ type: 'server_tool_use', id: 'srvtoolu_1', name: 'bash_code_execution' }]
+    const orphan = [
+      { type: 'bash_code_execution_tool_result', tool_use_id: 'srvtoolu_1', content: {} },
+      { type: 'text', text: 'done' },
+    ]
+    const entries = buildHistoryMessages(
+      'assistant',
+      'helloworld',
+      [codeExecEntry({ id: 'srvtoolu_1', textOffset: 10 })],
+      [
+        { textOffset: 5, blocks: dangling },
+        { textOffset: 10, blocks: orphan },
+      ],
+    )
+    expect(entries).toEqual([
+      { role: 'assistant', content: 'hello', rawContentBlocks: dangling },
+      { role: 'assistant', content: 'world', rawContentBlocks: orphan },
+    ])
+  })
+
   it('keeps consecutive code-exec rounds distinct', () => {
     const entries = buildHistoryMessages(
       'assistant',

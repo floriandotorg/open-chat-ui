@@ -10,6 +10,7 @@ import { getKnowledgeCutoff } from '$lib/server/knowledge-cutoff'
 import { getFirstOrNull, isNotFound, pb } from '$lib/server/pb'
 import { formatCurrentDate, getPostSystemPrompt } from '$lib/server/prompts'
 import { getProviderFactory } from '$lib/server/providers'
+import { containsServerToolBlocks } from '$lib/server/providers/anthropic'
 import type { ChatMessage, ChatMessageImage, ToolCallInfo } from '$lib/server/providers/types'
 import { generateConversationTitle } from '$lib/server/title'
 import { executeTool, getToolSchemas } from '$lib/server/tools'
@@ -381,7 +382,11 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
       for (const ce of pendingCodeExecResults) {
         allToolCalls.push({ ...ce, textOffset: textOffsetForRound })
       }
-      if (pendingCodeExecResults.length && rawContentBlocks?.length) {
+      // A round whose server_tool_use result lands in a later turn (pause_turn,
+      // mixed server/client tool turns) still needs its raw blocks persisted —
+      // otherwise the later result replays without its partner and Anthropic
+      // rejects the request.
+      if (rawContentBlocks?.length && containsServerToolBlocks(rawContentBlocks)) {
         allRawContentBlocks.push({ textOffset: textOffsetForRound, blocks: rawContentBlocks })
       }
 
