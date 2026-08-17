@@ -98,6 +98,14 @@ describe('renderMarkdown', () => {
     expect(html).toContain('<code>foo</code>')
   })
 
+  it('keeps nested fences inside a markdown code block', () => {
+    const src = ['```markdown', '# Spec', '', '### `wiki search` primary tool.', '', '```', '--q TEXT additional query variant', '--mode hybrid|lex|vec default hybrid', '```', '', '### `wiki read`', '```'].join('\n')
+    const html = renderMarkdown(src)
+    expect(html.match(/code-block/g)).toHaveLength(1)
+    expect(html).not.toContain('<h3')
+    expect(html).toContain('--q TEXT')
+  })
+
   it('renders multiple inline maths', () => {
     const html = renderMarkdown('Let $a$ and $b$ be numbers.')
     expect(html).toContain('katex')

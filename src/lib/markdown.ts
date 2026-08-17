@@ -1,4 +1,5 @@
 import { findMarkdownCodeRegions } from './markdown-code-regions'
+import { normalizeFences } from './markdown-fences'
 import hljs from 'highlight.js'
 import katex from 'katex'
 import { Marked, Parser, type Token, type Tokens } from 'marked'
@@ -91,7 +92,7 @@ const extractMath = (text: string): { text: string; mathBlocks: string[] } => {
 const restoreMath = (html: string, mathBlocks: string[]): string => html.replace(PH_RE, (_, index) => mathBlocks[Number(index)])
 
 export const renderMarkdown = (text: string): string => {
-  const { text: textWithoutMath, mathBlocks } = extractMath(text)
+  const { text: textWithoutMath, mathBlocks } = extractMath(normalizeFences(text))
   const html = marked.parse(textWithoutMath) as string
   return restoreMath(html, mathBlocks)
 }
