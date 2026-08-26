@@ -1,5 +1,5 @@
 import { normalizeModelRef } from '$lib/model-ref'
-import type { Message as ClientMessage, CodeExecutionBlock, FileAttachment, ImageAttachment, ToolCallInfo } from '$lib/types'
+import type { Message as ClientMessage, CodeExecutionBlock, FileAttachment, ImageAttachment, ModelInfo, ToolCallInfo } from '$lib/types'
 import type { RecordModel } from 'pocketbase'
 
 export interface ApiKey {
@@ -43,6 +43,7 @@ export interface Message {
   outputTokens: number | null
   cacheReadInputTokens: number | null
   cacheCreationInputTokens: number | null
+  cost: number | null
   toolCalls: unknown[] | null
   rawContentBlocks: unknown[] | null
   error: string | null
@@ -79,6 +80,7 @@ export interface ProviderModel {
   provider: string
   modelId: string
   enabled: boolean
+  metadata: ModelInfo | null
   createdAt: Date
   updatedAt: Date
 }
@@ -135,6 +137,7 @@ export const mapMessage = (r: RecordModel): Message => ({
   outputTokens: numOrNull(r.outputTokens),
   cacheReadInputTokens: numOrNull(r.cacheReadInputTokens),
   cacheCreationInputTokens: numOrNull(r.cacheCreationInputTokens),
+  cost: numOrNull(r.cost),
   toolCalls: r.toolCalls ?? null,
   rawContentBlocks: r.rawContentBlocks ?? null,
   error: orNull(r.error),
@@ -204,6 +207,7 @@ export const mapProviderModel = (r: RecordModel): ProviderModel => ({
   provider: r.provider,
   modelId: r.modelId,
   enabled: r.enabled ?? false,
+  metadata: (r.metadata as ModelInfo | null) ?? null,
   createdAt: toDate(r.createdAt),
   updatedAt: toDate(r.updatedAt),
 })

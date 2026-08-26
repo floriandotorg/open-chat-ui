@@ -10,6 +10,7 @@ interface UsageRow {
   outputTokens: number
   cacheReadInputTokens: number
   cacheCreationInputTokens: number
+  cost: number | null
   createdAt: string
 }
 

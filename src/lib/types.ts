@@ -81,6 +81,7 @@ export interface ProviderInfo {
   id: string
   name: string
   hasKey: boolean
+  supportsCustomModels?: boolean
   keyCount?: number
   multiple?: boolean
   keys?: ApiKeySummary[]

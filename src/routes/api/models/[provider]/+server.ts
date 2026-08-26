@@ -3,6 +3,7 @@ import { getDecryptedKey } from '$lib/server/api-key'
 import { requireUser } from '$lib/server/auth-guard'
 import { mapProviderModel } from '$lib/server/db/records'
 import { pb } from '$lib/server/pb'
+import { storedModelInfo } from '$lib/server/provider-models'
 import { getProviderFactory } from '$lib/server/providers'
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
@@ -16,9 +17,14 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   }
 
   const provider = getProviderFactory(params.provider)(apiKey)
-  const allModels = await provider.listModels()
 
   const stored = (await pb.collection('provider_models').getFullList({ filter: pb.filter('provider = {:p}', { p: params.provider }) })).map(mapProviderModel)
+
+  if (provider.supportsCustomModels) {
+    return json(stored.filter(s => s.enabled).map(storedModelInfo))
+  }
+
+  const allModels = await provider.listModels()
 
   if (stored.length === 0) {
     return json(allModels)

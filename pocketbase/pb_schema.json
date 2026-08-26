@@ -404,6 +404,16 @@
         "help": ""
       },
       {
+        "name": "metadata",
+        "type": "json",
+        "system": false,
+        "required": false,
+        "presentable": false,
+        "hidden": false,
+        "help": "",
+        "maxSize": 0
+      },
+      {
         "name": "createdAt",
         "type": "date",
         "system": false,
@@ -799,6 +809,18 @@
         "hidden": false,
         "help": "",
         "maxSize": 0
+      },
+      {
+        "name": "cost",
+        "type": "number",
+        "system": false,
+        "required": false,
+        "presentable": false,
+        "hidden": false,
+        "help": "",
+        "min": null,
+        "max": null,
+        "onlyInt": false
       },
       {
         "name": "createdAt",

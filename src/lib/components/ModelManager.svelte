@@ -86,6 +86,60 @@ const toggleAll = async (enabled: boolean) => {
   models = models.map(m => ({ ...m, enabled }))
 }
 
+let isCustomProvider = $derived(providers.find(p => p.id === selectedProvider)?.supportsCustomModels ?? false)
+
+let searchQuery = $state('')
+let searchResults = $state<ModelInfo[]>([])
+let searching = $state(false)
+let adding = $state(false)
+
+$effect(() => {
+  if (!browser || !isCustomProvider) return
+  const q = searchQuery.trim()
+  if (!q) {
+    searchResults = []
+    searching = false
+    return
+  }
+  searching = true
+  const timer = setTimeout(async () => {
+    const res = await fetch(`/api/models/search?provider=${selectedProvider}&q=${encodeURIComponent(q)}`)
+    if (res.ok) {
+      searchResults = await res.json()
+    }
+    searching = false
+  }, 250)
+  return () => clearTimeout(timer)
+})
+
+const addModel = async (modelId: string) => {
+  if (!modelId.trim() || adding) return
+  adding = true
+  await fetch('/api/models/manage', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: selectedProvider, modelId: modelId.trim() }),
+  })
+  searchQuery = ''
+  searchResults = []
+  adding = false
+  await fetchModels(selectedProvider)
+  await fetchAllModels()
+}
+
+const removeModel = async (modelId: string) => {
+  await fetch('/api/models/manage', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ modelId }),
+  })
+  await fetchModels(selectedProvider)
+  await fetchAllModels()
+}
+
+let searchHasExactMatch = $derived(searchResults.some(m => m.id === `${selectedProvider}/${searchQuery.trim()}`))
+let addedIds = $derived(new Set(models.map(m => m.id)))
+
 let enabledCount = $derived(models.filter(m => m.enabled).length)
 let allEnabled = $derived(models.length > 0 && enabledCount === models.length)
 let noneEnabled = $derived(enabledCount === 0)
@@ -190,10 +244,63 @@ onMount(() => {
     </span>
   </div>
 
+  {#if isCustomProvider}
+    <div class="relative">
+      <input
+        type="text"
+        bind:value={searchQuery}
+        placeholder="Search models to add, e.g. moonshotai/kimi-k3"
+        class="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+      />
+      {#if searchQuery.trim()}
+        <div class="absolute z-10 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
+          {#each searchResults as result (result.id)}
+            <div class="flex items-center justify-between gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800">
+              <div class="flex min-w-0 flex-col">
+                <span class="truncate text-sm font-medium">{result.name}</span>
+                <span class="truncate text-xs text-gray-500 dark:text-gray-400">
+                  {result.id} &middot; {(result.contextWindow / 1000).toFixed(0)}k context
+                  {#if result.inputPricePerMToken != null}
+                    &middot; ${result.inputPricePerMToken} / ${result.outputPricePerMToken} per MT
+                  {/if}
+                </span>
+              </div>
+              {#if addedIds.has(result.id)}
+                <span class="shrink-0 text-xs text-gray-400">Added</span>
+              {:else}
+                <button
+                  onclick={() => addModel(result.id.slice(result.id.indexOf('/') + 1))}
+                  disabled={adding}
+                  class="shrink-0 rounded-lg border border-gray-300 px-2 py-1 text-xs hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                >
+                  Add
+                </button>
+              {/if}
+            </div>
+          {/each}
+          {#if !searchHasExactMatch}
+            <button
+              onclick={() => addModel(searchQuery.trim())}
+              disabled={adding}
+              class="w-full px-3 py-2 text-left text-sm text-blue-600 hover:bg-gray-50 disabled:opacity-50 dark:text-blue-400 dark:hover:bg-gray-800"
+            >
+              Add "{searchQuery.trim()}" by id
+            </button>
+          {/if}
+          {#if searching}
+            <div class="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">Searching...</div>
+          {/if}
+        </div>
+      {/if}
+    </div>
+  {/if}
+
   {#if loading}
     <div class="py-8 text-center text-sm text-gray-500">Loading models...</div>
   {:else if models.length === 0}
-    <div class="py-8 text-center text-sm text-gray-500">No models available for this provider.</div>
+    <div class="py-8 text-center text-sm text-gray-500">
+      {isCustomProvider ? 'No models added yet. Search above to add one.' : 'No models available for this provider.'}
+    </div>
   {:else}
     <div class="flex gap-2">
       <button
@@ -236,6 +343,15 @@ onMount(() => {
           </div>
           <div class="ml-4 flex shrink-0 items-center gap-2">
             <span class="text-xs text-gray-400">{model.enabled ? '' : 'hidden'}</span>
+            {#if isCustomProvider}
+              <button
+                onclick={() => removeModel(model.id)}
+                class="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+                aria-label="Remove {model.name}"
+              >
+                Remove
+              </button>
+            {/if}
             <button
               onclick={() => toggleModel(model.id, !model.enabled)}
               class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {model.enabled ? 'bg-gray-300 dark:bg-gray-700' : 'bg-orange-500'}"

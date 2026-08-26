@@ -84,6 +84,7 @@ export interface ChatStreamEvent {
   outputTokens?: number
   cacheReadInputTokens?: number
   cacheCreationInputTokens?: number
+  cost?: number
   error?: string
   toolCall?: ToolCallInfo
   toolResult?: { toolCallId: string; toolName: string; result: string; rawResult?: string }
@@ -103,8 +104,11 @@ export interface LLMProvider {
   readonly id: string
   readonly name: string
   readonly capabilities: ProviderCapability[]
+  readonly supportsCustomModels?: boolean
 
   listModels(): Promise<ModelInfo[]>
+  searchModels?(query: string): Promise<ModelInfo[]>
+  getModelInfo?(modelId: string): Promise<ModelInfo | null>
   chat(request: ChatRequest): AsyncGenerator<ChatStreamEvent>
 }
 

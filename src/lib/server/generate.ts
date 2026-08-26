@@ -218,7 +218,7 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
       thinkingStartedAt = null
     }
   }
-  const totalUsage = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }
+  const totalUsage = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, cost: 0 }
   const allToolCalls: (PersistedToolCall | PersistedCodeExecution)[] = []
   const allRawContentBlocks: { textOffset: number; blocks: unknown[] }[] = []
   const liveToolCalls: LiveToolCall[] = []
@@ -370,6 +370,7 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
           totalUsage.outputTokens += event.outputTokens ?? 0
           totalUsage.cacheReadInputTokens += event.cacheReadInputTokens ?? 0
           totalUsage.cacheCreationInputTokens += event.cacheCreationInputTokens ?? 0
+          totalUsage.cost += event.cost ?? 0
         } else if (event.type === 'done') {
           stopReason = event.stopReason ?? 'end'
         } else if (event.type === 'error') {
@@ -446,6 +447,7 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
       outputTokens: totalUsage.outputTokens || undefined,
       cacheReadInputTokens: totalUsage.cacheReadInputTokens || undefined,
       cacheCreationInputTokens: totalUsage.cacheCreationInputTokens || undefined,
+      cost: totalUsage.cost || undefined,
       toolCalls: allToolCalls.length ? allToolCalls : null,
       rawContentBlocks: allRawContentBlocks.length ? allRawContentBlocks : null,
       generating: false,
