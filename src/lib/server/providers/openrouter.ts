@@ -198,11 +198,12 @@ const createOpenRouterAdapter = (apiKey: string): LLMProvider => ({
         }
 
         if (delta?.tool_calls) {
-          for (const [idx, tc] of delta.tool_calls.entries()) {
-            let acc = toolCallAccumulator.get(idx)
+          for (const [position, tc] of delta.tool_calls.entries()) {
+            const key = tc.index ?? position
+            let acc = toolCallAccumulator.get(key)
             if (!acc) {
               acc = { id: '', name: '', args: '' }
-              toolCallAccumulator.set(idx, acc)
+              toolCallAccumulator.set(key, acc)
             }
             if (tc.id) acc.id = tc.id
             if (tc.function?.name) acc.name = tc.function.name

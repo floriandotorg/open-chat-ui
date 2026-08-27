@@ -1,5 +1,22 @@
-import { filterOpenRouterModels, mapOpenRouterModel, type OpenRouterRawModel } from './openrouter'
-import { describe, expect, it } from 'vitest'
+import { createOpenRouterProvider, filterOpenRouterModels, mapOpenRouterModel, type OpenRouterRawModel } from './openrouter'
+import type { ChatStreamEvent } from './types'
+import { describe, expect, it, vi } from 'vitest'
+
+const streamChunks = vi.hoisted(() => ({ value: [] as unknown[] }))
+
+vi.mock('openai', () => ({
+  default: class {
+    chat = {
+      completions: {
+        create: async () => ({
+          async *[Symbol.asyncIterator]() {
+            for (const chunk of streamChunks.value) yield chunk
+          },
+        }),
+      },
+    }
+  },
+}))
 
 const raw = (overrides: Partial<OpenRouterRawModel> = {}): OpenRouterRawModel => ({
   id: 'moonshotai/kimi-k3',
@@ -69,5 +86,29 @@ describe('filterOpenRouterModels', () => {
 
   it('respects the limit', () => {
     expect(filterOpenRouterModels(models, '', 2)).toHaveLength(2)
+  })
+})
+
+describe('chat tool call streaming', () => {
+  it('accumulates interleaved tool calls by their index, not array position', async () => {
+    streamChunks.value = [
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'brave_search', arguments: '{"que' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 1, id: 'call_2', function: { name: 'brave_search', arguments: '{"que' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: 'ry":"cats"}' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 1, function: { arguments: 'ry":"dogs"}' } }] } }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 10, completion_tokens: 5 } },
+    ]
+
+    const provider = createOpenRouterProvider('key')
+    const events: ChatStreamEvent[] = []
+    for await (const event of provider.chat({ model: 'test-model', messages: [] })) {
+      events.push(event)
+    }
+
+    const toolCalls = events.filter(e => e.type === 'tool_call').map(e => e.toolCall)
+    expect(toolCalls).toEqual([
+      { id: 'call_1', name: 'brave_search', arguments: { query: 'cats' } },
+      { id: 'call_2', name: 'brave_search', arguments: { query: 'dogs' } },
+    ])
   })
 })

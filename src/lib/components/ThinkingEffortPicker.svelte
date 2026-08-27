@@ -54,7 +54,7 @@ const barCount = (effort: ThinkingEffort): number => ({ none: 0, low: 1, medium:
   </button>
 
   {#if popover.open}
-    <div use:portal bind:this={popover.content} style={popover.style} class="liquid-glass fixed z-50 min-w-[140px] rounded-xl py-1">
+    <div use:portal bind:this={popover.content} style={popover.style} class="liquid-glass fixed z-50 min-w-[140px] rounded-xl py-1 text-gray-900 dark:text-gray-100">
       {#each efforts as effort (effort)}
         <button
           onclick={() => select(effort)}

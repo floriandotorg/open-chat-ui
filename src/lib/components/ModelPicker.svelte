@@ -81,7 +81,7 @@ const select = (id: string) => {
   </button>
 
   {#if popover.open}
-    <div use:portal bind:this={popover.content} style={popover.style} class="liquid-glass fixed z-50 min-w-[240px] max-w-[320px] max-h-[400px] overflow-y-auto rounded-xl py-1">
+    <div use:portal bind:this={popover.content} style={popover.style} class="liquid-glass fixed z-50 min-w-[240px] max-w-[320px] max-h-[400px] overflow-y-auto rounded-xl py-1 text-gray-900 dark:text-gray-100">
       {#each models as model (model.id)}
         <button
           onclick={() => select(model.id)}
