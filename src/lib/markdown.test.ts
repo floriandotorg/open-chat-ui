@@ -1,4 +1,4 @@
-import { renderMarkdown } from '$lib/markdown'
+import { renderMarkdown, renderMarkdownBlocks } from '$lib/markdown'
 import { stripMarkdown } from '$lib/strip-markdown'
 import { describe, expect, it } from 'vitest'
 
@@ -134,5 +134,38 @@ describe('renderMarkdown', () => {
     const html = renderMarkdown('Before $a^2$\n```bash\necho $FOO\n```\nafter $b^2$')
     expect(html).toContain('katex')
     expect(html).toContain('echo $FOO')
+  })
+
+  it('does not auto-detect languages on unlabeled code blocks', () => {
+    const html = renderMarkdown('```\nconst x = 1\nif (x) { console.log(x) }\n```')
+    expect(html).toContain('code-block')
+    expect(html).not.toContain('<span class="hljs-')
+  })
+})
+
+describe('renderMarkdownBlocks', () => {
+  it('joined blocks match the full render', () => {
+    const src = '# Title\n\npara with $x^2$ math\n\n```js\nconsole.log(1)\n```\n\n- a\n- b'
+    expect(renderMarkdownBlocks(src).join('')).toBe(renderMarkdown(src))
+  })
+
+  it('keeps earlier blocks stable while text is appended', () => {
+    const before = renderMarkdownBlocks('first paragraph\n\nsecond par')
+    const after = renderMarkdownBlocks('first paragraph\n\nsecond paragraph continues')
+    expect(after[0]).toBe(before[0])
+    expect(after[after.length - 1]).toContain('continues')
+  })
+
+  it('does not split inside fenced code blocks', () => {
+    const blocks = renderMarkdownBlocks('```js\nconst a = 1\n\nconst b = 2\n```')
+    expect(blocks.filter(b => b.includes('code-block'))).toHaveLength(1)
+    expect(blocks.join('')).toContain('const b = 2')
+  })
+
+  it('does not leak cached math across different formulas', () => {
+    const first = renderMarkdownBlocks('value $a+b$ here')
+    const second = renderMarkdownBlocks('value $c+d$ here')
+    expect(first.join('')).not.toBe(second.join(''))
+    expect(second.join('')).toContain('c')
   })
 })

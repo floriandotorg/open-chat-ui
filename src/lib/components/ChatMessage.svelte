@@ -2,7 +2,7 @@
 import { extractCitations, filterReferencedCitations, processCitations } from '$lib/citations'
 import { buildContentSegments } from '$lib/content-segments'
 import { copyCodeAction } from '$lib/copy-code'
-import { renderMarkdown } from '$lib/markdown'
+import { renderMarkdownBlocks } from '$lib/markdown'
 import { selectionIntersects } from '$lib/selection'
 import type { createTtsPlayer } from '$lib/stores/tts-player.svelte'
 import { stripMarkdown } from '$lib/strip-markdown'
@@ -35,7 +35,14 @@ const tts: ReturnType<typeof createTtsPlayer> = getContext('tts-player')
 let root: HTMLDivElement | undefined = $state()
 let selectionHeld = $state(false)
 
+// Selection tracking exists to freeze rendering against mid-generation
+// realtime updates, so the document-level listener only runs while this
+// message is generating instead of once per message in the conversation
 $effect(() => {
+  if (!message.generating) {
+    selectionHeld = false
+    return
+  }
   const track = () => {
     selectionHeld = selectionIntersects(root)
   }
@@ -66,6 +73,8 @@ let editContent = $state('')
 let editTextarea: HTMLTextAreaElement | undefined = $state()
 
 let hasBranches = $derived((displayed.siblingCount ?? 1) > 1)
+
+const renderBlocks = (content: string): string[] => renderMarkdownBlocks(content).map(html => processCitations(html, citations))
 
 const copyPlain = () => {
   navigator.clipboard.writeText(stripMarkdown(displayed.content))
@@ -245,7 +254,7 @@ const autoResizeEdit = () => {
           {:else if segment.type === 'code_execution'}
             <CodeExecutionBlock codeExecution={segment.codeExecution} />
           {:else}
-            <div class="prose prose-sm dark:prose-invert max-w-none" use:copyCodeAction>{@html processCitations(renderMarkdown(segment.content), citations)}{#if displayed.generating && idx === segments.length - 1}<span class="inline-block h-4 w-0.5 animate-pulse bg-gray-400 dark:bg-neutral-400"></span>{/if}</div>
+            <div class="prose prose-sm dark:prose-invert max-w-none" use:copyCodeAction>{#each renderBlocks(segment.content) as blockHtml}{@html blockHtml}{/each}{#if displayed.generating && idx === segments.length - 1}<span class="inline-block h-4 w-0.5 animate-pulse bg-gray-400 dark:bg-neutral-400"></span>{/if}</div>
           {/if}
         {/each}
         {#if displayed.generating && segments.length === 0}

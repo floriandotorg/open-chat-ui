@@ -21,7 +21,7 @@ const renderer = {
   },
   code({ text, lang }: Tokens.Code) {
     const language = lang ?? ''
-    const highlighted = language && hljs.getLanguage(language) ? hljs.highlight(text, { language }).value : hljs.highlightAuto(text).value
+    const highlighted = language && hljs.getLanguage(language) ? hljs.highlight(text, { language }).value : escapeHtml(text)
 
     const lines = highlighted.split('\n')
     const lineNumbersHtml = lines.map((_, n) => `<span class="code-line-number">${n + 1}</span>`).join('')
@@ -95,4 +95,33 @@ export const renderMarkdown = (text: string): string => {
   const { text: textWithoutMath, mathBlocks } = extractMath(normalizeFences(text))
   const html = marked.parse(textWithoutMath) as string
   return restoreMath(html, mathBlocks)
+}
+
+const BLOCK_CACHE_MAX = 1000
+const blockCache = new Map<string, string>()
+
+const renderBlockCached = (raw: string, mathBlocks: string[]): string => {
+  const key = restoreMath(raw, mathBlocks)
+  const hit = blockCache.get(key)
+  if (hit !== undefined) {
+    return hit
+  }
+  const html = restoreMath(marked.parse(raw) as string, mathBlocks)
+  if (blockCache.size >= BLOCK_CACHE_MAX) {
+    const oldest = blockCache.keys().next().value
+    if (oldest !== undefined) {
+      blockCache.delete(oldest)
+    }
+  }
+  blockCache.set(key, html)
+  return html
+}
+
+// Streaming appends to the tail of a message: rendering per top-level block
+// with a content-keyed cache means only the block being extended pays the
+// marked + hljs + katex cost on each delta, and unchanged blocks keep their
+// DOM when patched via one {@html} per block.
+export const renderMarkdownBlocks = (text: string): string[] => {
+  const { text: textWithoutMath, mathBlocks } = extractMath(normalizeFences(text))
+  return marked.lexer(textWithoutMath).map(token => renderBlockCached(token.raw, mathBlocks))
 }

@@ -7,6 +7,10 @@ const STALL_MS = 45_000
 // for the full stall window because backgrounded PWAs get their SSE
 // connection suspended silently.
 const RESUME_STALE_MS = 25_000
+// Backgrounded PWAs (iOS foremost) lose their SSE socket almost immediately
+// without any client-side signal: after more than a blink in the background
+// the connection is assumed dead and recovered on return to foreground.
+const RESUME_HIDDEN_MS = 5_000
 const CHECK_INTERVAL_MS = 10_000
 
 export interface RealtimeRegistration {
@@ -102,6 +106,22 @@ const onResume = () => {
   }
 }
 
+let hiddenAt: number | null = null
+
+const onVisibilityChange = () => {
+  if (!browser) return
+  if (document.visibilityState === 'hidden') {
+    hiddenAt = Date.now()
+    return
+  }
+  const hiddenFor = hiddenAt === null ? 0 : Date.now() - hiddenAt
+  hiddenAt = null
+  if (!navigator.onLine) return
+  if (!heartbeatUnsub || hiddenFor >= RESUME_HIDDEN_MS || Date.now() - lastEventAt > RESUME_STALE_MS) {
+    void recover()
+  }
+}
+
 // The SDK re-submits all subscriptions on reconnect by itself, but events
 // emitted while the connection was down are lost (PocketBase has no replay):
 // every established-connection drop triggers a recover so registrations
@@ -117,7 +137,7 @@ export const startRealtimeWatchdog = () => {
   pbClient.realtime.onDisconnect = onRealtimeDisconnect
   void ensureHeartbeat()
   setInterval(check, CHECK_INTERVAL_MS)
-  document.addEventListener('visibilitychange', onResume)
+  document.addEventListener('visibilitychange', onVisibilityChange)
   window.addEventListener('pageshow', onResume)
   window.addEventListener('online', onResume)
 }

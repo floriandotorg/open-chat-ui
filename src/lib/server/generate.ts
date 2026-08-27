@@ -255,20 +255,34 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
     } catch {}
   }
 
-  // Live streaming state is flushed into the placeholder record on every
-  // delta; clients render straight from PocketBase realtime events. Flushes
-  // are serialized and coalesced: while one write is in flight further
-  // deltas only set the dirty flag, so cadence adapts to PB write latency.
+  // Live streaming state is flushed into the placeholder record; clients
+  // render straight from PocketBase realtime events. Flushes are serialized,
+  // coalesced while a write is in flight, and throttled to a minimum interval:
+  // every PB write broadcasts the full record over SSE to every attached
+  // client, so unthrottled per-delta writes flood slow (mobile) consumers
+  // until PocketBase drops them.
+  const FLUSH_INTERVAL_MS = 250
   let flushing = false
   let dirty = false
   let finalized = false
+  let lastFlushAt = 0
+  let flushTimer: ReturnType<typeof setTimeout> | null = null
   const flush = async (): Promise<void> => {
     if (finalized || !placeholderCreated) return
     if (flushing) {
       dirty = true
       return
     }
+    const wait = lastFlushAt + FLUSH_INTERVAL_MS - Date.now()
+    if (wait > 0) {
+      flushTimer ??= setTimeout(() => {
+        flushTimer = null
+        void flush()
+      }, wait)
+      return
+    }
     flushing = true
+    lastFlushAt = Date.now()
     try {
       await pb.collection('messages').update(assistantMsgId, {
         content: fullText,
@@ -430,6 +444,10 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
 
   finalized = true
   dirty = false
+  if (flushTimer) {
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
   while (flushing) {
     await new Promise(r => setTimeout(r, 10))
   }

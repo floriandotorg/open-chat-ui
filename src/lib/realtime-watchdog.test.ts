@@ -124,6 +124,35 @@ describe('realtime watchdog', () => {
     expect(realtimeUnsubscribe).toHaveBeenCalledTimes(1)
   })
 
+  it('recovers on resume after being hidden even when the heartbeat is fresh', async () => {
+    let onBeat: (() => void) | undefined
+    heartbeatSubscribe.mockImplementation((_topic: string, cb: () => void) => {
+      onBeat = cb
+      return Promise.resolve(vi.fn())
+    })
+    let visibilityHandler: (() => void) | undefined
+    const doc = {
+      visibilityState: 'visible',
+      addEventListener: vi.fn((event: string, handler: () => void) => {
+        if (event === 'visibilitychange') visibilityHandler = handler
+      }),
+    }
+    vi.stubGlobal('document', doc)
+    const watchdog = await loadWatchdog()
+    watchdog.startRealtimeWatchdog()
+    await vi.advanceTimersByTimeAsync(0)
+
+    doc.visibilityState = 'hidden'
+    visibilityHandler?.()
+    await vi.advanceTimersByTimeAsync(6_000)
+    onBeat?.()
+
+    doc.visibilityState = 'visible'
+    visibilityHandler?.()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(realtimeUnsubscribe).toHaveBeenCalledTimes(1)
+  })
+
   it('recovers when the heartbeat subscription is missing', async () => {
     heartbeatSubscribe.mockRejectedValue(new Error('network down'))
     const watchdog = await loadWatchdog()
