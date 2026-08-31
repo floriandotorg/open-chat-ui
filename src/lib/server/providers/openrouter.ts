@@ -7,6 +7,11 @@ const MODELS_URL = `${BASE_URL}/models`
 const MODELS_TTL_MS = 60 * 60 * 1000
 const SEARCH_LIMIT = 25
 
+const PROVIDER_ROUTING = {
+  data_collection: 'deny',
+  quantizations: ['int8', 'fp8', 'mxfp8', 'fp16', 'bf16', 'fp32'],
+}
+
 export interface OpenRouterRawModel {
   id: string
   name?: string
@@ -164,6 +169,7 @@ const createOpenRouterAdapter = (apiKey: string): LLMProvider => ({
       stream: true,
       stream_options: { include_usage: true },
       usage: { include: true },
+      provider: PROVIDER_ROUTING,
     }
 
     if (request.thinkingEffort && request.thinkingEffort !== 'none') {

@@ -3,16 +3,20 @@ import type { ChatStreamEvent } from './types'
 import { describe, expect, it, vi } from 'vitest'
 
 const streamChunks = vi.hoisted(() => ({ value: [] as unknown[] }))
+const chatCreateArgs = vi.hoisted(() => ({ value: [] as unknown[] }))
 
 vi.mock('openai', () => ({
   default: class {
     chat = {
       completions: {
-        create: async () => ({
-          async *[Symbol.asyncIterator]() {
-            for (const chunk of streamChunks.value) yield chunk
-          },
-        }),
+        create: async (args: unknown) => {
+          chatCreateArgs.value.push(args)
+          return {
+            async *[Symbol.asyncIterator]() {
+              for (const chunk of streamChunks.value) yield chunk
+            },
+          }
+        },
       },
     }
   },
@@ -86,6 +90,24 @@ describe('filterOpenRouterModels', () => {
 
   it('respects the limit', () => {
     expect(filterOpenRouterModels(models, '', 2)).toHaveLength(2)
+  })
+})
+
+describe('chat provider routing', () => {
+  it('restricts routing to 8-bit or better quantization and denies data collection', async () => {
+    streamChunks.value = [{ choices: [{ delta: {}, finish_reason: 'stop' }] }]
+    chatCreateArgs.value = []
+
+    const provider = createOpenRouterProvider('key')
+    for await (const _event of provider.chat({ model: 'test-model', messages: [] })) {
+    }
+
+    expect(chatCreateArgs.value.at(-1)).toMatchObject({
+      provider: {
+        data_collection: 'deny',
+        quantizations: ['int8', 'fp8', 'mxfp8', 'fp16', 'bf16', 'fp32'],
+      },
+    })
   })
 })
 
