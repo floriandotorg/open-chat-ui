@@ -1,5 +1,4 @@
 import type { BranchMap } from '$lib/message-tree'
-import { resolveAndAnnotate } from '$lib/message-tree'
 import { normalizeModelRef } from '$lib/model-ref'
 import { requireUser } from '$lib/server/auth-guard'
 import { mapClientMessage, mapConversation } from '$lib/server/db/records'
@@ -24,15 +23,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   const allMsgs = (await pb.collection('messages').getFullList({ filter: pb.filter('conversation = {:c}', { c: params.conversationId }), sort: 'createdAt' })).map(mapClientMessage)
   const activeBranches: BranchMap = conversation.activeBranches ?? {}
 
-  const activeMessages = resolveAndAnnotate(allMsgs, activeBranches)
-
   return {
     conversation: {
       ...conversation,
       systemPromptId: conversation.systemPromptId,
       defaultModel: normalizeModelRef(conversation.defaultProvider, conversation.defaultModel),
     },
-    messages: activeMessages,
     allMessages: allMsgs,
     activeBranches,
   }
