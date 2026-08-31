@@ -1,5 +1,5 @@
 import type { BranchMap } from '$lib/message-tree'
-import { resolveAndAnnotate } from '$lib/message-tree'
+import { createStableAnnotator, resolveAndAnnotate } from '$lib/message-tree'
 import { createOptimisticMap } from '$lib/stores/optimistic.svelte'
 import type { FileAttachment, ImageAttachment, Message, ThinkingEffort } from '$lib/types'
 
@@ -30,8 +30,9 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
   let onFirstReply = $state<((conversationId: string) => void) | null>(null)
   let activeConversationId: string | null = null
 
+  const annotate = createStableAnnotator<Message>()
   const allMessages = $derived<Message[]>([...confirmed, ...pending.values().filter(m => m.conversationId === currentConversationId && !confirmed.some(c => c.id === m.id))])
-  const messages = $derived<(Message & { siblingIndex: number; siblingCount: number })[]>(resolveAndAnnotate(allMessages, activeBranches))
+  const messages = $derived<(Message & { siblingIndex: number; siblingCount: number })[]>(annotate(allMessages, activeBranches))
   const streamingMessage = $derived(allMessages.find(m => m.role === 'assistant' && m.generating))
   const isStreaming = $derived(awaitingGeneration || serverGenerating || !!streamingMessage)
 
@@ -288,6 +289,9 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     },
     get streamingMessage() {
       return streamingMessage
+    },
+    get awaitingGeneration() {
+      return awaitingGeneration
     },
     get isStreaming() {
       return isStreaming

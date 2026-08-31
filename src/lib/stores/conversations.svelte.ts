@@ -82,25 +82,23 @@ export const createConversationsStore = (initial: Conversation[]) => {
     unsub = null
   }
 
+  // Failures propagate so the realtime watchdog marks the recovery incomplete
+  // and retries, instead of leaving a stale sidebar behind a swallowed error.
   const resync = async () => {
     if (!browser || cancelled) return
     const userId = pbClient.authStore.record?.id
     if (!userId) return
-    try {
-      const rows = await pbClient.collection('conversations').getFullList({
-        filter: pbClient.filter('user = {:u}', { u: userId }),
-        sort: '-updatedAt',
-      })
-      if (!cancelled) {
-        seed(
-          rows.map(mapConversation).map(c => {
-            const patch = pendingPatches.get(c.id)
-            return patch ? { ...c, ...patch } : c
-          }),
-        )
-      }
-    } catch (err) {
-      console.warn('[realtime] conversations resync failed', err)
+    const rows = await pbClient.collection('conversations').getFullList({
+      filter: pbClient.filter('user = {:u}', { u: userId }),
+      sort: '-updatedAt',
+    })
+    if (!cancelled) {
+      seed(
+        rows.map(mapConversation).map(c => {
+          const patch = pendingPatches.get(c.id)
+          return patch ? { ...c, ...patch } : c
+        }),
+      )
     }
   }
 

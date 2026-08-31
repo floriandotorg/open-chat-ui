@@ -165,8 +165,11 @@ $effect(() => {
         },
         { filter: pbClient.filter('conversation = {:c}', { c: convId }) },
       ),
+    // Resync must run even while a stream looks active locally: after an SSE
+    // drop mid-generation the local placeholder keeps `generating: true`
+    // forever, so gating on isStreaming would deadlock recovery and the
+    // conversation would never learn the generation finished.
     async isCurrent => {
-      if (chat.isStreaming) return
       const [rows, convRecord] = await Promise.all([
         pbClient.collection('messages').getFullList({
           filter: pbClient.filter('conversation = {:c}', { c: convId }),
@@ -174,7 +177,7 @@ $effect(() => {
         }),
         pbClient.collection('conversations').getOne(convId),
       ])
-      if (!isCurrent() || chat.isStreaming) return
+      if (!isCurrent()) return
       const conv = mapConversation(convRecord)
       chat.seed(convId, rows.map(mapClientMessage), conv.activeBranches ?? {})
       remoteGenerating = conv.generating ?? false
@@ -303,22 +306,26 @@ const autoResizeEdit = () => {
 const isEmptyGeneration = (message: Message) => message.generating && !message.content && !message.thinking && !message.toolCalls?.length && !message.codeExecutions?.length
 </script>
 
+{#snippet typingDots()}
+  <div class="flex justify-start">
+    <div class="flex max-w-[90%] gap-3">
+      <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-purple-600 text-xs font-bold text-white">AI</div>
+      <div class="flex items-center gap-1 py-2.5">
+        <span class="h-2 w-2 animate-bounce rounded-full bg-gray-400 dark:bg-neutral-400" style="animation-delay:0ms"></span>
+        <span class="h-2 w-2 animate-bounce rounded-full bg-gray-400 dark:bg-neutral-400" style="animation-delay:150ms"></span>
+        <span class="h-2 w-2 animate-bounce rounded-full bg-gray-400 dark:bg-neutral-400" style="animation-delay:300ms"></span>
+      </div>
+    </div>
+  </div>
+{/snippet}
+
 <svelte:window onpointerdown={onPointerDown} onpointerup={onPointerUp} onselectionchange={onSelectionChange} />
 <div class="relative flex h-full flex-col">
   <div bind:this={messageContainer} onscroll={onScroll} class="flex flex-1 flex-col overflow-y-auto px-4 pt-16 pb-32 lg:px-8">
     <div class="mt-auto w-full space-y-6">
       {#each chat.messages as message (message.id)}
         {#if isEmptyGeneration(message)}
-          <div class="flex justify-start">
-            <div class="flex max-w-[90%] gap-3">
-              <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-purple-600 text-xs font-bold text-white">AI</div>
-              <div class="flex items-center gap-1 py-2.5">
-                <span class="h-2 w-2 animate-bounce rounded-full bg-gray-400 dark:bg-neutral-400" style="animation-delay:0ms"></span>
-                <span class="h-2 w-2 animate-bounce rounded-full bg-gray-400 dark:bg-neutral-400" style="animation-delay:150ms"></span>
-                <span class="h-2 w-2 animate-bounce rounded-full bg-gray-400 dark:bg-neutral-400" style="animation-delay:300ms"></span>
-              </div>
-            </div>
-          </div>
+          {@render typingDots()}
         {:else}
           <ChatMessage
             {message}
@@ -330,6 +337,9 @@ const isEmptyGeneration = (message: Message) => message.generating && !message.c
           />
         {/if}
       {/each}
+      {#if chat.awaitingGeneration && !chat.streamingMessage}
+        {@render typingDots()}
+      {/if}
       {#each chat.messageQueue as entry (entry.id)}
         <div class="flex justify-end">
           <div class="flex max-w-[80%] flex-col items-end">

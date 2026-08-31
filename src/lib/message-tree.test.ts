@@ -1,4 +1,4 @@
-import { preserveLocalOrphans, resolveAndAnnotate, resolveEffectiveParentId } from './message-tree'
+import { createStableAnnotator, preserveLocalOrphans, resolveAndAnnotate, resolveEffectiveParentId } from './message-tree'
 import { describe, expect, it } from 'vitest'
 
 describe('resolveEffectiveParentId', () => {
@@ -66,5 +66,49 @@ describe('preserveLocalOrphans', () => {
     const merged = preserveLocalOrphans(server, local)
     const resolved = resolveAndAnnotate(merged, {})
     expect(resolved.map(m => m.id)).toEqual(['a', 'orphan'])
+  })
+})
+
+describe('createStableAnnotator', () => {
+  interface Msg {
+    id: string
+    parentId?: string | null
+    createdAt: string
+    content?: string
+  }
+  const m1: Msg = { id: 'a', parentId: null, createdAt: '2024-01-01T00:00:00Z', content: 'hi' }
+  const m2: Msg = { id: 'b', parentId: 'a', createdAt: '2024-01-01T00:01:00Z', content: 'yo' }
+
+  it('returns referentially stable annotated messages for unchanged sources', () => {
+    const annotate = createStableAnnotator<Msg>()
+    const first = annotate([m1, m2], {})
+    const second = annotate([m1, m2], {})
+    expect(second[0]).toBe(first[0])
+    expect(second[1]).toBe(first[1])
+  })
+
+  it('replaces only the annotated message whose source object changed', () => {
+    const annotate = createStableAnnotator<Msg>()
+    const first = annotate([m1, m2], {})
+    const m2b = { ...m2, content: 'updated' }
+    const second = annotate([m1, m2b], {})
+    expect(second[0]).toBe(first[0])
+    expect(second[1]).not.toBe(first[1])
+    expect(second[1].content).toBe('updated')
+  })
+
+  it('refreshes annotation when sibling structure changes', () => {
+    const annotate = createStableAnnotator<Msg>()
+    const first = annotate([m1, m2], {})
+    const m3: Msg = { id: 'c', parentId: 'a', createdAt: '2024-01-01T00:02:00Z' }
+    const second = annotate([m1, m2, m3], { a: 'b' })
+    expect(second[0]).toBe(first[0])
+    expect(second[1]).not.toBe(first[1])
+    expect(second[1].siblingCount).toBe(2)
+  })
+
+  it('matches resolveAndAnnotate output', () => {
+    const annotate = createStableAnnotator<Msg>()
+    expect(annotate([m1, m2], {})).toEqual(resolveAndAnnotate([m1, m2], {}))
   })
 })

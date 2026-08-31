@@ -213,11 +213,11 @@ onMount(() => {
 <TtsPlayer />
 <div class="flex h-dvh bg-white text-gray-900 dark:bg-neutral-800 dark:text-gray-100" class:select-none={isResizing}>
   {#if mobileSidebarOpen}
-    <button class="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px] md:hidden" onclick={() => (mobileSidebarOpen = false)} aria-label="Close sidebar" tabindex="-1" transition:fade={{ duration: 200 }}></button>
+    <button class="fixed inset-0 z-40 bg-black/40 md:hidden" onclick={() => (mobileSidebarOpen = false)} aria-label="Close sidebar" tabindex="-1" transition:fade={{ duration: 200 }}></button>
   {/if}
 
   <aside
-    class="sidebar-surface flex flex-col max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:w-[280px] max-md:transition-transform max-md:duration-200 max-md:ease-in-out md:relative md:shrink-0 md:w-(--sidebar-width) {sidebarOpen ? '' : 'md:hidden'} {mobileSidebarOpen ? 'max-md:translate-x-0 max-md:shadow-2xl' : 'max-md:-translate-x-full'}"
+    class="sidebar-surface flex flex-col max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:w-[280px] max-md:will-change-transform max-md:transition-transform max-md:duration-200 max-md:ease-in-out md:relative md:shrink-0 md:w-(--sidebar-width) {sidebarOpen ? '' : 'md:hidden'} {mobileSidebarOpen ? 'max-md:translate-x-0 max-md:shadow-2xl' : 'max-md:-translate-x-full'}"
     style="--sidebar-width: {sidebarWidth}px"
   >
       <div class="liquid-glass-bar-top absolute inset-x-0 top-0 z-10" style="padding-top: max(0.75rem, env(safe-area-inset-top))">

@@ -209,6 +209,27 @@ describe('realtime watchdog', () => {
     expect(subscribe).toHaveBeenCalled()
   })
 
+  it('retries recovery until a failed resync succeeds', async () => {
+    heartbeatSubscribe.mockResolvedValue(vi.fn())
+    const watchdog = await loadWatchdog()
+    const { pbClient } = await import('$lib/pb-client')
+    watchdog.startRealtimeWatchdog()
+    await vi.advanceTimersByTimeAsync(0)
+
+    const resync = vi.fn().mockRejectedValueOnce(new Error('network down')).mockResolvedValue(undefined)
+    watchdog.registerRealtime({ subscribe: vi.fn(), unsubscribe: vi.fn(), resync })
+
+    pbClient.realtime.onDisconnect?.([])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(resync).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(11_000)
+    expect(resync).toHaveBeenCalledTimes(2)
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(resync).toHaveBeenCalledTimes(2)
+  })
+
   it('does not recover while the tab is hidden', async () => {
     heartbeatSubscribe.mockResolvedValue(vi.fn())
     const watchdog = await loadWatchdog()

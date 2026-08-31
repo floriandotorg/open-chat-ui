@@ -25,6 +25,7 @@ const registrations = new Set<RealtimeRegistration>()
 let lastEventAt = Date.now()
 let heartbeatUnsub: (() => void) | null = null
 let recovering = false
+let recoverIncomplete = false
 let started = false
 
 export const registerRealtime = (...entries: RealtimeRegistration[]): (() => void) => {
@@ -55,6 +56,10 @@ const ensureHeartbeat = () => {
 const recover = async () => {
   if (recovering) return
   recovering = true
+  // Any failed step (network still down on PWA resume, PocketBase briefly
+  // unreachable) marks the recovery incomplete so the periodic check retries
+  // instead of silently going healthy with stale data.
+  let failed = false
   try {
     heartbeatUnsub?.()
     heartbeatUnsub = null
@@ -65,22 +70,33 @@ const recover = async () => {
     }
     // Removing the last subscription auto-closes the SSE connection, so the
     // re-subscribes below start from a fresh connection and clientId.
-    await pbClient.realtime.unsubscribe()
+    try {
+      await pbClient.realtime.unsubscribe()
+    } catch {
+      failed = true
+    }
     await ensureHeartbeat()
+    if (!heartbeatUnsub) failed = true
     for (const entry of registrations) {
       try {
         await entry.subscribe()
-      } catch {}
+      } catch {
+        failed = true
+      }
     }
     // Events fired while the connection was dead cannot be replayed, so each
     // registration re-pulls its data after re-subscribing.
     for (const entry of registrations) {
       try {
         await entry.resync?.()
-      } catch {}
+      } catch {
+        failed = true
+      }
     }
+    if (hasUnhealthyRegistration()) failed = true
     lastEventAt = Date.now()
   } finally {
+    recoverIncomplete = failed
     recovering = false
   }
 }
@@ -94,7 +110,7 @@ const hasUnhealthyRegistration = () => {
 
 const check = () => {
   if (!browser || !navigator.onLine || document.visibilityState !== 'visible') return
-  if (!heartbeatUnsub || Date.now() - lastEventAt > STALL_MS || hasUnhealthyRegistration()) {
+  if (!heartbeatUnsub || recoverIncomplete || Date.now() - lastEventAt > STALL_MS || hasUnhealthyRegistration()) {
     void recover()
   }
 }

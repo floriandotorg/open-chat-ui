@@ -7,6 +7,7 @@ import { mapApiKey, mapConversation, mapMessage, mapSystemPrompt, mapUserSetting
 import { type ActiveGeneration, finishGeneration, getGeneration, registerGeneration } from '$lib/server/generations'
 import { buildHistoryMessages, type PersistedCodeExecution, type PersistedEntry, type PersistedToolCall } from '$lib/server/history'
 import { getKnowledgeCutoff } from '$lib/server/knowledge-cutoff'
+import { buildLiveToolCallsPayload, type LiveToolCall, nextFlushDelay } from '$lib/server/live-flush'
 import { getFirstOrNull, isNotFound, pb } from '$lib/server/pb'
 import { formatCurrentDate, getPostSystemPrompt } from '$lib/server/prompts'
 import { getProviderFactory } from '$lib/server/providers'
@@ -52,8 +53,6 @@ export interface GenerationParams {
   branchParentKey?: string
   titleOnFirst: boolean
 }
-
-type LiveToolCall = (Omit<PersistedToolCall, 'result'> & { result?: string }) | PersistedCodeExecution
 
 export const startGeneration = (params: GenerationParams): ActiveGeneration => {
   const existing = getGeneration(params.conversationId)
@@ -257,11 +256,12 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
 
   // Live streaming state is flushed into the placeholder record; clients
   // render straight from PocketBase realtime events. Flushes are serialized,
-  // coalesced while a write is in flight, and throttled to a minimum interval:
-  // every PB write broadcasts the full record over SSE to every attached
-  // client, so unthrottled per-delta writes flood slow (mobile) consumers
-  // until PocketBase drops them.
-  const FLUSH_INTERVAL_MS = 250
+  // coalesced while a write is in flight, and paced adaptively: every PB write
+  // broadcasts the full record over SSE to every attached client, so the
+  // interval grows with record size (and live tool payloads are slimmed via
+  // buildLiveToolCallsPayload) to keep the per-client byte rate bounded —
+  // otherwise PocketBase drops slow (mobile) consumers mid-stream.
+  let flushDelayMs = nextFlushDelay(0)
   let flushing = false
   let dirty = false
   let finalized = false
@@ -273,7 +273,7 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
       dirty = true
       return
     }
-    const wait = lastFlushAt + FLUSH_INTERVAL_MS - Date.now()
+    const wait = lastFlushAt + flushDelayMs - Date.now()
     if (wait > 0) {
       flushTimer ??= setTimeout(() => {
         flushTimer = null
@@ -284,10 +284,12 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
     flushing = true
     lastFlushAt = Date.now()
     try {
+      const toolCallsPayload = buildLiveToolCallsPayload(liveToolCalls)
+      flushDelayMs = nextFlushDelay(fullText.length + thinkingText.length + (toolCallsPayload ? JSON.stringify(toolCallsPayload).length : 0))
       await pb.collection('messages').update(assistantMsgId, {
         content: fullText,
         thinking: thinkingText || null,
-        toolCalls: liveToolCalls.length ? [...liveToolCalls] : null,
+        toolCalls: toolCallsPayload,
         generating: true,
       })
     } catch {}
