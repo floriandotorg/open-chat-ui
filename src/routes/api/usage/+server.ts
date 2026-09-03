@@ -1,24 +1,13 @@
 import { requireUser } from '$lib/server/auth-guard'
 import { pb } from '$lib/server/pb'
-import { getPricing } from '$lib/server/pricing'
+import { getPricing, type ModelPricing } from '$lib/server/pricing'
+import { type MessageUsageRow, resolveMessageCost } from '$lib/server/usage-cost'
 import type { RequestHandler } from './$types'
 import { json } from '@sveltejs/kit'
 
-interface UsageRow {
+interface UsageRow extends MessageUsageRow {
   model: string | null
-  inputTokens: number
-  outputTokens: number
-  cacheReadInputTokens: number
-  cacheCreationInputTokens: number
-  cost: number | null
   createdAt: string
-}
-
-interface ModelPricing {
-  input: number
-  output: number
-  cacheRead: number
-  cacheCreation: number
 }
 
 interface DailyUsage {
@@ -71,7 +60,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 
   const rows = await pb.collection('messages').getFullList({
     filter: pb.filter('conversation.user = {:u} && createdAt >= {:s} && model != ""', { u: userId, s: monthStart }),
-    fields: 'model,inputTokens,outputTokens,cacheReadInputTokens,cacheCreationInputTokens,createdAt',
+    fields: 'model,inputTokens,outputTokens,cacheReadInputTokens,cacheCreationInputTokens,cost,createdAt',
   })
 
   const pricingCache = new Map<string, ModelPricing | null>()
@@ -116,14 +105,7 @@ export const GET: RequestHandler = async ({ locals }) => {
     const createdAt = new Date(row.createdAt)
     const day = dayKey(createdAt)
 
-    const pricing = await getPricingCached(model)
-    const priced = pricing !== null
-    let cost = 0
-    let savings = 0
-    if (pricing) {
-      cost = inputTokens * pricing.input + outputTokens * pricing.output + cacheRead * pricing.cacheRead + cacheCreation * pricing.cacheCreation
-      savings = cacheRead * (pricing.input - pricing.cacheRead)
-    }
+    const { cost, savings, priced } = resolveMessageCost(row, await getPricingCached(model))
 
     totalCost += cost
     totalInputTokens += inputTokens
@@ -157,6 +139,7 @@ export const GET: RequestHandler = async ({ locals }) => {
       }
       modelMap.set(model, modelEntry)
     }
+    modelEntry.priced ||= priced
     modelEntry.requests += 1
     modelEntry.inputTokens += inputTokens
     modelEntry.outputTokens += outputTokens
