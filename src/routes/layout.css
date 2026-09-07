@@ -55,8 +55,8 @@
    */
   .liquid-glass {
     background: rgba(255, 255, 255, 0.55);
-    -webkit-backdrop-filter: blur(40px) saturate(1.8);
-    backdrop-filter: blur(40px) saturate(1.8);
+    -webkit-backdrop-filter: blur(24px) saturate(1.8);
+    backdrop-filter: blur(24px) saturate(1.8);
     border: 1px solid rgba(255, 255, 255, 0.5);
     box-shadow:
       0 0 0 0.5px rgba(0, 0, 0, 0.03),
@@ -69,8 +69,8 @@
   @media (prefers-color-scheme: dark) {
     .liquid-glass {
       background: rgba(30, 30, 32, 0.55);
-      -webkit-backdrop-filter: blur(40px) saturate(1.8) brightness(1.1);
-      backdrop-filter: blur(40px) saturate(1.8) brightness(1.1);
+      -webkit-backdrop-filter: blur(24px) saturate(1.8) brightness(1.1);
+      backdrop-filter: blur(24px) saturate(1.8) brightness(1.1);
       border-color: rgba(255, 255, 255, 0.1);
       box-shadow:
         0 0 0 0.5px rgba(255, 255, 255, 0.05),
@@ -101,6 +101,16 @@
    *     the chat layout's outer wrappers `overflow: visible` (use `min-h-0`
    *     where flex children need to shrink) and let only the actual scroll
    *     viewport own the clipping. See `src/routes/chat/+layout.svelte`.
+   *
+   * Blur radius is 24px, not more: backdrop-filter cost grows with the
+   * radius squared and with the area invalidated underneath, and 24px is
+   * visually near identical over the flat backgrounds used here.
+   *
+   * On mobile the sidebar bars drop backdrop-filter entirely (see the
+   * media query below): the sidebar slides with transform and blur under
+   * a moving layer is re-sampled every animation frame. The bars sit over
+   * the conversation list only, which is already opaque, so an opaque
+   * surface color is indistinguishable.
    */
 
   /*
@@ -112,8 +122,8 @@
    */
   .liquid-glass-bar-top {
     background: rgba(255, 255, 255, 0.5);
-    -webkit-backdrop-filter: blur(40px) saturate(1.8);
-    backdrop-filter: blur(40px) saturate(1.8);
+    -webkit-backdrop-filter: blur(24px) saturate(1.8);
+    backdrop-filter: blur(24px) saturate(1.8);
     border-bottom: 1px solid rgba(0, 0, 0, 0.07);
     box-shadow:
       0 4px 12px -8px rgba(0, 0, 0, 0.12),
@@ -123,8 +133,8 @@
 
   .liquid-glass-bar-bottom {
     background: rgba(255, 255, 255, 0.5);
-    -webkit-backdrop-filter: blur(40px) saturate(1.8);
-    backdrop-filter: blur(40px) saturate(1.8);
+    -webkit-backdrop-filter: blur(24px) saturate(1.8);
+    backdrop-filter: blur(24px) saturate(1.8);
     border-top: 1px solid rgba(0, 0, 0, 0.07);
     box-shadow:
       0 -4px 12px -8px rgba(0, 0, 0, 0.12),
@@ -136,8 +146,8 @@
     .liquid-glass-bar-top,
     .liquid-glass-bar-bottom {
       background: rgba(30, 30, 32, 0.55);
-      -webkit-backdrop-filter: blur(40px) saturate(1.8) brightness(1.1);
-      backdrop-filter: blur(40px) saturate(1.8) brightness(1.1);
+      -webkit-backdrop-filter: blur(24px) saturate(1.8) brightness(1.1);
+      backdrop-filter: blur(24px) saturate(1.8) brightness(1.1);
     }
     .liquid-glass-bar-top {
       border-bottom-color: rgba(255, 255, 255, 0.07);
@@ -177,6 +187,30 @@
       border-right-color: rgba(255, 255, 255, 0.07);
       box-shadow: none;
     }
+  }
+
+  @media (max-width: 767px) {
+    .sidebar-surface .liquid-glass-bar-top,
+    .sidebar-surface .liquid-glass-bar-bottom {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      background: rgb(247, 248, 252);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .sidebar-surface .liquid-glass-bar-top,
+      .sidebar-surface .liquid-glass-bar-bottom {
+        background: rgb(22, 22, 26);
+      }
+    }
+  }
+
+  /* Skip layout and paint for off-screen messages; the browser remembers
+     the last rendered size, so a sidebar toggle reflows only visible rows.
+     Unlike display: none, text selection and find-in-page still work. */
+  .message-row {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 120px;
   }
 
   /*

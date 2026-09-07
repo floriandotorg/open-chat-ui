@@ -31,9 +31,7 @@ const select = (id: string | null) => {
 />
 
 {#if prompts.length > 0}
-  {#if popover.open}
-    <button use:portal class="fixed inset-0 z-40" onclick={popover.close} tabindex="-1" aria-label="Close"></button>
-  {/if}
+  <button use:portal class="fixed inset-0 z-40" class:hidden={!popover.open} onclick={popover.close} tabindex="-1" aria-label="Close"></button>
 
   <div>
     <button
@@ -55,25 +53,23 @@ const select = (id: string | null) => {
       </svg>
     </button>
 
-    {#if popover.open}
-      <div use:portal bind:this={popover.content} style={popover.style} class="liquid-glass fixed z-50 min-w-[200px] max-w-[280px] rounded-xl py-1 text-gray-900 dark:text-gray-100">
-        {#each prompts as prompt (prompt.id)}
-          <button
-            onclick={() => select(prompt.id)}
-            class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-black/5 dark:hover:bg-white/10 {selectedId === prompt.id ? 'text-blue-600 dark:text-blue-400 font-medium' : ''}"
-          >
-            <span class="flex-1 truncate">{prompt.title}</span>
-            {#if prompt.isDefault}
-              <span class="shrink-0 rounded bg-black/5 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-white/10 dark:text-gray-400">default</span>
-            {/if}
-            {#if selectedId === prompt.id}
-              <svg class="h-4 w-4 shrink-0 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
-            {/if}
-          </button>
-        {/each}
-      </div>
-    {/if}
+    <div use:portal bind:this={popover.content} style={popover.style} class="liquid-glass fixed z-50 min-w-[200px] max-w-[280px] rounded-xl py-1 text-gray-900 dark:text-gray-100" class:hidden={!popover.open}>
+      {#each prompts as prompt (prompt.id)}
+        <button
+          onclick={() => select(prompt.id)}
+          class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-black/5 dark:hover:bg-white/10 {selectedId === prompt.id ? 'text-blue-600 dark:text-blue-400 font-medium' : ''}"
+        >
+          <span class="flex-1 truncate">{prompt.title}</span>
+          {#if prompt.isDefault}
+            <span class="shrink-0 rounded bg-black/5 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-white/10 dark:text-gray-400">default</span>
+          {/if}
+          {#if selectedId === prompt.id}
+            <svg class="h-4 w-4 shrink-0 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+          {/if}
+        </button>
+      {/each}
+    </div>
   </div>
 {/if}

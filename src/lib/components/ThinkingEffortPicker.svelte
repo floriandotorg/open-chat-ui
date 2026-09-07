@@ -26,9 +26,7 @@ const barCount = (effort: ThinkingEffort): number => ({ none: 0, low: 1, medium:
   onscrollcapture={popover.open ? popover.handleScroll : undefined}
 />
 
-{#if popover.open}
-  <button use:portal class="fixed inset-0 z-40" onclick={popover.close} tabindex="-1" aria-label="Close"></button>
-{/if}
+<button use:portal class="fixed inset-0 z-40" class:hidden={!popover.open} onclick={popover.close} tabindex="-1" aria-label="Close"></button>
 
 <div>
   <button
@@ -53,24 +51,22 @@ const barCount = (effort: ThinkingEffort): number => ({ none: 0, low: 1, medium:
     </div>
   </button>
 
-  {#if popover.open}
-    <div use:portal bind:this={popover.content} style={popover.style} class="liquid-glass fixed z-50 min-w-[140px] rounded-xl py-1 text-gray-900 dark:text-gray-100">
-      {#each efforts as effort (effort)}
-        <button
-          onclick={() => select(effort)}
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-black/5 dark:hover:bg-white/10 {thinkingEffort === effort ? 'text-violet-600 dark:text-violet-400 font-medium' : ''}"
-        >
-          <div class="flex items-end gap-0.5 w-5">
-            {#each { length: 4 } as _, n (n)}
-              <div
-                class="w-[3px] rounded-sm {n < barCount(effort) ? 'bg-violet-500' : 'bg-gray-300 dark:bg-neutral-600'}"
-                style="height: {4 + (n + 1) * 3}px"
-              ></div>
-            {/each}
-          </div>
-          {THINKING_EFFORT_LABELS[effort]}
-        </button>
-      {/each}
-    </div>
-  {/if}
+  <div use:portal bind:this={popover.content} style={popover.style} class="liquid-glass fixed z-50 min-w-[140px] rounded-xl py-1 text-gray-900 dark:text-gray-100" class:hidden={!popover.open}>
+    {#each efforts as effort (effort)}
+      <button
+        onclick={() => select(effort)}
+        class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-black/5 dark:hover:bg-white/10 {thinkingEffort === effort ? 'text-violet-600 dark:text-violet-400 font-medium' : ''}"
+      >
+        <div class="flex items-end gap-0.5 w-5">
+          {#each { length: 4 } as _, n (n)}
+            <div
+              class="w-[3px] rounded-sm {n < barCount(effort) ? 'bg-violet-500' : 'bg-gray-300 dark:bg-neutral-600'}"
+              style="height: {4 + (n + 1) * 3}px"
+            ></div>
+          {/each}
+        </div>
+        {THINKING_EFFORT_LABELS[effort]}
+      </button>
+    {/each}
+  </div>
 </div>

@@ -113,11 +113,27 @@ const processTextNodes = (html: string, replaceCitation: (match: string, num: st
   return out + html.slice(cursor).replace(/\[(\d+)\]/g, replaceCitation)
 }
 
+const PROCESS_CACHE_MAX = 500
+const processCache = new Map<string, string>()
+
 export const processCitations = (html: string, citations: Citation[]): string => {
   if (!citations.length) {
     return html
   }
+  const key = `${html} ${citations.map(c => `${c.index}:${c.url}`).join('|')}`
+  const hit = processCache.get(key)
+  if (hit !== undefined) {
+    return hit
+  }
   const replaceCitation = buildCitationReplacer(citations)
   const blocks = html.split(/(<pre[\s\S]*?<\/pre>|<code[\s\S]*?<\/code>)/gi)
-  return blocks.map((block, n) => (n % 2 === 1 ? block : processTextNodes(block, replaceCitation))).join('')
+  const processed = blocks.map((block, n) => (n % 2 === 1 ? block : processTextNodes(block, replaceCitation))).join('')
+  if (processCache.size >= PROCESS_CACHE_MAX) {
+    const oldest = processCache.keys().next().value
+    if (oldest !== undefined) {
+      processCache.delete(oldest)
+    }
+  }
+  processCache.set(key, processed)
+  return processed
 }

@@ -76,6 +76,8 @@ let hasBranches = $derived((displayed.siblingCount ?? 1) > 1)
 
 const renderBlocks = (content: string): string[] => renderMarkdownBlocks(content).map(html => processCitations(html, citations))
 
+const renderedSegments = $derived(segments.map(segment => (segment.type === 'text' ? { ...segment, blocks: renderBlocks(segment.content) } : segment)))
+
 const copyPlain = () => {
   navigator.clipboard.writeText(stripMarkdown(displayed.content))
   copiedPlain = true
@@ -136,7 +138,7 @@ const autoResizeEdit = () => {
 }
 </script>
 
-<div class="flex {isUser ? 'justify-end' : 'justify-start'}" bind:this={root}>
+<div class="message-row flex {isUser ? 'justify-end' : 'justify-start'}" bind:this={root}>
   {#if isUser}
     <div class="flex max-w-[80%] flex-col items-end">
       {#if isEditing}
@@ -248,16 +250,16 @@ const autoResizeEdit = () => {
         {#if displayed.thinking || displayed.thinkingDuration != null}
           <ThinkingBlock messageId={displayed.id} thinking={displayed.thinking} duration={displayed.thinkingDuration} isActive={!!displayed.generating && !displayed.content} />
         {/if}
-        {#each segments as segment, idx}
+        {#each renderedSegments as segment, idx}
           {#if segment.type === 'tool_call'}
             <ToolCallBlock messageId={displayed.id} toolCall={segment.toolCall} />
           {:else if segment.type === 'code_execution'}
             <CodeExecutionBlock messageId={displayed.id} codeExecution={segment.codeExecution} />
           {:else}
-            <div class="prose prose-sm dark:prose-invert max-w-none" use:copyCodeAction>{#each renderBlocks(segment.content) as blockHtml}{@html blockHtml}{/each}{#if displayed.generating && idx === segments.length - 1}<span class="inline-block h-4 w-0.5 animate-pulse bg-gray-400 dark:bg-neutral-400"></span>{/if}</div>
+            <div class="prose prose-sm dark:prose-invert max-w-none" use:copyCodeAction>{#each segment.blocks as blockHtml}{@html blockHtml}{/each}{#if displayed.generating && idx === renderedSegments.length - 1}<span class="inline-block h-4 w-0.5 animate-pulse bg-gray-400 dark:bg-neutral-400"></span>{/if}</div>
           {/if}
         {/each}
-        {#if displayed.generating && segments.length === 0}
+        {#if displayed.generating && renderedSegments.length === 0}
           <span class="inline-block h-4 w-0.5 animate-pulse bg-gray-400 dark:bg-neutral-400"></span>
         {/if}
         <SourcesBlock {citations} />

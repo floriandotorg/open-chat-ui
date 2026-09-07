@@ -68,6 +68,7 @@ const onPointerUp = () => {
 }
 
 const onSelectionChange = () => {
+  if (!chat.isStreaming) return
   userInteracting = selectionInsideContainer()
 }
 

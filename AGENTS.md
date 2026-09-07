@@ -41,4 +41,4 @@ iOS-style glass aesthetic. Utility classes and their critical iOS Safari `backdr
 
 ## Dev server
 
-`bun run start` serves at http://localhost:5179. Requires PocketBase on http://127.0.0.1:8090 (`bun run pb:serve`) and `POCKETBASE_*` / `ENCRYPTION_SECRET` env vars. Default user `test@example.com`; password is the one assigned during `bun run pb:migrate-data` (≥8 chars).
+`bun run start` serves at http://localhost:5179. Requires PocketBase on http://127.0.0.1:8090 (`bun run pb:serve`) and `POCKETBASE_*` / `ENCRYPTION_SECRET` env vars. Default user `test@example.com`, password `testtest`.

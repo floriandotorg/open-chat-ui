@@ -1,6 +1,6 @@
 import { CITATION_TOOL_NAMES, type Citation, extractCitations, filterReferencedCitations, processCitations, renumberCitations } from '$lib/citations'
 import { renderMarkdown } from '$lib/markdown'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 const citations: Citation[] = [{ index: 1, url: 'https://example.com/source', title: 'Source', hostname: 'example.com' }]
 const dollar = '$'
@@ -21,6 +21,27 @@ describe('processCitations', () => {
     expect(html.match(/citation-ref/g)).toHaveLength(1)
     expect(html).toContain('Use this source')
     expect(html).toContain(rematch)
+  })
+
+  it('serves repeated identical input from cache without re-running the regex', () => {
+    const html = renderMarkdown('See [1] for details.')
+    const first = processCitations(html, citations)
+
+    const spy = vi.spyOn(String.prototype, 'matchAll')
+    const second = processCitations(html, citations)
+    spy.mockRestore()
+
+    expect(spy).not.toHaveBeenCalled()
+    expect(second).toBe(first)
+  })
+
+  it('recomputes when the citations fingerprint changes', () => {
+    const html = renderMarkdown('See [1] for details.')
+    const first = processCitations(html, citations)
+    const updated = processCitations(html, [{ ...citations[0], url: 'https://other.com/x' }])
+
+    expect(updated).not.toBe(first)
+    expect(updated).toContain('https://other.com/x')
   })
 })
 
