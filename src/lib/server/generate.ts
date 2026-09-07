@@ -421,11 +421,9 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
     const toolResults: MessagePayload['toolResults'] = {}
     for (const entry of allToolCalls) {
       if (isCodeExecutionEntry(entry)) {
-        if (entry.stdout !== undefined || entry.stderr !== undefined) {
-          toolResults[entry.id] = { ...(entry.stdout !== undefined ? { stdout: entry.stdout } : {}), ...(entry.stderr !== undefined ? { stderr: entry.stderr } : {}) }
-        }
+        toolResults[entry.id] = { input: entry.input, ...(entry.stdout !== undefined ? { stdout: entry.stdout } : {}), ...(entry.stderr !== undefined ? { stderr: entry.stderr } : {}) }
       } else {
-        toolResults[entry.id] = { result: entry.result, ...(entry.rawResult !== undefined ? { rawResult: entry.rawResult } : {}) }
+        toolResults[entry.id] = { arguments: entry.arguments, result: entry.result, ...(entry.rawResult !== undefined ? { rawResult: entry.rawResult } : {}) }
       }
     }
     // The payload is written before the final message update so clients can

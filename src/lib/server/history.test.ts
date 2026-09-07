@@ -122,14 +122,14 @@ describe('buildHistoryMessages', () => {
 describe('hydrateEntries', () => {
   it('restores results from the payload onto slim entries', () => {
     const slim = [
-      { id: 'toolu_1', name: 'web_search', arguments: { q: 'x' }, textOffset: 5, done: true, resultChars: 100 },
-      { type: 'code_execution', id: 'srvtoolu_1', name: 'bash_code_execution', input: { code: 'ls' }, textOffset: 10, done: true, stdoutChars: 3 },
+      { id: 'toolu_1', name: 'web_search', textOffset: 5, done: true, resultChars: 100 },
+      { type: 'code_execution', id: 'srvtoolu_1', name: 'bash_code_execution', textOffset: 10, done: true, stdoutChars: 3 },
     ]
     const payload = {
       messageId: 'm1',
       toolResults: {
-        toolu_1: { result: 'result text', rawResult: 'raw text' },
-        srvtoolu_1: { stdout: 'out', stderr: 'err' },
+        toolu_1: { result: 'result text', rawResult: 'raw text', arguments: { q: 'x' } },
+        srvtoolu_1: { stdout: 'out', stderr: 'err', input: { code: 'ls' } },
       },
       rawContentBlocks: null,
       thinking: null,
@@ -151,14 +151,14 @@ describe('hydrateEntries', () => {
       { id: 'toolu_2', name: 'web_search', arguments: { q: 2 }, textOffset: 2, result: 'r2' },
     ]
     const slim = [
-      { id: 'toolu_1', name: 'web_search', arguments: { q: 1 }, textOffset: 1, done: true, resultChars: 2 },
-      { id: 'toolu_2', name: 'web_search', arguments: { q: 2 }, textOffset: 2, done: true, resultChars: 2 },
+      { id: 'toolu_1', name: 'web_search', textOffset: 1, done: true, resultChars: 2 },
+      { id: 'toolu_2', name: 'web_search', textOffset: 2, done: true, resultChars: 2 },
     ]
     const payload = {
       messageId: 'm1',
       toolResults: {
-        toolu_1: { result: 'r1' },
-        toolu_2: { result: 'r2' },
+        toolu_1: { result: 'r1', arguments: { q: 1 } },
+        toolu_2: { result: 'r2', arguments: { q: 2 } },
       },
       rawContentBlocks: null,
       thinking: null,
@@ -188,7 +188,6 @@ describe('slimEntry', () => {
     expect(slimEntry(entry, true)).toEqual({
       id: 'toolu_1',
       name: 'web_search',
-      arguments: { q: 'x' },
       textOffset: 5,
       done: true,
       resultChars: entry.result.length,
@@ -201,7 +200,6 @@ describe('slimEntry', () => {
     expect(slimEntry(entry, true)).toEqual({
       id: 'toolu_1',
       name: 'fetch_url',
-      arguments: {},
       textOffset: 0,
       done: true,
       resultChars: entry.result.length,
@@ -212,7 +210,6 @@ describe('slimEntry', () => {
     expect(slimEntry({ id: 'toolu_1', name: 'web_search', arguments: {}, textOffset: 0 }, false)).toEqual({
       id: 'toolu_1',
       name: 'web_search',
-      arguments: {},
       textOffset: 0,
       done: false,
     })
@@ -234,7 +231,6 @@ describe('slimEntry', () => {
       type: 'code_execution',
       id: 'srvtoolu_1',
       name: 'bash_code_execution',
-      input: { code: 'ls' },
       textOffset: 3,
       done: true,
       returnCode: 1,

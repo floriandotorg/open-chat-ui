@@ -47,7 +47,6 @@ export const slimEntry = (entry: LiveEntry, done: boolean): ToolCallSummary | Co
       type: 'code_execution',
       id: entry.id,
       name: entry.name,
-      input: entry.input,
       textOffset: entry.textOffset,
       done,
       ...(entry.returnCode !== undefined ? { returnCode: entry.returnCode } : {}),
@@ -61,7 +60,6 @@ export const slimEntry = (entry: LiveEntry, done: boolean): ToolCallSummary | Co
   return {
     id: entry.id,
     name: entry.name,
-    arguments: entry.arguments,
     textOffset: entry.textOffset,
     done,
     ...(entry.result !== undefined ? { resultChars: entry.result.length } : {}),
@@ -88,7 +86,7 @@ export const hydrateEntries = (entries: unknown[], payload: MessagePayload | und
         type: 'code_execution',
         id: entry.id,
         name: entry.name,
-        input: asRecord(entry.input),
+        input: asRecord(results?.input ?? entry.input),
         textOffset,
         ...(asString(results?.stdout) !== undefined || asString(entry.stdout) !== undefined ? { stdout: asString(results?.stdout) ?? asString(entry.stdout) } : {}),
         ...(asString(results?.stderr) !== undefined || asString(entry.stderr) !== undefined ? { stderr: asString(results?.stderr) ?? asString(entry.stderr) } : {}),
@@ -102,7 +100,7 @@ export const hydrateEntries = (entries: unknown[], payload: MessagePayload | und
       hydrated.push({
         id: entry.id,
         name: entry.name,
-        arguments: asRecord(entry.arguments),
+        arguments: asRecord(results?.arguments ?? entry.arguments),
         textOffset,
         result,
         ...(rawResult !== undefined ? { rawResult } : {}),

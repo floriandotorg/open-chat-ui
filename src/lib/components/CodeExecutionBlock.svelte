@@ -10,7 +10,7 @@ let loading = $state(false)
 
 const toggle = async () => {
   open = !open
-  if (open && !payload && !loading && codeExecution.done && codeExecution.stdout === undefined && codeExecution.stderr === undefined) {
+  if (open && !payload && !loading && (codeExecution.input === undefined || (codeExecution.done && codeExecution.stdout === undefined && codeExecution.stderr === undefined))) {
     loading = true
     payload = await loadPayload(messageId)
     loading = false
@@ -36,7 +36,8 @@ const extractCode = (input: Record<string, unknown>): string => {
   return ''
 }
 
-let command = $derived(extractCode(codeExecution.input ?? {}))
+let input = $derived(codeExecution.input ?? payload?.toolResults[codeExecution.id]?.input)
+let command = $derived(input ? extractCode(input) : '')
 let label = $derived(isRunning ? 'Running code\u2026' : codeExecution.returnCode === 0 ? 'Code executed' : 'Code execution failed')
 
 const isImageMime = (mime: string) => mime.startsWith('image/')
@@ -123,7 +124,7 @@ let downloadFiles = $derived(codeExecution.files?.filter(f => !isImageMime(f.mim
           <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 2a10 10 0 1 0 10 10" stroke-linecap="round" />
           </svg>
-          Loading output…
+          Loading…
         </div>
       {/if}
       {#if codeExecution.error}

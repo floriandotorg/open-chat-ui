@@ -32,27 +32,41 @@ for (;;) {
     const rawContentBlocks = Array.isArray(row.rawContentBlocks) && row.rawContentBlocks.length ? row.rawContentBlocks : null
     const thinking = typeof row.thinking === 'string' && row.thinking ? row.thinking : null
     const hasInlineResults = entries.some(e => ('type' in e ? e.stdout !== undefined || e.stderr !== undefined : e.result !== undefined || e.rawResult !== undefined))
-    if (hasPayload.has(row.id) || (!hasInlineResults && !rawContentBlocks && !thinking)) {
+    const hasInlineInputs = entries.some(e => ('type' in e ? e.input !== undefined && Object.keys(e.input).length > 0 : e.arguments !== undefined && Object.keys(e.arguments).length > 0))
+    if (!hasInlineResults && !hasInlineInputs && !rawContentBlocks && !thinking) {
       ++skipped
       continue
     }
     const toolResults: MessagePayload['toolResults'] = {}
     for (const entry of entries) {
       if ('type' in entry) {
-        if (entry.stdout !== undefined || entry.stderr !== undefined) {
-          toolResults[entry.id] = { ...(entry.stdout !== undefined ? { stdout: entry.stdout } : {}), ...(entry.stderr !== undefined ? { stderr: entry.stderr } : {}) }
+        toolResults[entry.id] = {
+          ...(entry.input !== undefined ? { input: entry.input } : {}),
+          ...(entry.stdout !== undefined ? { stdout: entry.stdout } : {}),
+          ...(entry.stderr !== undefined ? { stderr: entry.stderr } : {}),
         }
-      } else if (entry.result !== undefined || entry.rawResult !== undefined) {
-        toolResults[entry.id] = { ...(entry.result !== undefined ? { result: entry.result } : {}), ...(entry.rawResult !== undefined ? { rawResult: entry.rawResult } : {}) }
+      } else {
+        toolResults[entry.id] = {
+          ...(entry.arguments !== undefined ? { arguments: entry.arguments } : {}),
+          ...(entry.result !== undefined ? { result: entry.result } : {}),
+          ...(entry.rawResult !== undefined ? { rawResult: entry.rawResult } : {}),
+        }
       }
     }
-    await pb.collection('message_payloads').create({ message: row.id, toolResults, rawContentBlocks, thinking, createdAt: now() })
-    await pb.collection('messages').update(row.id, {
-      toolCalls: entries.length ? entries.map(e => slimEntry(e, true)) : null,
-      rawContentBlocks: null,
-      thinking: null,
-      eventSeq: 0,
-    })
+    const slimToolCalls = entries.length ? entries.map(e => slimEntry(e, true)) : null
+    const messageFields = { toolCalls: slimToolCalls, rawContentBlocks: null, thinking: null, eventSeq: 0 }
+    if (hasPayload.has(row.id)) {
+      const existing = await pb.collection('message_payloads').getFirstListItem(pb.filter('message = {:m}', { m: row.id }))
+      const merged = { ...existing.toolResults }
+      for (const [id, results] of Object.entries(toolResults)) {
+        merged[id] = { ...results, ...merged[id] }
+      }
+      await pb.collection('message_payloads').update(existing.id, { toolResults: merged, ...(rawContentBlocks ? { rawContentBlocks } : {}), ...(thinking ? { thinking } : {}) })
+      await pb.collection('messages').update(row.id, messageFields)
+    } else {
+      await pb.collection('message_payloads').create({ message: row.id, toolResults, rawContentBlocks, thinking, createdAt: now() })
+      await pb.collection('messages').update(row.id, messageFields)
+    }
     ++migrated
     if (migrated % 100 === 0) console.log(`migrated ${migrated}…`)
   }

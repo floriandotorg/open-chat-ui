@@ -13,13 +13,14 @@ const formatToolName = (name: string) => name.replace(/_/g, ' ').replace(/\b\w/g
 
 const toggle = async () => {
   open = !open
-  if (open && !payload && !loading && toolCall.done && toolCall.result === undefined) {
+  if (open && !payload && !loading && (toolCall.arguments === undefined || toolCall.result === undefined)) {
     loading = true
     payload = await loadPayload(messageId)
     loading = false
   }
 }
 
+let args = $derived(toolCall.arguments ?? payload?.toolResults[toolCall.id]?.arguments)
 let result = $derived(toolCall.result ?? payload?.toolResults[toolCall.id]?.result)
 let rawResult = $derived(toolCall.rawResult ?? payload?.toolResults[toolCall.id]?.rawResult)
 let label = $derived(toolCall.done ? `Used ${formatToolName(toolCall.name)}` : `Using ${formatToolName(toolCall.name)}…`)
@@ -51,18 +52,20 @@ let renderedRawResult = $derived(rawResult ? renderMarkdown(rawResult) : '')
   </button>
   {#if open}
     <div class="tool-call-details mt-1 overflow-hidden rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs text-gray-700 dark:border-cyan-800/50 dark:bg-cyan-900/20 dark:text-gray-300">
-      <details class="mb-1">
-        <summary class="cursor-pointer text-[11px] font-medium text-gray-400 dark:text-gray-500">Arguments</summary>
-        <pre class="mt-1 overflow-x-auto whitespace-pre-wrap break-all font-mono text-[10px]">{JSON.stringify(toolCall.arguments, null, 2)}</pre>
-      </details>
       {#if loading}
         <div class="flex items-center gap-1.5 text-[11px] text-gray-400 dark:text-gray-500">
           <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 2a10 10 0 1 0 10 10" stroke-linecap="round" />
           </svg>
-          Loading result…
+          Loading…
         </div>
       {:else}
+        {#if args}
+          <details class="mb-1">
+            <summary class="cursor-pointer text-[11px] font-medium text-gray-400 dark:text-gray-500">Arguments</summary>
+            <pre class="mt-1 overflow-x-auto whitespace-pre-wrap break-all font-mono text-[10px]">{JSON.stringify(args, null, 2)}</pre>
+          </details>
+        {/if}
         {#if rawResult}
           <details class="mb-1">
             <summary class="cursor-pointer text-[11px] font-medium text-gray-400 dark:text-gray-500">Raw output ({Math.round(rawResult.length / 1000)}k chars)</summary>

@@ -166,7 +166,7 @@ const strOrUndefined = (value: unknown): string | undefined => (typeof value ===
 const toToolCallSummary = (e: RawEntry): ToolCallSummary => ({
   id: typeof e.id === 'string' ? e.id : '',
   name: typeof e.name === 'string' ? e.name : '',
-  arguments: typeof e.arguments === 'object' && e.arguments !== null ? (e.arguments as Record<string, unknown>) : {},
+  ...(typeof e.arguments === 'object' && e.arguments !== null ? { arguments: e.arguments as Record<string, unknown> } : {}),
   textOffset: typeof e.textOffset === 'number' ? e.textOffset : 0,
   done: typeof e.done === 'boolean' ? e.done : typeof e.result === 'string',
   ...(typeof e.resultChars === 'number' ? { resultChars: e.resultChars } : {}),
@@ -179,7 +179,7 @@ const toCodeExecutionSummary = (e: RawEntry): CodeExecutionSummary => ({
   type: 'code_execution',
   id: typeof e.id === 'string' ? e.id : '',
   name: typeof e.name === 'string' ? e.name : '',
-  input: typeof e.input === 'object' && e.input !== null ? (e.input as Record<string, unknown>) : {},
+  ...(typeof e.input === 'object' && e.input !== null ? { input: e.input as Record<string, unknown> } : {}),
   textOffset: typeof e.textOffset === 'number' ? e.textOffset : 0,
   done: typeof e.done === 'boolean' ? e.done : typeof e.stdout === 'string' || typeof e.stderr === 'string' || typeof e.error === 'string' || typeof e.returnCode === 'number',
   ...(typeof e.returnCode === 'number' ? { returnCode: e.returnCode } : {}),

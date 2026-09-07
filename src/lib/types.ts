@@ -40,12 +40,12 @@ export interface StreamEvent {
   ops: StreamOp[]
 }
 
-// result/rawResult only exist on unmigrated legacy rows; new writes move them
-// to message_payloads.
+// arguments/result/rawResult only exist on live stream ops and unmigrated
+// legacy rows; new writes move them to message_payloads.
 export interface ToolCallSummary {
   id: string
   name: string
-  arguments: Record<string, unknown>
+  arguments?: Record<string, unknown>
   textOffset: number
   done: boolean
   resultChars?: number
@@ -54,12 +54,12 @@ export interface ToolCallSummary {
   rawResult?: string
 }
 
-// stdout/stderr only exist on unmigrated legacy rows.
+// input/stdout/stderr only exist on live stream ops and unmigrated legacy rows.
 export interface CodeExecutionSummary {
   type: 'code_execution'
   id: string
   name: string
-  input: Record<string, unknown>
+  input?: Record<string, unknown>
   textOffset: number
   done: boolean
   returnCode?: number
@@ -73,7 +73,7 @@ export interface CodeExecutionSummary {
 
 export interface MessagePayload {
   messageId: string
-  toolResults: Record<string, { result?: string; rawResult?: string; stdout?: string; stderr?: string }>
+  toolResults: Record<string, { result?: string; rawResult?: string; stdout?: string; stderr?: string; arguments?: Record<string, unknown>; input?: Record<string, unknown> }>
   rawContentBlocks: { textOffset: number; blocks: unknown[] }[] | null
   thinking: string | null
 }
