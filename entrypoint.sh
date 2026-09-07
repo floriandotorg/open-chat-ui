@@ -14,4 +14,7 @@ done
 echo "[entrypoint] applying schema ..."
 bun scripts/apply-pb-schema.ts || echo "[entrypoint] schema apply failed — continuing; run it manually if the app errors"
 
+echo "[entrypoint] migrating message payloads ..."
+bun scripts/migrate-message-payloads.ts || echo "[entrypoint] payload migration failed — continuing; unmigrated rows still work via inline fallback"
+
 exec bun build/index.js

@@ -1,5 +1,5 @@
 import { normalizeModelRef } from '$lib/model-ref'
-import type { Message as ClientMessage, CodeExecutionBlock, FileAttachment, ImageAttachment, ModelInfo, ToolCallInfo } from '$lib/types'
+import type { Message as ClientMessage, CodeExecutionSummary, FileAttachment, ImageAttachment, MessagePayload, ModelInfo, ToolCallSummary } from '$lib/types'
 import type { RecordModel } from 'pocketbase'
 
 export interface ApiKey {
@@ -45,10 +45,10 @@ export interface Message {
   cacheCreationInputTokens: number | null
   cost: number | null
   toolCalls: unknown[] | null
-  rawContentBlocks: unknown[] | null
   error: string | null
   thinking: string | null
   thinkingDuration: number | null
+  eventSeq: number
   generating?: boolean
   createdAt: Date
 }
@@ -139,12 +139,19 @@ export const mapMessage = (r: RecordModel): Message => ({
   cacheCreationInputTokens: numOrNull(r.cacheCreationInputTokens),
   cost: numOrNull(r.cost),
   toolCalls: r.toolCalls ?? null,
-  rawContentBlocks: r.rawContentBlocks ?? null,
   error: orNull(r.error),
   thinking: orNull(r.thinking),
   thinkingDuration: numOrNull(r.thinkingDuration),
+  eventSeq: typeof r.eventSeq === 'number' ? r.eventSeq : 0,
   generating: r.generating ?? false,
   createdAt: toDate(r.createdAt),
+})
+
+export const mapMessagePayload = (r: RecordModel): MessagePayload => ({
+  messageId: r.message,
+  toolResults: r.toolResults ?? {},
+  rawContentBlocks: r.rawContentBlocks ?? null,
+  thinking: orNull(r.thinking),
 })
 
 interface RawEntry {
@@ -152,11 +159,43 @@ interface RawEntry {
   [key: string]: unknown
 }
 
+const strOrUndefined = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined)
+
+// New rows store the slim summary shape; legacy rows carry results inline and
+// no done flag, which is derived from the presence of a result instead.
+const toToolCallSummary = (e: RawEntry): ToolCallSummary => ({
+  id: typeof e.id === 'string' ? e.id : '',
+  name: typeof e.name === 'string' ? e.name : '',
+  arguments: typeof e.arguments === 'object' && e.arguments !== null ? (e.arguments as Record<string, unknown>) : {},
+  textOffset: typeof e.textOffset === 'number' ? e.textOffset : 0,
+  done: typeof e.done === 'boolean' ? e.done : typeof e.result === 'string',
+  ...(typeof e.resultChars === 'number' ? { resultChars: e.resultChars } : {}),
+  ...(Array.isArray(e.citations) ? { citations: e.citations as ToolCallSummary['citations'] } : {}),
+  ...(strOrUndefined(e.result) !== undefined ? { result: strOrUndefined(e.result) } : {}),
+  ...(strOrUndefined(e.rawResult) !== undefined ? { rawResult: strOrUndefined(e.rawResult) } : {}),
+})
+
+const toCodeExecutionSummary = (e: RawEntry): CodeExecutionSummary => ({
+  type: 'code_execution',
+  id: typeof e.id === 'string' ? e.id : '',
+  name: typeof e.name === 'string' ? e.name : '',
+  input: typeof e.input === 'object' && e.input !== null ? (e.input as Record<string, unknown>) : {},
+  textOffset: typeof e.textOffset === 'number' ? e.textOffset : 0,
+  done: typeof e.done === 'boolean' ? e.done : typeof e.stdout === 'string' || typeof e.stderr === 'string' || typeof e.error === 'string' || typeof e.returnCode === 'number',
+  ...(typeof e.returnCode === 'number' ? { returnCode: e.returnCode } : {}),
+  ...(strOrUndefined(e.error) !== undefined ? { error: strOrUndefined(e.error) } : {}),
+  ...(typeof e.stdoutChars === 'number' ? { stdoutChars: e.stdoutChars } : {}),
+  ...(typeof e.stderrChars === 'number' ? { stderrChars: e.stderrChars } : {}),
+  ...(Array.isArray(e.files) ? { files: e.files as CodeExecutionSummary['files'] } : {}),
+  ...(strOrUndefined(e.stdout) !== undefined ? { stdout: strOrUndefined(e.stdout) } : {}),
+  ...(strOrUndefined(e.stderr) !== undefined ? { stderr: strOrUndefined(e.stderr) } : {}),
+})
+
 export const mapClientMessage = (r: RecordModel): ClientMessage => {
   const m = mapMessage(r)
   const raw = (m.toolCalls ?? []) as RawEntry[]
-  const toolCalls = raw.filter(e => e.type !== 'code_execution') as unknown as ToolCallInfo[]
-  const codeExecutions = raw.filter(e => e.type === 'code_execution') as unknown as CodeExecutionBlock[]
+  const toolCalls = raw.filter(e => e.type !== 'code_execution').map(toToolCallSummary)
+  const codeExecutions = raw.filter(e => e.type === 'code_execution').map(toCodeExecutionSummary)
   return {
     id: m.id,
     conversationId: m.conversationId,
@@ -175,6 +214,7 @@ export const mapClientMessage = (r: RecordModel): ClientMessage => {
     sendError: m.error ?? undefined,
     thinking: m.thinking ?? undefined,
     thinkingDuration: m.thinkingDuration ?? undefined,
+    eventSeq: m.eventSeq,
     generating: m.generating,
     createdAt: m.createdAt,
   }

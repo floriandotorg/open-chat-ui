@@ -1,5 +1,5 @@
 <script lang="ts">
-import { extractCitations, filterReferencedCitations, processCitations } from '$lib/citations'
+import { collectCitations, filterReferencedCitations, processCitations } from '$lib/citations'
 import { buildContentSegments } from '$lib/content-segments'
 import { copyCodeAction } from '$lib/copy-code'
 import { renderMarkdownBlocks } from '$lib/markdown'
@@ -62,7 +62,7 @@ $effect(() => {
 
 let isUser = $derived(displayed.role === 'user')
 let segments = $derived(isUser ? [] : buildContentSegments(displayed.content, displayed.toolCalls, displayed.codeExecutions))
-let allCitations = $derived(extractCitations(displayed.toolCalls))
+let allCitations = $derived(collectCitations(displayed.toolCalls))
 let citations = $derived(filterReferencedCitations(displayed.content, allCitations))
 
 let copiedPlain = $state(false)
@@ -245,14 +245,14 @@ const autoResizeEdit = () => {
         {#if displayed.model}
           <div class="mb-1 text-xs font-medium text-gray-400 dark:text-neutral-500">{displayed.model}</div>
         {/if}
-        {#if displayed.thinking}
-          <ThinkingBlock thinking={displayed.thinking} duration={displayed.thinkingDuration} isActive={!!displayed.generating && !displayed.content} />
+        {#if displayed.thinking || displayed.thinkingDuration != null}
+          <ThinkingBlock messageId={displayed.id} thinking={displayed.thinking} duration={displayed.thinkingDuration} isActive={!!displayed.generating && !displayed.content} />
         {/if}
         {#each segments as segment, idx}
           {#if segment.type === 'tool_call'}
-            <ToolCallBlock toolCall={segment.toolCall} />
+            <ToolCallBlock messageId={displayed.id} toolCall={segment.toolCall} />
           {:else if segment.type === 'code_execution'}
-            <CodeExecutionBlock codeExecution={segment.codeExecution} />
+            <CodeExecutionBlock messageId={displayed.id} codeExecution={segment.codeExecution} />
           {:else}
             <div class="prose prose-sm dark:prose-invert max-w-none" use:copyCodeAction>{#each renderBlocks(segment.content) as blockHtml}{@html blockHtml}{/each}{#if displayed.generating && idx === segments.length - 1}<span class="inline-block h-4 w-0.5 animate-pulse bg-gray-400 dark:bg-neutral-400"></span>{/if}</div>
           {/if}

@@ -1,24 +1,38 @@
 <script lang="ts">
 import { renderMarkdown } from '$lib/markdown'
-import type { ToolCallInfo } from '$lib/types'
+import { loadPayload } from '$lib/stores/payloads.svelte'
+import type { MessagePayload, ToolCallSummary } from '$lib/types'
 
-let { toolCall }: { toolCall: ToolCallInfo } = $props()
+let { messageId, toolCall }: { messageId: string; toolCall: ToolCallSummary } = $props()
 
 let open = $state(false)
+let payload = $state<MessagePayload | null>(null)
+let loading = $state(false)
 
 const formatToolName = (name: string) => name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 
-let label = $derived(toolCall.result ? `Used ${formatToolName(toolCall.name)}` : `Using ${formatToolName(toolCall.name)}\u2026`)
-let renderedResult = $derived(toolCall.result ? renderMarkdown(toolCall.result) : '')
-let renderedRawResult = $derived(toolCall.rawResult ? renderMarkdown(toolCall.rawResult) : '')
+const toggle = async () => {
+  open = !open
+  if (open && !payload && !loading && toolCall.done && toolCall.result === undefined) {
+    loading = true
+    payload = await loadPayload(messageId)
+    loading = false
+  }
+}
+
+let result = $derived(toolCall.result ?? payload?.toolResults[toolCall.id]?.result)
+let rawResult = $derived(toolCall.rawResult ?? payload?.toolResults[toolCall.id]?.rawResult)
+let label = $derived(toolCall.done ? `Used ${formatToolName(toolCall.name)}` : `Using ${formatToolName(toolCall.name)}…`)
+let renderedResult = $derived(result ? renderMarkdown(result) : '')
+let renderedRawResult = $derived(rawResult ? renderMarkdown(rawResult) : '')
 </script>
 
 <div class="my-1.5">
   <button
-    onclick={() => open = !open}
+    onclick={toggle}
     class="flex items-center gap-1.5 text-xs text-cyan-600 hover:text-cyan-700 dark:text-cyan-400 dark:hover:text-cyan-300 transition-colors"
   >
-    {#if !toolCall.result}
+    {#if !toolCall.done}
       <svg class="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M12 2a10 10 0 1 0 10 10" stroke-linecap="round" />
       </svg>
@@ -41,17 +55,26 @@ let renderedRawResult = $derived(toolCall.rawResult ? renderMarkdown(toolCall.ra
         <summary class="cursor-pointer text-[11px] font-medium text-gray-400 dark:text-gray-500">Arguments</summary>
         <pre class="mt-1 overflow-x-auto whitespace-pre-wrap break-all font-mono text-[10px]">{JSON.stringify(toolCall.arguments, null, 2)}</pre>
       </details>
-      {#if toolCall.rawResult}
-        <details class="mb-1">
-          <summary class="cursor-pointer text-[11px] font-medium text-gray-400 dark:text-gray-500">Raw output ({Math.round(toolCall.rawResult.length / 1000)}k chars)</summary>
-          <div class="tool-call-result mt-1 overflow-hidden wrap-break-word text-[11px] leading-relaxed">{@html renderedRawResult}</div>
-        </details>
-      {/if}
-      {#if toolCall.result}
-        {#if toolCall.rawResult}
-          <div class="mb-1 text-[11px] font-medium text-gray-400 dark:text-gray-500">Summarized output</div>
+      {#if loading}
+        <div class="flex items-center gap-1.5 text-[11px] text-gray-400 dark:text-gray-500">
+          <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2a10 10 0 1 0 10 10" stroke-linecap="round" />
+          </svg>
+          Loading result…
+        </div>
+      {:else}
+        {#if rawResult}
+          <details class="mb-1">
+            <summary class="cursor-pointer text-[11px] font-medium text-gray-400 dark:text-gray-500">Raw output ({Math.round(rawResult.length / 1000)}k chars)</summary>
+            <div class="tool-call-result mt-1 overflow-hidden wrap-break-word text-[11px] leading-relaxed">{@html renderedRawResult}</div>
+          </details>
         {/if}
-        <div class="tool-call-result overflow-hidden wrap-break-word text-[11px] leading-relaxed">{@html renderedResult}</div>
+        {#if result}
+          {#if rawResult}
+            <div class="mb-1 text-[11px] font-medium text-gray-400 dark:text-gray-500">Summarized output</div>
+          {/if}
+          <div class="tool-call-result overflow-hidden wrap-break-word text-[11px] leading-relaxed">{@html renderedResult}</div>
+        {/if}
       {/if}
     </div>
   {/if}

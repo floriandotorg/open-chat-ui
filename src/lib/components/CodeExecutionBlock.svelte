@@ -1,12 +1,26 @@
 <script lang="ts">
-import type { CodeExecutionBlock } from '$lib/types'
+import { loadPayload } from '$lib/stores/payloads.svelte'
+import type { CodeExecutionSummary, MessagePayload } from '$lib/types'
 
-let { codeExecution }: { codeExecution: CodeExecutionBlock } = $props()
+let { messageId, codeExecution }: { messageId: string; codeExecution: CodeExecutionSummary } = $props()
 
 let open = $state(false)
+let payload = $state<MessagePayload | null>(null)
+let loading = $state(false)
 
-let hasResult = $derived(codeExecution.stdout !== undefined || codeExecution.stderr !== undefined || codeExecution.error !== undefined)
-let isRunning = $derived(!hasResult)
+const toggle = async () => {
+  open = !open
+  if (open && !payload && !loading && codeExecution.done && codeExecution.stdout === undefined && codeExecution.stderr === undefined) {
+    loading = true
+    payload = await loadPayload(messageId)
+    loading = false
+  }
+}
+
+let stdout = $derived(codeExecution.stdout ?? payload?.toolResults[codeExecution.id]?.stdout)
+let stderr = $derived(codeExecution.stderr ?? payload?.toolResults[codeExecution.id]?.stderr)
+
+let isRunning = $derived(!codeExecution.done)
 
 const extractCode = (input: Record<string, unknown>): string => {
   if (typeof input.command === 'string') return input.command
@@ -33,7 +47,7 @@ let downloadFiles = $derived(codeExecution.files?.filter(f => !isImageMime(f.mim
 
 <div class="my-1.5">
   <button
-    onclick={() => open = !open}
+    onclick={toggle}
     class="flex items-center gap-1.5 text-xs text-violet-600 hover:text-violet-700 dark:text-violet-400 dark:hover:text-violet-300 transition-colors"
   >
     {#if isRunning}
@@ -104,19 +118,27 @@ let downloadFiles = $derived(codeExecution.files?.filter(f => !isImageMime(f.mim
           <span class="select-none text-gray-500">$ </span>{command}
         </div>
       {/if}
+      {#if loading}
+        <div class="flex items-center gap-1.5 bg-gray-50 px-3 py-2 text-[11px] text-gray-400 dark:bg-gray-900/50 dark:text-gray-500">
+          <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2a10 10 0 1 0 10 10" stroke-linecap="round" />
+          </svg>
+          Loading output…
+        </div>
+      {/if}
       {#if codeExecution.error}
         <div class="bg-red-50 dark:bg-red-900/20 px-3 py-2 text-red-700 dark:text-red-400 font-mono text-[11px]">
           Error: {codeExecution.error}
         </div>
       {/if}
-      {#if codeExecution.stdout}
+      {#if stdout}
         <div class="bg-gray-50 dark:bg-gray-900/50 px-3 py-2 font-mono text-[11px] text-gray-700 dark:text-gray-300 overflow-x-auto whitespace-pre-wrap break-all max-h-80 overflow-y-auto">
-          {codeExecution.stdout}
+          {stdout}
         </div>
       {/if}
-      {#if codeExecution.stderr}
+      {#if stderr}
         <div class="bg-amber-50 dark:bg-amber-900/20 px-3 py-2 font-mono text-[11px] text-amber-800 dark:text-amber-300 overflow-x-auto whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
-          {codeExecution.stderr}
+          {stderr}
         </div>
       {/if}
       {#if isRunning && !command}

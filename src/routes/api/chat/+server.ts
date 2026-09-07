@@ -1,3 +1,4 @@
+import type { Message } from '$lib/db-mappers'
 import { resolveEffectiveParentId } from '$lib/message-tree'
 import { requireUser } from '$lib/server/auth-guard'
 import { mapConversation, mapMessage, now } from '$lib/server/db/records'
@@ -33,12 +34,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     skipUserInsert?: boolean
   }
 
-  const conversation = await getFirstOrNull(
+  const [conversation, priorMsgs] = await Promise.all([
+    getFirstOrNull(
+      pb
+        .collection('conversations')
+        .getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: conversationId, u: userId }))
+        .then(mapConversation),
+    ),
     pb
-      .collection('conversations')
-      .getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: conversationId, u: userId }))
-      .then(mapConversation),
-  )
+      .collection('messages')
+      .getFullList({ filter: pb.filter('conversation = {:c}', { c: conversationId }), sort: 'createdAt' })
+      .then(rows => rows.map(mapMessage)),
+  ])
   if (!conversation) {
     throw error(404, 'Conversation not found')
   }
@@ -52,7 +59,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
 
   const userMsgId = requestUserMsgId ?? crypto.randomUUID()
-  const priorMsgs = (await pb.collection('messages').getFullList({ filter: pb.filter('conversation = {:c}', { c: conversationId }), sort: 'createdAt' })).map(mapMessage)
   const effectiveParentId = skipUserInsert ? (requestParentId ?? null) : resolveEffectiveParentId(requestParentId, priorMsgs)
   if (!skipUserInsert) {
     await pb.collection('messages').create({
@@ -71,7 +77,31 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     await pb.collection('conversations').update(conversationId, { activeBranches: branches, updatedAt: now() })
   }
 
-  const allMsgs = skipUserInsert ? priorMsgs : (await pb.collection('messages').getFullList({ filter: pb.filter('conversation = {:c}', { c: conversationId }), sort: 'createdAt' })).map(mapMessage)
+  // The user message was just created above; append it locally instead of
+  // re-listing all messages.
+  const userMsg: Message = {
+    id: userMsgId,
+    conversationId,
+    parentId: effectiveParentId,
+    role: 'user',
+    content: message,
+    images: imageIds?.length ? imageIds : null,
+    files: fileAttachments?.length ? fileAttachments : null,
+    provider: null,
+    model: null,
+    inputTokens: null,
+    outputTokens: null,
+    cacheReadInputTokens: null,
+    cacheCreationInputTokens: null,
+    toolCalls: null,
+    cost: null,
+    error: null,
+    thinking: null,
+    thinkingDuration: null,
+    eventSeq: 0,
+    createdAt: new Date(),
+  }
+  const allMsgs = skipUserInsert ? priorMsgs : [...priorMsgs, userMsg]
   const byId = new Map(allMsgs.map(m => [m.id, m]))
   const historyIds: string[] = []
   let cur = byId.get(userMsgId)
@@ -91,6 +121,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     historyMessageIds: historyIds,
     branchParentKey: effectiveParentId ?? '__root__',
     titleOnFirst: true,
+    preloaded: { conversation, messages: allMsgs },
   })
 
   return json({ ok: true })

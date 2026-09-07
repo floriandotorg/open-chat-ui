@@ -19,7 +19,7 @@ Prefer self-documenting names and structure over comments. Don't restate what th
 - **Auth guard**: all `/chat`, `/settings`, `/api/*` routes are protected in `hooks.server.ts`. Handlers use `requireUser(locals.user)` — never `locals.user!`.
 - **API keys**: encrypted with AES-256-GCM before storage; `ENCRYPTION_SECRET` env var required.
 - **Providers**: `LLMProvider` interface in `src/lib/server/providers/types.ts`; each provider is a factory function registered in `providers/index.ts`. Use the provider's official SDK directly (no Vercel AI SDK). `chat` is an `AsyncGenerator<ChatStreamEvent>`; yield `usage` before `done`; catch SDK errors and yield `{ type: 'error', error }` instead of throwing.
-- **Streaming**: `POST /api/chat` returns SSE; event types live in `src/lib/types.ts`.
+- **Streaming**: generation writes delta ops to `stream_events` (~100 ms) and folds snapshots into `messages` (~2 s, `eventSeq` marks the folded prefix); clients subscribe to both via PocketBase realtime and rebuild the live message with `applyStreamOps` (`src/lib/stream-ops.ts`). Heavy data (tool results, raw content blocks, thinking) lives in `message_payloads` and is loaded on expand.
 - **Tools**: `ToolDefinition` implementations in `src/lib/server/tools/`; the chat API runs a tool loop (max 10 rounds).
 - **State**: `createChatStore()` in `src/lib/stores/chat.svelte.ts` uses `$state` runes; provider/model selection is shared via Svelte `setContext`/`getContext` from the chat layout.
 

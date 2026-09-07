@@ -7,7 +7,9 @@ import { createRealtimeSlot, registerRealtime } from '$lib/realtime-watchdog'
 import { selectionIntersects } from '$lib/selection'
 import { createChatStore } from '$lib/stores/chat.svelte'
 import { chatContext } from '$lib/stores/chat-context.svelte'
+import { invalidatePayload } from '$lib/stores/payloads.svelte'
 import { consumePendingMessage } from '$lib/stores/pending-message'
+import { fetchStreamEvents } from '$lib/stream-events-client'
 import type { Message } from '$lib/types'
 import { browser } from '$app/environment'
 import { replaceState } from '$app/navigation'
@@ -26,12 +28,15 @@ const mapServerMessages = (serverMsgs: typeof data.allMessages): Message[] =>
     createdAt: new Date(m.createdAt),
   }))
 
-const chat = createChatStore({
-  // svelte-ignore state_referenced_locally
-  allMessages: mapServerMessages(data.allMessages),
-  // svelte-ignore state_referenced_locally
-  activeBranches: data.activeBranches,
-})
+const chat = createChatStore(
+  {
+    // svelte-ignore state_referenced_locally
+    allMessages: mapServerMessages(data.allMessages),
+    // svelte-ignore state_referenced_locally
+    activeBranches: data.activeBranches,
+  },
+  { fetchStreamEvents },
+)
 chat.selectedModel = ctx.selectedModel
 chat.thinkingEffort = ctx.thinkingEffort
 
@@ -123,6 +128,10 @@ $effect(() => {
     untrack(() => chat.seed(convId, mapServerMessages(serverAllMessages), serverBranches))
   }
 
+  if (convChanged || isFirstAttach) {
+    void catchUpStreams()
+  }
+
   if (isFirstAttach) {
     untrack(() => {
       attachToConversation(convId)
@@ -140,6 +149,35 @@ $effect(() => {
 })
 
 let remoteGenerating = $state(false)
+
+// Late joiners and reconnects render generating messages from their snapshot
+// plus every stream event after eventSeq.
+const catchUpStreams = async () => {
+  for (const m of chat.allMessages) {
+    if (m.generating && m.role === 'assistant') {
+      await chat.fillMissingEvents(m.id)
+    }
+  }
+}
+
+// Mid-stream recovery: while a message is generating but neither events nor
+// snapshots arrived for 8 s, fill the event gap and refetch that one record.
+$effect(() => {
+  if (!browser) return
+  const interval = setInterval(() => {
+    if (document.visibilityState !== 'visible') return
+    const streaming = chat.streamingMessage
+    if (!streaming?.generating) return
+    if (Date.now() - chat.lastStreamActivity < 8_000) return
+    void chat.fillMissingEvents(streaming.id)
+    pbClient
+      .collection('messages')
+      .getOne(streaming.id)
+      .then(row => chat.upsertMessage(mapClientMessage(row)))
+      .catch(() => {})
+  }, 4_000)
+  return () => clearInterval(interval)
+})
 
 $effect(() => {
   const convId = data.conversation.id
@@ -160,8 +198,14 @@ $effect(() => {
       pbClient.collection('messages').subscribe(
         '*',
         e => {
-          if (e.action === 'delete') chat.removeMessage(e.record.id)
-          else chat.upsertMessage(mapClientMessage(e.record))
+          if (e.action === 'delete') {
+            chat.removeMessage(e.record.id)
+            return
+          }
+          const msg = mapClientMessage(e.record)
+          // The payload is written right before the final message update.
+          if (!msg.generating) invalidatePayload(msg.id)
+          chat.upsertMessage(msg)
         },
         { filter: pbClient.filter('conversation = {:c}', { c: convId }) },
       ),
@@ -182,6 +226,7 @@ $effect(() => {
       chat.seed(convId, rows.map(mapClientMessage), conv.activeBranches ?? {})
       remoteGenerating = conv.generating ?? false
       chat.setConversationGenerating(remoteGenerating)
+      await catchUpStreams()
     },
   )
   const conversationSlot = createRealtimeSlot(() =>
@@ -193,13 +238,25 @@ $effect(() => {
       chat.setConversationGenerating(remoteGenerating)
     }),
   )
+  const eventsSlot = createRealtimeSlot(() =>
+    pbClient.collection('stream_events').subscribe(
+      '*',
+      e => {
+        if (e.action !== 'create') return
+        chat.ingestEvent({ messageId: e.record.message, seq: e.record.seq, ops: Array.isArray(e.record.ops) ? e.record.ops : [] })
+      },
+      { filter: pbClient.filter('conversation = {:c}', { c: convId }) },
+    ),
+  )
   void messagesSlot.subscribe()
   void conversationSlot.subscribe()
-  const deregister = registerRealtime(messagesSlot, conversationSlot)
+  void eventsSlot.subscribe()
+  const deregister = registerRealtime(messagesSlot, conversationSlot, eventsSlot)
   return () => {
     deregister()
     messagesSlot.cancel()
     conversationSlot.cancel()
+    eventsSlot.cancel()
   }
 })
 

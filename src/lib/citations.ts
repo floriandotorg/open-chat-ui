@@ -1,12 +1,7 @@
 import { findMarkdownCodeRegions } from './markdown-code-regions'
-import type { ToolCallInfo } from './types'
+import type { Citation, ToolCallSummary } from './types'
 
-export interface Citation {
-  index: number
-  url: string
-  title: string
-  hostname: string
-}
+export type { Citation } from './types'
 
 export const CITATION_TOOL_NAMES = new Set(['web_search', 'semantic_web_search', 'news_search', 'wikipedia_search', 'academic_search', 'hacker_news_search'])
 
@@ -19,12 +14,12 @@ export const renumberCitations = (result: string, offset: number): { result: str
   return { result: renumbered, count }
 }
 
-export const extractCitations = (toolCalls?: ToolCallInfo[]): Citation[] => {
-  if (!toolCalls) {
+export const extractCitations = (entries?: Iterable<{ name: string; result?: string }>): Citation[] => {
+  if (!entries) {
     return []
   }
   const citations: Citation[] = []
-  for (const tc of toolCalls) {
+  for (const tc of entries) {
     if (CITATION_TOOL_NAMES.has(tc.name) && tc.result) {
       for (const match of tc.result.matchAll(/^(?:##\s+)?(\d+)\.\s+\[(.+?)\]\((.+?)\)/gm)) {
         try {
@@ -44,6 +39,24 @@ export const extractCitations = (toolCalls?: ToolCallInfo[]): Citation[] => {
     }
   }
   return citations
+}
+
+// Citations are precomputed server-side onto each tool call summary; legacy
+// rows without them fall back to parsing the inline result.
+export const collectCitations = (toolCalls?: ToolCallSummary[]): Citation[] => {
+  if (!toolCalls) {
+    return []
+  }
+  const citations: Citation[] = []
+  const legacy: { name: string; result?: string }[] = []
+  for (const tc of toolCalls) {
+    if (tc.citations) {
+      citations.push(...tc.citations)
+    } else if (tc.result) {
+      legacy.push(tc)
+    }
+  }
+  return [...citations, ...extractCitations(legacy)]
 }
 
 const removeMarkdownCode = (text: string): string => {

@@ -23,12 +23,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     thinkingEffort?: ThinkingEffort
   }
 
-  const conversation = await getFirstOrNull(
+  const [conversation, allMsgs] = await Promise.all([
+    getFirstOrNull(
+      pb
+        .collection('conversations')
+        .getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: conversationId, u: userId }))
+        .then(mapConversation),
+    ),
     pb
-      .collection('conversations')
-      .getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: conversationId, u: userId }))
-      .then(mapConversation),
-  )
+      .collection('messages')
+      .getFullList({ filter: pb.filter('conversation = {:c}', { c: conversationId }), sort: 'createdAt' })
+      .then(rows => rows.map(mapMessage)),
+  ])
   if (!conversation) {
     throw error(404, 'Conversation not found')
   }
@@ -41,7 +47,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     throw error(409, 'Generation already in progress')
   }
 
-  const allMsgs = (await pb.collection('messages').getFullList({ filter: pb.filter('conversation = {:c}', { c: conversationId }), sort: 'createdAt' })).map(mapMessage)
   const targetMsg = allMsgs.find(m => m.id === messageId)
   if (targetMsg?.role !== 'assistant') {
     throw error(400, 'Invalid message for regeneration')
@@ -64,6 +69,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     parentId: userParentId,
     historyMessageIds: historyIds,
     titleOnFirst: false,
+    preloaded: { conversation, messages: allMsgs },
   })
 
   return json({ ok: true })

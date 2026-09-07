@@ -9,18 +9,22 @@ import { error } from '@sveltejs/kit'
 export const load: PageServerLoad = async ({ params, locals }) => {
   const userId = requireUser(locals.user).id
 
-  const conversation = await getFirstOrNull(
+  const [conversation, allMsgs] = await Promise.all([
+    getFirstOrNull(
+      pb
+        .collection('conversations')
+        .getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: params.conversationId, u: userId }))
+        .then(mapConversation),
+    ),
     pb
-      .collection('conversations')
-      .getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: params.conversationId, u: userId }))
-      .then(mapConversation),
-  )
+      .collection('messages')
+      .getFullList({ filter: pb.filter('conversation = {:c}', { c: params.conversationId }), sort: 'createdAt' })
+      .then(rows => rows.map(mapClientMessage)),
+  ])
 
   if (!conversation) {
     throw error(404, 'Conversation not found')
   }
-
-  const allMsgs = (await pb.collection('messages').getFullList({ filter: pb.filter('conversation = {:c}', { c: params.conversationId }), sort: 'createdAt' })).map(mapClientMessage)
   const activeBranches: BranchMap = conversation.activeBranches ?? {}
 
   return {

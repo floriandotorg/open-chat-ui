@@ -3,7 +3,7 @@ import { reapStaleGenerations } from '$lib/server/reaper'
 import { building, dev } from '$app/environment'
 import type { Handle, HandleServerError } from '@sveltejs/kit'
 import { redirect } from '@sveltejs/kit'
-import PocketBase from 'pocketbase'
+import PocketBase, { isTokenExpired } from 'pocketbase'
 import { env } from '$env/dynamic/private'
 
 if (!building) {
@@ -34,9 +34,13 @@ const handleAuth: Handle = async ({ event, resolve }) => {
   event.locals.pb = new PocketBase(env.POCKETBASE_URL)
   event.locals.pb.authStore.loadFromCookie(event.request.headers.get('cookie') ?? '')
 
+  // authRefresh is a full PocketBase round trip on every request; only do it
+  // when the token expires within the hour, otherwise trust the cookie token.
   try {
     if (event.locals.pb.authStore.isValid) {
-      await event.locals.pb.collection('users').authRefresh()
+      if (isTokenExpired(event.locals.pb.authStore.token, 60 * 60)) {
+        await event.locals.pb.collection('users').authRefresh()
+      }
     } else {
       event.locals.pb.authStore.clear()
     }

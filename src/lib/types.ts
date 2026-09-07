@@ -11,13 +11,11 @@ export interface FileAttachment {
   providerFileId?: string
 }
 
-export interface ToolCallInfo {
-  id: string
-  name: string
-  arguments: Record<string, unknown>
-  textOffset?: number
-  result?: string
-  rawResult?: string
+export interface Citation {
+  index: number
+  url: string
+  title: string
+  hostname: string
 }
 
 export interface CodeExecutionFile {
@@ -26,16 +24,58 @@ export interface CodeExecutionFile {
   mimeType: string
 }
 
-export interface CodeExecutionBlock {
+export type StreamOp =
+  | { t: 'text'; v: string }
+  | { t: 'thinking'; v: string }
+  | { t: 'tool_call'; id: string; name: string; arguments: Record<string, unknown>; textOffset: number }
+  | { t: 'tool_result'; id: string; resultChars: number; citations?: Citation[] }
+  | { t: 'code_exec_start'; id: string; name: string; textOffset: number }
+  | { t: 'code_exec_input'; id: string; input: Record<string, unknown> }
+  | { t: 'code_exec_result'; id: string; returnCode?: number; error?: string; stdoutChars: number; stderrChars: number }
+  | { t: 'code_exec_files'; id: string; files: CodeExecutionFile[] }
+
+export interface StreamEvent {
+  messageId: string
+  seq: number
+  ops: StreamOp[]
+}
+
+// result/rawResult only exist on unmigrated legacy rows; new writes move them
+// to message_payloads.
+export interface ToolCallSummary {
+  id: string
+  name: string
+  arguments: Record<string, unknown>
+  textOffset: number
+  done: boolean
+  resultChars?: number
+  citations?: Citation[]
+  result?: string
+  rawResult?: string
+}
+
+// stdout/stderr only exist on unmigrated legacy rows.
+export interface CodeExecutionSummary {
+  type: 'code_execution'
   id: string
   name: string
   input: Record<string, unknown>
-  textOffset?: number
-  stdout?: string
-  stderr?: string
+  textOffset: number
+  done: boolean
   returnCode?: number
   error?: string
+  stdoutChars?: number
+  stderrChars?: number
   files?: CodeExecutionFile[]
+  stdout?: string
+  stderr?: string
+}
+
+export interface MessagePayload {
+  messageId: string
+  toolResults: Record<string, { result?: string; rawResult?: string; stdout?: string; stderr?: string }>
+  rawContentBlocks: { textOffset: number; blocks: unknown[] }[] | null
+  thinking: string | null
 }
 
 export interface Message {
@@ -53,8 +93,9 @@ export interface Message {
   cacheCreationInputTokens?: number | null
   thinking?: string
   thinkingDuration?: number
-  toolCalls?: ToolCallInfo[]
-  codeExecutions?: CodeExecutionBlock[]
+  toolCalls?: ToolCallSummary[]
+  codeExecutions?: CodeExecutionSummary[]
+  eventSeq?: number
   siblingIndex?: number
   siblingCount?: number
   generating?: boolean

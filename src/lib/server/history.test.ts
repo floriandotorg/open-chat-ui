@@ -1,4 +1,4 @@
-import { buildHistoryMessages } from '$lib/server/history'
+import { buildHistoryMessages, hydrateEntries, slimEntry } from '$lib/server/history'
 import { describe, expect, it } from 'vitest'
 
 const codeExecEntry = (overrides = {}) => ({ type: 'code_execution' as const, id: 'srvtoolu_1', name: 'bash_code_execution', input: {}, textOffset: 5, stdout: '', ...overrides })
@@ -116,5 +116,131 @@ describe('buildHistoryMessages', () => {
     )
     expect(entries.map(e => e.rawContentBlocks)).toEqual([[{ type: 'server_tool_use', id: 'srvtoolu_1' }], [{ type: 'server_tool_use', id: 'srvtoolu_2' }]])
     expect(entries).toHaveLength(2)
+  })
+})
+
+describe('hydrateEntries', () => {
+  it('restores results from the payload onto slim entries', () => {
+    const slim = [
+      { id: 'toolu_1', name: 'web_search', arguments: { q: 'x' }, textOffset: 5, done: true, resultChars: 100 },
+      { type: 'code_execution', id: 'srvtoolu_1', name: 'bash_code_execution', input: { code: 'ls' }, textOffset: 10, done: true, stdoutChars: 3 },
+    ]
+    const payload = {
+      messageId: 'm1',
+      toolResults: {
+        toolu_1: { result: 'result text', rawResult: 'raw text' },
+        srvtoolu_1: { stdout: 'out', stderr: 'err' },
+      },
+      rawContentBlocks: null,
+      thinking: null,
+    }
+    expect(hydrateEntries(slim, payload)).toEqual([
+      { id: 'toolu_1', name: 'web_search', arguments: { q: 'x' }, textOffset: 5, result: 'result text', rawResult: 'raw text' },
+      { type: 'code_execution', id: 'srvtoolu_1', name: 'bash_code_execution', input: { code: 'ls' }, textOffset: 10, stdout: 'out', stderr: 'err' },
+    ])
+  })
+
+  it('passes legacy entries with inline results through when no payload exists', () => {
+    const legacy = [{ id: 'toolu_1', name: 'web_search', arguments: { q: 'x' }, textOffset: 5, result: 'inline', rawResult: 'raw' }]
+    expect(hydrateEntries(legacy, undefined)).toEqual(legacy)
+  })
+
+  it('hydrated slim history rebuilds the same provider turns as the legacy shape', () => {
+    const legacy = [
+      { id: 'toolu_1', name: 'web_search', arguments: { q: 1 }, textOffset: 1, result: 'r1' },
+      { id: 'toolu_2', name: 'web_search', arguments: { q: 2 }, textOffset: 2, result: 'r2' },
+    ]
+    const slim = [
+      { id: 'toolu_1', name: 'web_search', arguments: { q: 1 }, textOffset: 1, done: true, resultChars: 2 },
+      { id: 'toolu_2', name: 'web_search', arguments: { q: 2 }, textOffset: 2, done: true, resultChars: 2 },
+    ]
+    const payload = {
+      messageId: 'm1',
+      toolResults: {
+        toolu_1: { result: 'r1' },
+        toolu_2: { result: 'r2' },
+      },
+      rawContentBlocks: null,
+      thinking: null,
+    }
+    const fromLegacy = buildHistoryMessages('assistant', 'ab', legacy, null)
+    const fromSlim = buildHistoryMessages('assistant', 'ab', hydrateEntries(slim, payload), null)
+    expect(fromSlim).toEqual(fromLegacy)
+    expect(fromSlim).toEqual([
+      { role: 'assistant', content: 'a', toolCalls: [{ id: 'toolu_1', name: 'web_search', arguments: { q: 1 } }] },
+      { role: 'tool', content: 'r1', toolCallId: 'toolu_1' },
+      { role: 'assistant', content: 'b', toolCalls: [{ id: 'toolu_2', name: 'web_search', arguments: { q: 2 } }] },
+      { role: 'tool', content: 'r2', toolCallId: 'toolu_2' },
+    ])
+  })
+})
+
+describe('slimEntry', () => {
+  it('strips results and precomputes citations for citation tools', () => {
+    const entry = {
+      id: 'toolu_1',
+      name: 'web_search',
+      arguments: { q: 'x' },
+      textOffset: 5,
+      result: '1. [Title](https://example.com/page)\nsummary',
+      rawResult: 'raw',
+    }
+    expect(slimEntry(entry, true)).toEqual({
+      id: 'toolu_1',
+      name: 'web_search',
+      arguments: { q: 'x' },
+      textOffset: 5,
+      done: true,
+      resultChars: entry.result.length,
+      citations: [{ index: 1, url: 'https://example.com/page', title: 'Title', hostname: 'example.com' }],
+    })
+  })
+
+  it('omits citations for non-citation tools', () => {
+    const entry = { id: 'toolu_1', name: 'fetch_url', arguments: {}, textOffset: 0, result: '1. [T](https://x.com)' }
+    expect(slimEntry(entry, true)).toEqual({
+      id: 'toolu_1',
+      name: 'fetch_url',
+      arguments: {},
+      textOffset: 0,
+      done: true,
+      resultChars: entry.result.length,
+    })
+  })
+
+  it('marks live entries without results as pending', () => {
+    expect(slimEntry({ id: 'toolu_1', name: 'web_search', arguments: {}, textOffset: 0 }, false)).toEqual({
+      id: 'toolu_1',
+      name: 'web_search',
+      arguments: {},
+      textOffset: 0,
+      done: false,
+    })
+  })
+
+  it('slims code executions to char counts and files', () => {
+    const entry = {
+      type: 'code_execution' as const,
+      id: 'srvtoolu_1',
+      name: 'bash_code_execution',
+      input: { code: 'ls' },
+      textOffset: 3,
+      stdout: 'out',
+      stderr: 'e',
+      returnCode: 1,
+      files: [{ fileId: 'f1', filename: 'a.png', mimeType: 'image/png' }],
+    }
+    expect(slimEntry(entry, true)).toEqual({
+      type: 'code_execution',
+      id: 'srvtoolu_1',
+      name: 'bash_code_execution',
+      input: { code: 'ls' },
+      textOffset: 3,
+      done: true,
+      returnCode: 1,
+      stdoutChars: 3,
+      stderrChars: 1,
+      files: [{ fileId: 'f1', filename: 'a.png', mimeType: 'image/png' }],
+    })
   })
 })

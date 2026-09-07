@@ -1,7 +1,20 @@
 import type { BranchMap } from '$lib/message-tree'
 import { createStableAnnotator, resolveAndAnnotate } from '$lib/message-tree'
 import { createOptimisticMap } from '$lib/stores/optimistic.svelte'
-import type { FileAttachment, ImageAttachment, Message, ThinkingEffort } from '$lib/types'
+import { applyStreamOps } from '$lib/stream-ops'
+import type { FileAttachment, ImageAttachment, Message, StreamEvent, StreamOp, ThinkingEffort } from '$lib/types'
+
+export type FetchStreamEvents = (messageId: string, from: number, to: number | null) => Promise<StreamEvent[]>
+
+interface LiveState {
+  lastSeq: number
+  ops: Map<number, StreamOp[]>
+  pendingGap: Promise<void> | null
+}
+
+interface ChatStoreDeps {
+  fetchStreamEvents?: FetchStreamEvents
+}
 
 interface QueueEntry {
   id: string
@@ -14,13 +27,21 @@ interface QueueEntry {
 
 const ROOT_KEY = '__root__'
 
-export const createChatStore = (initialData?: { allMessages: Message[]; activeBranches: BranchMap }) => {
+export const createChatStore = (initialData?: { allMessages: Message[]; activeBranches: BranchMap }, deps?: ChatStoreDeps) => {
   let confirmed = $state<Message[]>(initialData?.allMessages ?? [])
   let activeBranches = $state<BranchMap>(initialData?.activeBranches ?? {})
   let currentConversationId = $state<string | null>(initialData?.allMessages[0]?.conversationId ?? null)
   const pending = createOptimisticMap<Message>()
   const pendingBranchWrites = new Map<string, string>()
   const discardedIds = new Set<string>()
+
+  // Live stream deltas per assistant message id, applied on top of the
+  // confirmed snapshot (messages.eventSeq marks the folded prefix). State
+  // objects and the map itself are replaced on every change so $derived
+  // recomputes; appliedCache keeps object identity stable per message.
+  let live = $state<Map<string, LiveState>>(new Map())
+  const appliedCache = new Map<string, { snapshot: Message; lastSeq: number; result: Message }>()
+  let lastStreamActivity = $state(0)
 
   let messageQueue = $state<QueueEntry[]>([])
   let selectedModel = $state('')
@@ -31,7 +52,25 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
   let activeConversationId: string | null = null
 
   const annotate = createStableAnnotator<Message>()
-  const allMessages = $derived<Message[]>([...confirmed, ...pending.values().filter(m => m.conversationId === currentConversationId && !confirmed.some(c => c.id === m.id))])
+
+  const withLive = (m: Message): Message => {
+    const state = live.get(m.id)
+    if (!state) return m
+    const eventSeq = m.eventSeq ?? 0
+    if (state.lastSeq <= eventSeq) return m
+    const cached = appliedCache.get(m.id)
+    if (cached && cached.snapshot === m && cached.lastSeq === state.lastSeq) return cached.result
+    const ops: StreamOp[] = []
+    for (let s = eventSeq + 1; s <= state.lastSeq; ++s) {
+      const batch = state.ops.get(s)
+      if (batch) ops.push(...batch)
+    }
+    const result = applyStreamOps(m, ops)
+    appliedCache.set(m.id, { snapshot: m, lastSeq: state.lastSeq, result })
+    return result
+  }
+
+  const allMessages = $derived<Message[]>([...confirmed.map(withLive), ...pending.values().filter(m => m.conversationId === currentConversationId && !confirmed.some(c => c.id === m.id))])
   const messages = $derived<(Message & { siblingIndex: number; siblingCount: number })[]>(annotate(allMessages, activeBranches))
   const streamingMessage = $derived(allMessages.find(m => m.role === 'assistant' && m.generating))
   const isStreaming = $derived(awaitingGeneration || serverGenerating || !!streamingMessage)
@@ -48,6 +87,70 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
       else merged[key] = value
     }
     activeBranches = merged
+  }
+
+  const mutateLive = (fn: (next: Map<string, LiveState>) => void) => {
+    const next = new Map(live)
+    fn(next)
+    live = next
+  }
+
+  const confirmedEventSeq = (messageId: string): number => confirmed.find(m => m.id === messageId)?.eventSeq ?? 0
+
+  const fillGap = async (messageId: string, from: number, to: number | null) => {
+    if (!deps?.fetchStreamEvents) return
+    try {
+      const events = await deps.fetchStreamEvents(messageId, from, to)
+      mutateLive(next => {
+        const current = next.get(messageId) ?? { lastSeq: confirmedEventSeq(messageId), ops: new Map<number, StreamOp[]>(), pendingGap: null }
+        const ops = new Map(current.ops)
+        for (const e of events) {
+          ops.set(e.seq, e.ops)
+        }
+        let lastSeq = current.lastSeq
+        while (ops.has(lastSeq + 1)) ++lastSeq
+        next.set(messageId, { ...current, ops, lastSeq })
+      })
+      lastStreamActivity = Date.now()
+    } catch {}
+  }
+
+  const ingestEvent = (e: StreamEvent) => {
+    const confirmedMsg = confirmed.find(m => m.id === e.messageId)
+    // A finalized message folds every event the drained writer produced; late
+    // arrivals would double-apply.
+    if (confirmedMsg && !confirmedMsg.generating) return
+    const eventSeq = confirmedMsg?.eventSeq ?? 0
+    if (e.seq <= eventSeq) return
+    const existing = live.get(e.messageId)
+    if (existing && (e.seq <= existing.lastSeq || existing.ops.has(e.seq))) return
+    const base: LiveState = existing ?? { lastSeq: eventSeq, ops: new Map(), pendingGap: null }
+    const ops = new Map(base.ops)
+    ops.set(e.seq, e.ops)
+    let pendingGap = base.pendingGap
+    if (e.seq > base.lastSeq + 1 && !pendingGap) {
+      pendingGap = fillGap(e.messageId, base.lastSeq + 1, e.seq - 1).finally(() => {
+        mutateLive(next => {
+          const current = next.get(e.messageId)
+          if (current) next.set(e.messageId, { ...current, pendingGap: null })
+        })
+      })
+    }
+    let lastSeq = base.lastSeq
+    while (ops.has(lastSeq + 1)) ++lastSeq
+    mutateLive(next => next.set(e.messageId, { ...base, ops, lastSeq, pendingGap }))
+    awaitingGeneration = false
+    lastStreamActivity = Date.now()
+  }
+
+  const fillMissingEvents = async (messageId: string) => {
+    const state = live.get(messageId)
+    if (state?.pendingGap) {
+      await state.pendingGap
+      return
+    }
+    const from = Math.max(state?.lastSeq ?? 0, confirmedEventSeq(messageId)) + 1
+    await fillGap(messageId, from, null)
   }
 
   const getLastMessageId = (): string | null => {
@@ -217,6 +320,13 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
   const stopStreaming = () => {
     messageQueue = []
     awaitingGeneration = false
+    // Optimistic: unfreeze the UI immediately, the server snapshot confirms.
+    const streaming = streamingMessage
+    if (streaming) {
+      mutateLive(next => next.delete(streaming.id))
+      appliedCache.delete(streaming.id)
+      confirmed = confirmed.map(m => (m.id === streaming.id ? { ...m, generating: false } : m))
+    }
     const convId = activeConversationId ?? currentConversationId
     if (convId) {
       fetch('/api/chat/stop', {
@@ -236,12 +346,37 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
 
   const upsertMessage = (msg: Message) => {
     if (discardedIds.has(msg.id)) return
-    if (msg.generating) awaitingGeneration = false
+    if (msg.generating) {
+      awaitingGeneration = false
+      lastStreamActivity = Date.now()
+    }
     const inheritedError = (confirmed.find(m => m.id === msg.id) ?? pending.get(msg.id))?.sendError
     pending.confirm(msg.id)
     const existing = confirmed.find(m => m.id === msg.id)
     const merged = inheritedError && !msg.sendError ? { ...msg, sendError: inheritedError } : msg
     confirmed = existing ? confirmed.map(m => (m.id === msg.id ? merged : m)) : [...confirmed, merged]
+    const state = live.get(msg.id)
+    if (state) {
+      if (!msg.generating) {
+        mutateLive(next => next.delete(msg.id))
+        appliedCache.delete(msg.id)
+      } else {
+        // Drop ops the snapshot folded, keep anything buffered beyond it.
+        const eventSeq = msg.eventSeq ?? 0
+        const ops = new Map<number, StreamOp[]>()
+        for (const [seq, batch] of state.ops) {
+          if (seq > eventSeq) ops.set(seq, batch)
+        }
+        let lastSeq = eventSeq
+        while (ops.has(lastSeq + 1)) ++lastSeq
+        if (ops.size === 0 && !state.pendingGap) {
+          mutateLive(next => next.delete(msg.id))
+          appliedCache.delete(msg.id)
+        } else {
+          mutateLive(next => next.set(msg.id, { ...state, ops, lastSeq }))
+        }
+      }
+    }
   }
 
   const removeMessage = (id: string) => {
@@ -255,6 +390,8 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
       awaitingGeneration = false
       serverGenerating = false
     }
+    live = new Map()
+    appliedCache.clear()
     confirmed = allMsgs
     pendingBranchWrites.clear()
     activeBranches = branches
@@ -314,6 +451,9 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     set thinkingEffort(v: ThinkingEffort) {
       thinkingEffort = v
     },
+    get lastStreamActivity() {
+      return lastStreamActivity
+    },
     get onFirstReply() {
       return onFirstReply
     },
@@ -338,6 +478,8 @@ export const createChatStore = (initialData?: { allMessages: Message[]; activeBr
     removeMessage,
     applyServerBranches,
     setConversationGenerating,
+    ingestEvent,
+    fillMissingEvents,
     seed,
   }
 }

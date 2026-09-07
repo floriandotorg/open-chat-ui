@@ -1,22 +1,23 @@
 import { readFileSync } from 'node:fs'
-import { CITATION_TOOL_NAMES, renumberCitations } from '$lib/citations'
+import { CITATION_TOOL_NAMES, extractCitations, renumberCitations } from '$lib/citations'
 import { parseModelRef } from '$lib/model-ref'
 import { getDecryptedKey, getDecryptedKeys } from '$lib/server/api-key'
 import { decrypt } from '$lib/server/crypto'
-import { mapApiKey, mapConversation, mapMessage, mapSystemPrompt, mapUserSettings, now } from '$lib/server/db/records'
+import { type Conversation, type Message, mapApiKey, mapMessagePayload, mapSystemPrompt, mapUserSettings, now } from '$lib/server/db/records'
 import { type ActiveGeneration, finishGeneration, getGeneration, registerGeneration } from '$lib/server/generations'
-import { buildHistoryMessages, type PersistedCodeExecution, type PersistedEntry, type PersistedToolCall } from '$lib/server/history'
+import { buildHistoryMessages, hydrateEntries, isCodeExecutionEntry, type LiveEntry, type PersistedCodeExecution, type PersistedToolCall, slimEntry } from '$lib/server/history'
 import { getKnowledgeCutoff } from '$lib/server/knowledge-cutoff'
-import { buildLiveToolCallsPayload, type LiveToolCall, nextFlushDelay } from '$lib/server/live-flush'
-import { getFirstOrNull, isNotFound, pb } from '$lib/server/pb'
+import { createOrRecover, getFirstOrNull, isNotFound, pb } from '$lib/server/pb'
 import { formatCurrentDate, getPostSystemPrompt } from '$lib/server/prompts'
 import { getProviderFactory } from '$lib/server/providers'
 import { containsServerToolBlocks } from '$lib/server/providers/anthropic'
 import type { ChatMessage, ChatMessageImage, ToolCallInfo } from '$lib/server/providers/types'
+import { deleteStreamEventIds } from '$lib/server/stream-events'
+import { StreamWriter } from '$lib/server/stream-writer'
 import { generateConversationTitle } from '$lib/server/title'
 import { executeTool, getToolSchemas } from '$lib/server/tools'
 import { getUploadPath, hasUpload } from '$lib/server/uploads'
-import type { FileAttachment, ImageAttachment, ThinkingEffort } from '$lib/types'
+import type { FileAttachment, ImageAttachment, MessagePayload, ThinkingEffort } from '$lib/types'
 import Anthropic, { toFile } from '@anthropic-ai/sdk'
 
 const MAX_TOOL_ROUNDS = 30
@@ -52,6 +53,7 @@ export interface GenerationParams {
   historyMessageIds: string[]
   branchParentKey?: string
   titleOnFirst: boolean
+  preloaded: { conversation: Conversation; messages: Message[] }
 }
 
 export const startGeneration = (params: GenerationParams): ActiveGeneration => {
@@ -60,7 +62,6 @@ export const startGeneration = (params: GenerationParams): ActiveGeneration => {
   const generation = registerGeneration(params.conversationId, params.userId)
   ;(async () => {
     try {
-      await pb.collection('conversations').update(params.conversationId, { generating: true })
       await runGeneration(generation, params)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Generation error'
@@ -91,39 +92,34 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
   const { provider, model } = parseModelRef(modelRef)
   const signal = generation.abort.signal
 
-  const conversation = await getFirstOrNull(
-    pb
-      .collection('conversations')
-      .getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: conversationId, u: userId }))
-      .then(mapConversation),
-  )
-  if (!conversation) {
-    throw new Error('Conversation not found')
-  }
+  const { conversation, messages: allMsgs } = params.preloaded
 
-  const keyRow = await getFirstOrNull(
-    pb
-      .collection('api_keys')
-      .getFirstListItem(pb.filter('user = {:u} && provider = {:p}', { u: userId, p: provider }), { sort: 'createdAt' })
-      .then(mapApiKey),
-  )
+  const [keyRow, settings, payloadRows] = await Promise.all([
+    getFirstOrNull(
+      pb
+        .collection('api_keys')
+        .getFirstListItem(pb.filter('user = {:u} && provider = {:p}', { u: userId, p: provider }), { sort: 'createdAt' })
+        .then(mapApiKey),
+    ),
+    getFirstOrNull(
+      pb
+        .collection('user_settings')
+        .getFirstListItem(pb.filter('user = {:u}', { u: userId }))
+        .then(mapUserSettings),
+    ),
+    pb.collection('message_payloads').getFullList({ filter: pb.filter('message.conversation = {:c}', { c: conversationId }) }),
+  ])
   if (!keyRow) {
     throw new Error(`No API key configured for ${provider}`)
   }
   const decryptedKey = await decrypt(keyRow.encryptedKey, keyRow.iv)
+  const payloadByMessage = new Map(payloadRows.map(mapMessagePayload).map(p => [p.messageId, p]))
 
-  const allMsgs = (await pb.collection('messages').getFullList({ filter: pb.filter('conversation = {:c}', { c: conversationId }), sort: 'createdAt' })).map(mapMessage)
   const byId = new Map(allMsgs.map(m => [m.id, m]))
   const history = historyMessageIds.map(id => byId.get(id)).filter((m): m is NonNullable<typeof m> => !!m)
 
   let resolvedSystemPrompt = conversation.resolvedSystemPrompt ?? undefined
   if (!resolvedSystemPrompt) {
-    const settings = await getFirstOrNull(
-      pb
-        .collection('user_settings')
-        .getFirstListItem(pb.filter('user = {:u}', { u: userId }))
-        .then(mapUserSettings),
-    )
     let baseSystemPrompt: string | undefined
     if (conversation.systemPromptId) {
       try {
@@ -180,8 +176,9 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
         await pb.collection('messages').update(m.id, { images: imgs })
       }
     }
-    const allToolCallsParsed = (m.toolCalls ?? []) as PersistedEntry[]
-    const rawEntries = (m.rawContentBlocks ?? []) as { textOffset: number; blocks: unknown[] }[]
+    const payload = payloadByMessage.get(m.id)
+    const allToolCallsParsed = hydrateEntries(m.toolCalls ?? [], payload)
+    const rawEntries = (payload?.rawContentBlocks ?? []) as { textOffset: number; blocks: unknown[] }[]
     const imgsLoaded = imgs.length ? imgs.map(img => (anthropicClient && img.providerFileId ? { data: '', mimeType: img.mimeType, providerFileId: img.providerFileId } : loadImageData(img))) : undefined
 
     const segments = buildHistoryMessages(m.role, m.content, allToolCallsParsed, rawEntries)
@@ -220,7 +217,7 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
   const totalUsage = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, cost: 0 }
   const allToolCalls: (PersistedToolCall | PersistedCodeExecution)[] = []
   const allRawContentBlocks: { textOffset: number; blocks: unknown[] }[] = []
-  const liveToolCalls: LiveToolCall[] = []
+  const liveToolCalls: LiveEntry[] = []
   let citationCounter = 0
   let container: string | undefined = conversation.container ?? undefined
 
@@ -242,7 +239,9 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
     if (branchParentKey) {
       branchEntries[branchParentKey] = parentId
     }
-    await mergeBranchPointers(conversationId, branchEntries)
+    // One write for generation start + branch pointers, computed from the
+    // preloaded conversation (the generation lock excludes concurrent writers).
+    await pb.collection('conversations').update(conversationId, { generating: true, activeBranches: { ...(conversation.activeBranches ?? {}), ...branchEntries } })
   } catch {}
 
   // Retry of a failed send reuses the parent message; clear its stored
@@ -254,53 +253,23 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
     } catch {}
   }
 
-  // Live streaming state is flushed into the placeholder record; clients
-  // render straight from PocketBase realtime events. Flushes are serialized,
-  // coalesced while a write is in flight, and paced adaptively: every PB write
-  // broadcasts the full record over SSE to every attached client, so the
-  // interval grows with record size (and live tool payloads are slimmed via
-  // buildLiveToolCallsPayload) to keep the per-client byte rate bounded —
-  // otherwise PocketBase drops slow (mobile) consumers mid-stream.
-  let flushDelayMs = nextFlushDelay(0)
-  let flushing = false
-  let dirty = false
-  let finalized = false
-  let lastFlushAt = 0
-  let flushTimer: ReturnType<typeof setTimeout> | null = null
-  const flush = async (): Promise<void> => {
-    if (finalized || !placeholderCreated) return
-    if (flushing) {
-      dirty = true
-      return
-    }
-    const wait = lastFlushAt + flushDelayMs - Date.now()
-    if (wait > 0) {
-      flushTimer ??= setTimeout(() => {
-        flushTimer = null
-        void flush()
-      }, wait)
-      return
-    }
-    flushing = true
-    lastFlushAt = Date.now()
-    try {
-      const toolCallsPayload = buildLiveToolCallsPayload(liveToolCalls)
-      flushDelayMs = nextFlushDelay(fullText.length + thinkingText.length + (toolCallsPayload ? JSON.stringify(toolCallsPayload).length : 0))
-      await pb.collection('messages').update(assistantMsgId, {
-        content: fullText,
-        thinking: thinkingText || null,
-        toolCalls: toolCallsPayload,
-        generating: true,
-      })
-    } catch {}
-    flushing = false
-    if (dirty) {
-      dirty = false
-      await flush()
-    }
-  }
-  const scheduleFlush = () => {
-    void flush()
+  const liveEntryDone = (entry: LiveEntry): boolean => (isCodeExecutionEntry(entry) ? entry.returnCode !== undefined || entry.stdout !== undefined || entry.stderr !== undefined || entry.error !== undefined : entry.result !== undefined)
+
+  // Deltas go to tiny stream_events rows (~100 ms); the messages record is
+  // folded every ~2 s with eventSeq marking the folded prefix, so per-flush
+  // broadcast cost stays O(delta) instead of O(message size).
+  const writer = new StreamWriter({
+    conversationId,
+    messageId: assistantMsgId,
+    client: pb,
+    getState: () => ({
+      content: fullText,
+      thinking: thinkingText,
+      toolCalls: liveToolCalls.length ? liveToolCalls.map(entry => slimEntry(entry, liveEntryDone(entry))) : null,
+    }),
+  })
+  const emit = (op: Parameters<StreamWriter['emit']>[0]) => {
+    if (placeholderCreated) writer.emit(op)
   }
 
   let streamError: string | undefined
@@ -330,18 +299,18 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
           closeThinkingPhase()
           roundText += event.text ?? ''
           fullText += event.text ?? ''
-          scheduleFlush()
+          if (event.text) emit({ t: 'text', v: event.text })
         } else if (event.type === 'thinking_delta') {
           if (thinkingStartedAt === null) thinkingStartedAt = Date.now()
           thinkingText += event.thinking ?? ''
-          scheduleFlush()
+          if (event.thinking) emit({ t: 'thinking', v: event.thinking })
         } else if (event.type === 'tool_call' && event.toolCall) {
           toolCalls.push(event.toolCall)
           liveToolCalls.push({ id: event.toolCall.id, name: event.toolCall.name, arguments: event.toolCall.arguments, textOffset: fullText.length })
-          scheduleFlush()
+          emit({ t: 'tool_call', id: event.toolCall.id, name: event.toolCall.name, arguments: event.toolCall.arguments, textOffset: fullText.length })
         } else if (event.type === 'code_execution_start' && event.codeExecution) {
           liveToolCalls.push({ type: 'code_execution', id: event.codeExecution.id, name: event.codeExecution.name, input: {}, textOffset: fullText.length })
-          scheduleFlush()
+          emit({ t: 'code_exec_start', id: event.codeExecution.id, name: event.codeExecution.name, textOffset: fullText.length })
         } else if (event.type === 'code_execution_delta' && event.codeExecutionDelta) {
           const { id, partialInput } = event.codeExecutionDelta
           codeExecInputs.set(id, (codeExecInputs.get(id) ?? '') + partialInput)
@@ -353,7 +322,7 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
             } catch {
               live.input = { code: raw }
             }
-            scheduleFlush()
+            emit({ t: 'code_exec_input', id, input: live.input })
           }
         } else if (event.type === 'code_execution_result' && event.codeExecutionResult) {
           const { id, ...result } = event.codeExecutionResult
@@ -367,8 +336,8 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
           const live = liveToolCalls.find((tc): tc is PersistedCodeExecution => 'type' in tc && tc.type === 'code_execution' && tc.id === id)
           if (live) {
             Object.assign(live, { input, ...result })
-            scheduleFlush()
           }
+          emit({ t: 'code_exec_result', id, returnCode: result.returnCode, error: result.error, stdoutChars: result.stdout?.length ?? 0, stderrChars: result.stderr?.length ?? 0 })
         } else if (event.type === 'code_execution_files' && event.codeExecutionFiles) {
           const { id, files } = event.codeExecutionFiles
           const existing = pendingCodeExecResults.find(tc => tc.id === id)
@@ -376,8 +345,8 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
           const live = liveToolCalls.find((tc): tc is PersistedCodeExecution => 'type' in tc && tc.type === 'code_execution' && tc.id === id)
           if (live) {
             live.files = files
-            scheduleFlush()
           }
+          emit({ t: 'code_exec_files', id, files })
         } else if (event.type === 'raw_assistant_content') {
           rawContentBlocks = event.rawAssistantContent
           if (event.container) container = event.container
@@ -434,7 +403,8 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
           live.result = finalResult
           if (rawResult !== undefined) live.rawResult = rawResult
         }
-        scheduleFlush()
+        const citations = extractCitations([{ name: tc.name, result: finalResult }])
+        emit({ t: 'tool_result', id: tc.id, resultChars: finalResult.length, ...(citations.length ? { citations } : {}) })
       }
     }
   } catch (err) {
@@ -444,32 +414,45 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
   closeThinkingPhase()
   const persisted = !!(fullText || allToolCalls.length)
 
-  finalized = true
-  dirty = false
-  if (flushTimer) {
-    clearTimeout(flushTimer)
-    flushTimer = null
-  }
-  while (flushing) {
-    await new Promise(r => setTimeout(r, 10))
-  }
+  await writer.drain()
 
   if (persisted) {
+    const slimToolCalls = allToolCalls.map(entry => slimEntry(entry, true))
+    const toolResults: MessagePayload['toolResults'] = {}
+    for (const entry of allToolCalls) {
+      if (isCodeExecutionEntry(entry)) {
+        if (entry.stdout !== undefined || entry.stderr !== undefined) {
+          toolResults[entry.id] = { ...(entry.stdout !== undefined ? { stdout: entry.stdout } : {}), ...(entry.stderr !== undefined ? { stderr: entry.stderr } : {}) }
+        }
+      } else {
+        toolResults[entry.id] = { result: entry.result, ...(entry.rawResult !== undefined ? { rawResult: entry.rawResult } : {}) }
+      }
+    }
+    // The payload is written before the final message update so clients can
+    // treat a generating=false realtime event as "payload ready".
+    if (Object.keys(toolResults).length > 0 || allRawContentBlocks.length > 0 || thinkingText) {
+      const payloadFields = {
+        toolResults,
+        rawContentBlocks: allRawContentBlocks.length ? allRawContentBlocks : null,
+        thinking: thinkingText || null,
+      }
+      await createOrRecover('message_payloads', { message: assistantMsgId, ...payloadFields, createdAt: now() }, pb.filter('message = {:m}', { m: assistantMsgId }), payloadFields)
+    }
     const finalFields = {
       parentId,
       role: 'assistant',
       content: fullText,
       provider,
       model: modelRef,
-      thinking: thinkingText || null,
+      thinking: null,
       thinkingDuration: thinkingText ? thinkingSeconds : undefined,
       inputTokens: totalUsage.inputTokens || undefined,
       outputTokens: totalUsage.outputTokens || undefined,
       cacheReadInputTokens: totalUsage.cacheReadInputTokens || undefined,
       cacheCreationInputTokens: totalUsage.cacheCreationInputTokens || undefined,
       cost: totalUsage.cost || undefined,
-      toolCalls: allToolCalls.length ? allToolCalls : null,
-      rawContentBlocks: allRawContentBlocks.length ? allRawContentBlocks : null,
+      toolCalls: slimToolCalls.length ? slimToolCalls : null,
+      eventSeq: writer.seq,
       generating: false,
     }
     if (placeholderCreated) {
@@ -482,6 +465,8 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
         createdAt: now(),
       })
     }
+    // Non-fatal: the startup purge catches leftover events.
+    await deleteStreamEventIds(writer.eventIds).catch(() => {})
 
     const branchEntries: Record<string, string> = { [parentId]: assistantMsgId }
     if (branchParentKey) {

@@ -13,23 +13,24 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     newMessageId?: string
   }
 
-  const conversation = await getFirstOrNull(
-    pb
-      .collection('conversations')
-      .getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: conversationId, u: userId }))
-      .then(mapConversation),
-  )
+  const [conversation, targetMsg] = await Promise.all([
+    getFirstOrNull(
+      pb
+        .collection('conversations')
+        .getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: conversationId, u: userId }))
+        .then(mapConversation),
+    ),
+    getFirstOrNull(
+      pb
+        .collection('messages')
+        .getFirstListItem(pb.filter('id = {:id} && conversation = {:c}', { id: messageId, c: conversationId }))
+        .then(mapMessage),
+    ),
+  ])
 
   if (!conversation) {
     throw error(404, 'Conversation not found')
   }
-
-  const targetMsg = await getFirstOrNull(
-    pb
-      .collection('messages')
-      .getFirstListItem(pb.filter('id = {:id} && conversation = {:c}', { id: messageId, c: conversationId }))
-      .then(mapMessage),
-  )
   if (targetMsg?.role !== 'user') {
     throw error(400, 'Can only edit user messages')
   }

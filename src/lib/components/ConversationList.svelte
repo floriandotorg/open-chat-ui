@@ -155,6 +155,7 @@ const toggleFavorite = async (e: Event, convId: string, currentFavorite: boolean
       {#each filteredSearchResults as hit (hit.id)}
         <a
           href={resolve(`/chat/${hit.id}`)}
+          data-sveltekit-preload-data="hover"
           class="convo-item group block rounded-xl px-3 py-2 text-sm {hit.id === currentId ? 'convo-item-active' : ''}"
         >
           <div class="flex items-start justify-between gap-2">
@@ -223,6 +224,7 @@ const toggleFavorite = async (e: Event, convId: string, currentFavorite: boolean
         {#each items as conv (conv.id)}
           <a
             href={resolve(`/chat/${conv.id}`)}
+            data-sveltekit-preload-data="hover"
             class="convo-item group flex items-center justify-between rounded-xl px-3 py-2 text-sm {conv.id === currentId ? 'convo-item-active' : ''}"
           >
             <span class="truncate pr-2">{conv.title}</span>

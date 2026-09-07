@@ -1,4 +1,6 @@
+import { extractCitations } from '$lib/citations'
 import type { ChatMessage } from '$lib/server/providers/types'
+import type { CodeExecutionSummary, MessagePayload, ToolCallSummary } from '$lib/types'
 
 export interface PersistedToolCall {
   id: string
@@ -23,6 +25,92 @@ export interface PersistedCodeExecution {
 }
 
 export type PersistedEntry = PersistedToolCall | PersistedCodeExecution
+
+// Live entries accumulate during generation; regular calls may not have their
+// result yet.
+export interface LiveToolCall {
+  id: string
+  name: string
+  arguments: Record<string, unknown>
+  textOffset: number
+  result?: string
+  rawResult?: string
+}
+
+export type LiveEntry = LiveToolCall | PersistedCodeExecution
+
+export const isCodeExecutionEntry = (entry: LiveEntry): entry is PersistedCodeExecution => 'type' in entry && entry.type === 'code_execution'
+
+export const slimEntry = (entry: LiveEntry, done: boolean): ToolCallSummary | CodeExecutionSummary => {
+  if (isCodeExecutionEntry(entry)) {
+    return {
+      type: 'code_execution',
+      id: entry.id,
+      name: entry.name,
+      input: entry.input,
+      textOffset: entry.textOffset,
+      done,
+      ...(entry.returnCode !== undefined ? { returnCode: entry.returnCode } : {}),
+      ...(entry.error !== undefined ? { error: entry.error } : {}),
+      ...(entry.stdout !== undefined ? { stdoutChars: entry.stdout.length } : {}),
+      ...(entry.stderr !== undefined ? { stderrChars: entry.stderr.length } : {}),
+      ...(entry.files?.length ? { files: entry.files } : {}),
+    }
+  }
+  const citations = entry.result !== undefined ? extractCitations([entry]) : []
+  return {
+    id: entry.id,
+    name: entry.name,
+    arguments: entry.arguments,
+    textOffset: entry.textOffset,
+    done,
+    ...(entry.result !== undefined ? { resultChars: entry.result.length } : {}),
+    ...(citations.length ? { citations } : {}),
+  }
+}
+
+const asRecord = (value: unknown): Record<string, unknown> => (typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {})
+
+const asString = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined)
+
+// Rebuilds full persisted entries from slim message rows plus their lazily
+// stored payload. Legacy rows carry results inline and pass through.
+export const hydrateEntries = (entries: unknown[], payload: MessagePayload | undefined): PersistedEntry[] => {
+  const hydrated: PersistedEntry[] = []
+  for (const raw of entries) {
+    if (typeof raw !== 'object' || raw === null) continue
+    const entry = raw as Record<string, unknown>
+    if (typeof entry.id !== 'string' || typeof entry.name !== 'string') continue
+    const results = payload?.toolResults[entry.id]
+    const textOffset = typeof entry.textOffset === 'number' ? entry.textOffset : 0
+    if (entry.type === 'code_execution') {
+      hydrated.push({
+        type: 'code_execution',
+        id: entry.id,
+        name: entry.name,
+        input: asRecord(entry.input),
+        textOffset,
+        ...(asString(results?.stdout) !== undefined || asString(entry.stdout) !== undefined ? { stdout: asString(results?.stdout) ?? asString(entry.stdout) } : {}),
+        ...(asString(results?.stderr) !== undefined || asString(entry.stderr) !== undefined ? { stderr: asString(results?.stderr) ?? asString(entry.stderr) } : {}),
+        ...(typeof entry.returnCode === 'number' ? { returnCode: entry.returnCode } : {}),
+        ...(asString(entry.error) !== undefined ? { error: asString(entry.error) } : {}),
+        ...(Array.isArray(entry.files) ? { files: entry.files as PersistedCodeExecution['files'] } : {}),
+      })
+    } else {
+      const result = asString(results?.result) ?? asString(entry.result) ?? ''
+      const rawResult = asString(results?.rawResult) ?? asString(entry.rawResult)
+      hydrated.push({
+        id: entry.id,
+        name: entry.name,
+        arguments: asRecord(entry.arguments),
+        textOffset,
+        result,
+        ...(rawResult !== undefined ? { rawResult } : {}),
+      })
+    }
+  }
+  return hydrated
+}
 
 export interface RawContentBlockEntry {
   textOffset: number

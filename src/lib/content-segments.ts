@@ -1,13 +1,13 @@
-import type { CodeExecutionBlock, ToolCallInfo } from './types'
+import type { CodeExecutionSummary, ToolCallSummary } from './types'
 
-export type ContentSegment = { type: 'text'; content: string } | { type: 'tool_call'; toolCall: ToolCallInfo } | { type: 'code_execution'; codeExecution: CodeExecutionBlock }
+export type ContentSegment = { type: 'text'; content: string } | { type: 'tool_call'; toolCall: ToolCallSummary } | { type: 'code_execution'; codeExecution: CodeExecutionSummary }
 
 interface OffsetItem {
   offset: number
   segment: ContentSegment
 }
 
-export const buildContentSegments = (text: string, toolCalls?: ToolCallInfo[], codeExecutions?: CodeExecutionBlock[]): ContentSegment[] => {
+export const buildContentSegments = (text: string, toolCalls?: ToolCallSummary[], codeExecutions?: CodeExecutionSummary[]): ContentSegment[] => {
   const hasToolCalls = toolCalls?.length ?? 0
   const hasCodeExecs = codeExecutions?.length ?? 0
   if (!hasToolCalls && !hasCodeExecs) return text ? [{ type: 'text', content: text }] : []

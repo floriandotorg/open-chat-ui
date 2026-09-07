@@ -1,3 +1,4 @@
+import type { Message } from '$lib/types'
 import { createChatStore } from './chat.svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -391,5 +392,127 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
 
     chat.seed('conv-2', [], {})
     expect(chat.isStreaming).toBe(false)
+  })
+})
+
+describe('stream events', () => {
+  const streamingAssistant = (overrides: Partial<Message> = {}): Message => ({
+    id: 'assist-1',
+    conversationId: 'conv-1',
+    parentId: null,
+    role: 'assistant',
+    content: '',
+    generating: true,
+    eventSeq: 0,
+    createdAt: new Date(),
+    ...overrides,
+  })
+
+  it('applies text ops on top of the confirmed snapshot', async () => {
+    installFetch(async () => okResponse())
+    const chat = createChatStore({ allMessages: [streamingAssistant()], activeBranches: {} })
+
+    chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'he' }] })
+    chat.ingestEvent({ messageId: 'assist-1', seq: 2, ops: [{ t: 'text', v: 'llo' }] })
+    await flush()
+
+    expect(chat.allMessages[0].content).toBe('hello')
+    expect(chat.streamingMessage?.content).toBe('hello')
+  })
+
+  it('buffers out-of-order events, fetches the gap once, and applies after fill', async () => {
+    installFetch(async () => okResponse())
+    const fetches: { from: number; to: number | null }[] = []
+    const chat = createChatStore(
+      { allMessages: [streamingAssistant()], activeBranches: {} },
+      {
+        fetchStreamEvents: async (_messageId, from, to) => {
+          fetches.push({ from, to })
+          return [{ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'a' }] }]
+        },
+      },
+    )
+
+    chat.ingestEvent({ messageId: 'assist-1', seq: 2, ops: [{ t: 'text', v: 'b' }] })
+    chat.ingestEvent({ messageId: 'assist-1', seq: 3, ops: [{ t: 'text', v: 'c' }] })
+    expect(chat.allMessages[0].content).toBe('')
+    await flush()
+
+    expect(fetches).toEqual([{ from: 1, to: 1 }])
+    expect(chat.allMessages[0].content).toBe('abc')
+  })
+
+  it('drops ops folded into a snapshot via eventSeq', async () => {
+    installFetch(async () => okResponse())
+    const chat = createChatStore({ allMessages: [streamingAssistant()], activeBranches: {} })
+
+    chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'he' }] })
+    chat.ingestEvent({ messageId: 'assist-1', seq: 2, ops: [{ t: 'text', v: 'llo' }] })
+    expect(chat.allMessages[0].content).toBe('hello')
+
+    chat.upsertMessage(streamingAssistant({ content: 'hello', eventSeq: 2 }))
+    expect(chat.allMessages[0].content).toBe('hello')
+
+    chat.ingestEvent({ messageId: 'assist-1', seq: 3, ops: [{ t: 'text', v: '!' }] })
+    expect(chat.allMessages[0].content).toBe('hello!')
+  })
+
+  it('ignores events already folded into the snapshot', async () => {
+    installFetch(async () => okResponse())
+    const chat = createChatStore({ allMessages: [streamingAssistant({ content: 'hello', eventSeq: 2 })], activeBranches: {} })
+
+    chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'he' }] })
+    chat.ingestEvent({ messageId: 'assist-1', seq: 2, ops: [{ t: 'text', v: 'llo' }] })
+    await flush()
+
+    expect(chat.allMessages[0].content).toBe('hello')
+  })
+
+  it('clears live state when the final snapshot arrives and ignores late events', async () => {
+    installFetch(async () => okResponse())
+    const chat = createChatStore({ allMessages: [streamingAssistant()], activeBranches: {} })
+
+    chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'hi' }] })
+    expect(chat.allMessages[0].content).toBe('hi')
+
+    chat.upsertMessage(streamingAssistant({ content: 'hi', generating: false, eventSeq: 1 }))
+    expect(chat.isStreaming).toBe(false)
+    expect(chat.allMessages[0].content).toBe('hi')
+
+    chat.ingestEvent({ messageId: 'assist-1', seq: 2, ops: [{ t: 'text', v: 'stale' }] })
+    expect(chat.allMessages[0].content).toBe('hi')
+  })
+
+  it('buffers events for an unknown message and applies them when the placeholder arrives', async () => {
+    installFetch(async () => okResponse())
+    const chat = createChatStore({ allMessages: [], activeBranches: {} })
+
+    chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'early' }] })
+    expect(chat.allMessages.length).toBe(0)
+
+    chat.upsertMessage(streamingAssistant())
+    expect(chat.allMessages[0].content).toBe('early')
+  })
+
+  it('clears live state on seed', async () => {
+    installFetch(async () => okResponse())
+    const chat = createChatStore({ allMessages: [streamingAssistant()], activeBranches: {} })
+
+    chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'hi' }] })
+    expect(chat.allMessages[0].content).toBe('hi')
+
+    chat.seed('conv-1', [streamingAssistant({ content: 'hi', eventSeq: 1 })], {})
+    expect(chat.allMessages[0].content).toBe('hi')
+  })
+
+  it('clears awaitingGeneration when the first event arrives', async () => {
+    installFetch(async () => okResponse())
+    const chat = createChatStore()
+    chat.selectedModel = 'anthropic/claude-test'
+    await chat.sendMessage('conv-1', 'hello')
+    expect(chat.awaitingGeneration).toBe(true)
+
+    chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'hi' }] })
+    expect(chat.awaitingGeneration).toBe(false)
   })
 })

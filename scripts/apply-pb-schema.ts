@@ -91,7 +91,7 @@ const resolveRelations = (fields: Field[]): Field[] =>
   })
 
 const baseDefs = schema.filter(c => c.type === 'base')
-const order = ['api_keys', 'system_prompts', 'user_settings', 'provider_models', 'conversations', 'messages', 'heartbeat']
+const order = ['api_keys', 'system_prompts', 'user_settings', 'provider_models', 'conversations', 'messages', 'stream_events', 'message_payloads', 'heartbeat']
 const ordered = [...baseDefs].sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name))
 
 for (const def of ordered) {
@@ -118,5 +118,9 @@ for (const def of ordered) {
     console.log(`created ${def.name}`)
   }
 }
+
+// The batch API lets finalize delete a message's stream events in one request.
+await pb.settings.update({ batch: { enabled: true, maxRequests: 200, timeout: 10 } })
+console.log('batch api enabled')
 
 console.log('schema applied')

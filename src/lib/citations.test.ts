@@ -1,6 +1,5 @@
 import { CITATION_TOOL_NAMES, type Citation, extractCitations, filterReferencedCitations, processCitations, renumberCitations } from '$lib/citations'
 import { renderMarkdown } from '$lib/markdown'
-import type { ToolCallInfo } from '$lib/types'
 import { describe, expect, it } from 'vitest'
 
 const citations: Citation[] = [{ index: 1, url: 'https://example.com/source', title: 'Source', hostname: 'example.com' }]
@@ -40,10 +39,10 @@ describe('renumberCitations + extractCitations', () => {
     const a = renumberCitations('1. [A](https://a.com/1)\n2. [A2](https://a.com/2)', 0)
     const b = renumberCitations('1. [B](https://b.com/1)', a.count)
     const c = renumberCitations('## 1. [HN](https://hn.com/1)', a.count + b.count)
-    const toolCalls: ToolCallInfo[] = [
-      { id: '1', name: 'web_search', arguments: {}, result: a.result, textOffset: 0 },
-      { id: '2', name: 'semantic_web_search', arguments: {}, result: b.result, textOffset: 0 },
-      { id: '3', name: 'hacker_news_search', arguments: {}, result: c.result, textOffset: 0 },
+    const toolCalls = [
+      { name: 'web_search', result: a.result },
+      { name: 'semantic_web_search', result: b.result },
+      { name: 'hacker_news_search', result: c.result },
     ]
     const extracted = extractCitations(toolCalls)
     expect(extracted.map(c => [c.index, c.hostname])).toEqual([
@@ -56,13 +55,13 @@ describe('renumberCitations + extractCitations', () => {
 
   it('extracts citations from every citation tool, not just web_search', () => {
     for (const name of CITATION_TOOL_NAMES) {
-      const toolCalls: ToolCallInfo[] = [{ id: '1', name, arguments: {}, result: '1. [T](https://x.com/p)', textOffset: 0 }]
+      const toolCalls = [{ name, result: '1. [T](https://x.com/p)' }]
       expect(extractCitations(toolCalls)).toHaveLength(1)
     }
   })
 
   it('ignores numbered results from non-citation tools', () => {
-    const toolCalls: ToolCallInfo[] = [{ id: '1', name: 'fetch_url', arguments: {}, result: '1. [T](https://x.com/p)', textOffset: 0 }]
+    const toolCalls = [{ name: 'fetch_url', result: '1. [T](https://x.com/p)' }]
     expect(extractCitations(toolCalls)).toEqual([])
   })
 })
