@@ -1,6 +1,14 @@
-import { renderMarkdown, renderMarkdownBlocks } from '$lib/markdown'
+import { renderMarkdown, renderMarkdownBlocks, whenKatexReady } from '$lib/markdown'
 import { stripMarkdown } from '$lib/strip-markdown'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
+
+beforeAll(async () => {
+  if (typeof document === 'undefined') {
+    vi.stubGlobal('document', {})
+  }
+  renderMarkdown('$$warmup$$')
+  await whenKatexReady()
+})
 
 describe('stripMarkdown', () => {
   it('strips bold', () => {
@@ -140,6 +148,31 @@ describe('renderMarkdown', () => {
     const html = renderMarkdown('```\nconst x = 1\nif (x) { console.log(x) }\n```')
     expect(html).toContain('code-block')
     expect(html).not.toContain('<span class="hljs-')
+  })
+})
+
+describe('lazy katex', () => {
+  it('renders a placeholder before katex loads, real html after, and caches the loaded block', async () => {
+    vi.resetModules()
+    const fresh = await import('$lib/markdown')
+    const pending = fresh.renderMarkdownBlocks('$$x^2$$')
+    expect(pending.join('')).toContain('math-pending')
+    const ready = fresh.whenKatexReady()
+    expect(ready).toBeInstanceOf(Promise)
+    await ready
+    const loaded = fresh.renderMarkdownBlocks('$$x^2$$')
+    expect(loaded.join('')).toContain('katex')
+    expect(loaded.join('')).not.toContain('math-pending')
+    expect(fresh.renderMarkdownBlocks('$$x^2$$').join('')).toBe(loaded.join(''))
+  })
+
+  it('never loads katex for math-free content', async () => {
+    vi.resetModules()
+    const fresh = await import('$lib/markdown')
+    const blocks = fresh.renderMarkdownBlocks('# Title\n\n```js\nconst x = 1\n```')
+    expect(blocks.join('')).toContain('<h1')
+    expect(blocks.join('')).toContain('hljs')
+    expect(fresh.whenKatexReady()).toBeNull()
   })
 })
 

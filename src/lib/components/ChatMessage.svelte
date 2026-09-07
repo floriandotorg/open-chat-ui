@@ -2,7 +2,7 @@
 import { collectCitations, filterReferencedCitations, processCitations } from '$lib/citations'
 import { buildContentSegments } from '$lib/content-segments'
 import { copyCodeAction } from '$lib/copy-code'
-import { renderMarkdownBlocks } from '$lib/markdown'
+import { renderMarkdownBlocks, whenKatexReady } from '$lib/markdown'
 import { selectionIntersects } from '$lib/selection'
 import type { createTtsPlayer } from '$lib/stores/tts-player.svelte'
 import { stripMarkdown } from '$lib/strip-markdown'
@@ -68,15 +68,27 @@ let citations = $derived(filterReferencedCitations(displayed.content, allCitatio
 let copiedPlain = $state(false)
 let copiedMarkdown = $state(false)
 let confirmRegenerate = $state(false)
+let mathVersion = $state(0)
 let isEditing = $state(false)
 let editContent = $state('')
 let editTextarea: HTMLTextAreaElement | undefined = $state()
 
 let hasBranches = $derived((displayed.siblingCount ?? 1) > 1)
 
-const renderBlocks = (content: string): string[] => renderMarkdownBlocks(content).map(html => processCitations(html, citations))
+const renderBlocks = (content: string): string[] => {
+  const out = renderMarkdownBlocks(content).map(html => processCitations(html, citations))
+  if (out.some(html => html.includes('math-pending'))) {
+    whenKatexReady()
+      ?.then(() => ++mathVersion)
+      .catch(() => {})
+  }
+  return out
+}
 
-const renderedSegments = $derived(segments.map(segment => (segment.type === 'text' ? { ...segment, blocks: renderBlocks(segment.content) } : segment)))
+const renderedSegments = $derived.by(() => {
+  void mathVersion
+  return segments.map(segment => (segment.type === 'text' ? { ...segment, blocks: renderBlocks(segment.content) } : segment))
+})
 
 const copyPlain = () => {
   navigator.clipboard.writeText(stripMarkdown(displayed.content))

@@ -17,6 +17,7 @@
     "pb:serve": "./pocketbase/pocketbase serve --dir pb_data --http 127.0.0.1:8090",
     "pb:schema": "bun scripts/apply-pb-schema.ts",
     "pb:migrate-data": "bun scripts/migrate-to-pocketbase.ts",
+    "size": "bun run build && bun scripts/report-bundle.ts",
     "user:add": "bun scripts/add-user.ts"
   },
   "devDependencies": {

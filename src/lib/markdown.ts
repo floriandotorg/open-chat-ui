@@ -1,10 +1,43 @@
 import { findMarkdownCodeRegions } from './markdown-code-regions'
 import { normalizeFences } from './markdown-fences'
-import hljs from 'highlight.js'
-import katex from 'katex'
+import hljs from 'highlight.js/lib/core'
+import bash from 'highlight.js/lib/languages/bash'
+import c from 'highlight.js/lib/languages/c'
+import cpp from 'highlight.js/lib/languages/cpp'
+import cssGrammar from 'highlight.js/lib/languages/css'
+import diff from 'highlight.js/lib/languages/diff'
+import go from 'highlight.js/lib/languages/go'
+import java from 'highlight.js/lib/languages/java'
+import javascript from 'highlight.js/lib/languages/javascript'
+import json from 'highlight.js/lib/languages/json'
+import markdownGrammar from 'highlight.js/lib/languages/markdown'
+import python from 'highlight.js/lib/languages/python'
+import rust from 'highlight.js/lib/languages/rust'
+import sql from 'highlight.js/lib/languages/sql'
+import typescript from 'highlight.js/lib/languages/typescript'
+import xml from 'highlight.js/lib/languages/xml'
+import yaml from 'highlight.js/lib/languages/yaml'
 import { Marked, Parser, type Token, type Tokens } from 'marked'
 
 const escapeHtml = (str: string) => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+const grammars = { bash, c, cpp, css: cssGrammar, diff, go, java, javascript, json, markdown: markdownGrammar, python, rust, sql, typescript, xml, yaml }
+const aliases = [
+  [['sh', 'shell', 'zsh'], 'bash'],
+  [['js', 'jsx'], 'javascript'],
+  [['ts', 'tsx'], 'typescript'],
+  [['html', 'svelte'], 'xml'],
+  [['yml'], 'yaml'],
+  [['py'], 'python'],
+  [['jsonc'], 'json'],
+] as const
+
+for (const [name, grammar] of Object.entries(grammars)) {
+  hljs.registerLanguage(name, grammar)
+}
+for (const [names, languageName] of aliases) {
+  hljs.registerAliases([...names], { languageName })
+}
 
 const DANGEROUS_PROTOCOL = /^\s*(javascript|vbscript|data):/i
 
@@ -50,9 +83,27 @@ const PH_OPEN = 'KATEX_PH'
 const PH_CLOSE = 'KATEX_END'
 const PH_RE = /KATEX_PH(\d+)KATEX_END/g
 
+let katexModule: typeof import('katex').default | null = null
+let katexLoading: Promise<void> | null = null
+
+const loadKatex = async (): Promise<void> => {
+  if (typeof document !== 'undefined') {
+    await import('katex/dist/katex.min.css')
+  }
+  katexModule = (await import('katex')).default
+}
+
+export const whenKatexReady = (): Promise<void> | null => katexLoading
+
 const renderKatex = (latex: string, displayMode: boolean): string => {
+  if (!katexModule) {
+    if (typeof document !== 'undefined') {
+      katexLoading ??= loadKatex()
+    }
+    return `<span class="math-pending">${escapeHtml(latex)}</span>`
+  }
   try {
-    return katex.renderToString(latex, { displayMode, throwOnError: false, strict: false })
+    return katexModule.renderToString(latex, { displayMode, throwOnError: false, strict: false })
   } catch {
     return escapeHtml(latex)
   }
@@ -113,7 +164,9 @@ const renderBlockCached = (raw: string, mathBlocks: string[]): string => {
       blockCache.delete(oldest)
     }
   }
-  blockCache.set(key, html)
+  if (!html.includes('math-pending')) {
+    blockCache.set(key, html)
+  }
   return html
 }
 
