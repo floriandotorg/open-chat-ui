@@ -1,52 +1,28 @@
 <script lang="ts">
 import { createPopover, portal } from '$lib/popover.svelte'
-import type { ModelInfo, ProviderInfo } from '$lib/types'
-import { onMount } from 'svelte'
+import type { ModelInfo } from '$lib/types'
 
 let {
-  providers,
+  models,
   selectedModel = $bindable(''),
-  modelNameHint = '',
   onmodelchange,
 }: {
-  providers: ProviderInfo[]
+  models: ModelInfo[]
   selectedModel: string
-  modelNameHint?: string
   onmodelchange?: (id: string, name: string) => void
 } = $props()
 
-let models = $state<ModelInfo[]>([])
-let loaded = $state(false)
 const popover = createPopover()
 
-const fetchAllModels = async () => {
-  const available = providers.filter(p => p.hasKey)
-  const results = await Promise.all(
-    available.map(async p => {
-      const res = await fetch(`/api/models/${p.id}`)
-      if (!res.ok) return [] as ModelInfo[]
-      return (await res.json()) as ModelInfo[]
-    }),
-  )
-  models = results.flat()
-  loaded = true
+const label = $derived(models.find(m => m.id === selectedModel)?.name ?? (selectedModel ? selectedModel : 'Select model'))
 
-  const current = models.find(m => m.id === selectedModel)
-  if (selectedModel && !current) {
+$effect(() => {
+  if (models.length === 0) return
+  if (selectedModel && !models.some(m => m.id === selectedModel)) {
     selectedModel = ''
     onmodelchange?.('', '')
-    return
   }
-  if (current && current.name !== modelNameHint) {
-    onmodelchange?.(current.id, current.name)
-  }
-}
-
-onMount(() => {
-  fetchAllModels()
 })
-
-const label = $derived(models.find(m => m.id === selectedModel)?.name ?? (selectedModel ? modelNameHint || 'Select model' : 'Select model'))
 
 const select = (id: string) => {
   selectedModel = id
@@ -92,10 +68,8 @@ const select = (id: string) => {
         {/if}
       </button>
     {/each}
-    {#if loaded && models.length === 0}
+    {#if models.length === 0}
       <div class="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">No API keys configured</div>
-    {:else if !loaded}
-      <div class="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">Loading models...</div>
     {/if}
   </div>
 </div>

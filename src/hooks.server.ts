@@ -1,4 +1,5 @@
 import { startServerHeartbeat } from '$lib/server/heartbeat'
+import { syncAllProviders } from '$lib/server/model-sync'
 import { reapStaleGenerations } from '$lib/server/reaper'
 import { building, dev } from '$app/environment'
 import type { Handle, HandleServerError } from '@sveltejs/kit'
@@ -11,6 +12,8 @@ if (!building) {
     console.error('[reaper] startup reap failed:', err)
   })
   startServerHeartbeat()
+  void syncAllProviders()
+  setInterval(() => void syncAllProviders(), 6 * 60 * 60 * 1000)
 }
 
 export const handleError: HandleServerError = ({ error, event, status, message }) => {

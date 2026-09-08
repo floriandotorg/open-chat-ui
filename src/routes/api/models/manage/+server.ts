@@ -1,9 +1,10 @@
 import { parseModelRef } from '$lib/model-ref'
+import { fallbackModelInfo, storedModelInfo } from '$lib/provider-models'
 import { getDecryptedKey } from '$lib/server/api-key'
 import { requireUser } from '$lib/server/auth-guard'
 import { mapProviderModel, now } from '$lib/server/db/records'
+import { syncProviderModels } from '$lib/server/model-sync'
 import { createOrRecover, getFirstOrNull, pb } from '$lib/server/pb'
-import { fallbackModelInfo, storedModelInfo } from '$lib/server/provider-models'
 import { getProviderFactory } from '$lib/server/providers'
 import type { ModelInfo } from '$lib/server/providers/types'
 import type { RequestHandler } from './$types'
@@ -24,25 +25,15 @@ export const GET: RequestHandler = async ({ locals, url }) => {
     throw error(400, `No API key configured for ${provider}`)
   }
 
-  const llm = getProviderFactory(provider)(apiKey)
-
-  if (llm.supportsCustomModels) {
-    const stored = await listStoredModels(provider)
-    return json(stored.map(s => ({ ...storedModelInfo(s), enabled: s.enabled })))
+  if (url.searchParams.get('refresh') === '1') {
+    await syncProviderModels(provider).catch(err => {
+      console.error(`[model-sync] ${provider} manual refresh failed:`, err)
+    })
   }
-
-  const allModels = await llm.listModels()
 
   const stored = await listStoredModels(provider)
 
-  const enabledMap = new Map(stored.map(s => [s.modelId, s.enabled]))
-
-  const models = allModels.map(m => ({
-    ...m,
-    enabled: enabledMap.get(parseModelRef(m.id).model) ?? true,
-  }))
-
-  return json(models)
+  return json(stored.map(s => ({ ...storedModelInfo(s), enabled: s.enabled })))
 }
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -117,21 +108,9 @@ export const PATCH: RequestHandler = async ({ request, locals }) => {
     throw error(400, `No API key configured for ${provider}`)
   }
 
-  const llm = getProviderFactory(provider)(apiKey)
-
-  if (llm.supportsCustomModels) {
-    const stored = await listStoredModels(provider)
-    for (const s of stored) {
-      await pb.collection('provider_models').update(s.id, { enabled, updatedAt: now() })
-    }
-    return json({ success: true })
-  }
-
-  const allModels = await llm.listModels()
-
-  for (const m of allModels) {
-    const { model } = parseModelRef(m.id)
-    await upsertProviderModel(provider, model, enabled)
+  const stored = await listStoredModels(provider)
+  for (const s of stored) {
+    await pb.collection('provider_models').update(s.id, { enabled, updatedAt: now() })
   }
 
   return json({ success: true })

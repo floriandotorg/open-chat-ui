@@ -9,6 +9,7 @@ import { pbClient } from '$lib/pb-client'
 import { createRealtimeSlot, registerRealtime, startRealtimeWatchdog } from '$lib/realtime-watchdog'
 import { chatContext } from '$lib/stores/chat-context.svelte'
 import { createConversationsStore } from '$lib/stores/conversations.svelte'
+import { createModelsStore } from '$lib/stores/models.svelte'
 import { createTtsPlayer } from '$lib/stores/tts-player.svelte'
 import type { SystemPrompt, ThinkingEffort } from '$lib/types'
 import { afterNavigate, goto } from '$app/navigation'
@@ -24,6 +25,9 @@ let { data, children }: { data: LayoutData; children: Snippet } = $props()
 // svelte-ignore state_referenced_locally
 const conversations = createConversationsStore(data.conversations)
 chatContext.conversationsStore = conversations
+// svelte-ignore state_referenced_locally
+const modelsStore = createModelsStore(data.models, data.providers)
+chatContext.modelsStore = modelsStore
 // svelte-ignore state_referenced_locally
 let systemPrompts: SystemPrompt[] = $state(data.systemPrompts)
 
@@ -43,8 +47,6 @@ let mobileSidebarOpen = $state(false)
 chatContext.selectedModel = data.selectedModel ?? ''
 // svelte-ignore state_referenced_locally
 chatContext.thinkingEffort = (data.thinkingEffort as ThinkingEffort) ?? 'none'
-// svelte-ignore state_referenced_locally
-let selectedModelName = $state(data.selectedModelName ?? '')
 // svelte-ignore state_referenced_locally
 let sidebarWidth = $state(data.sidebarWidth ?? SIDEBAR_DEFAULT)
 let isResizing = $state(false)
@@ -96,6 +98,14 @@ const currentConversation = $derived(conversations.conversations.find(c => c.id 
 
 $effect(() => {
   conversations.seed(data.conversations)
+})
+
+$effect(() => {
+  modelsStore.seed(data.models)
+})
+
+$effect(() => {
+  modelsStore.setProviders(data.providers)
 })
 
 $effect(() => {
@@ -151,10 +161,8 @@ const goToNewChat = async () => {
   ++chatContext.newChatFocusToken
 }
 
-const handleModelChange = (id: string, name: string) => {
+const handleModelChange = (id: string) => {
   setCookie('selected-model', id)
-  setCookie('selected-model-name', name)
-  selectedModelName = name
 }
 
 const userName = $derived(data.user?.name ?? data.user?.email ?? 'User')
@@ -180,19 +188,23 @@ onMount(() => {
   )
   conversations.subscribe()
   void promptsSlot.subscribe()
+  modelsStore.subscribe()
   const deregister = registerRealtime({
     subscribe: () => {
       conversations.subscribe()
       void promptsSlot.subscribe()
+      modelsStore.subscribe()
     },
     unsubscribe: () => {
       conversations.unsubscribe()
       promptsSlot.unsubscribe()
+      modelsStore.unsubscribe()
     },
-    isHealthy: () => conversations.isSubscribed() && promptsSlot.isHealthy(),
+    isHealthy: () => conversations.isSubscribed() && promptsSlot.isHealthy() && modelsStore.isSubscribed(),
     resync: async () => {
       const userId = pbClient.authStore.record?.id
       await conversations.resync()
+      await modelsStore.resync()
       if (!userId) return
       const rows = await pbClient.collection('system_prompts').getFullList({
         filter: pbClient.filter('user = {:u}', { u: userId }),
@@ -205,6 +217,7 @@ onMount(() => {
     deregister()
     conversations.unsubscribe()
     promptsSlot.cancel()
+    modelsStore.unsubscribe()
   }
 })
 </script>
@@ -326,7 +339,7 @@ onMount(() => {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
           </svg>
         </button>
-        <ModelPicker providers={data.providers} bind:selectedModel={chatContext.selectedModel} modelNameHint={selectedModelName} onmodelchange={handleModelChange} />
+        <ModelPicker models={modelsStore.models} bind:selectedModel={chatContext.selectedModel} onmodelchange={handleModelChange} />
       </div>
       <div class="flex items-center gap-1">
         {#if currentConversation}

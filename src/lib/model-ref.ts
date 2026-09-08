@@ -1,3 +1,5 @@
+import type { ModelInfo } from '$lib/types'
+
 export const formatModelRef = (provider: string, model: string): string => `${provider}/${model}`
 
 export const parseModelRef = (modelRef: string): { provider: string; model: string } => {
@@ -13,4 +15,10 @@ export const normalizeModelRef = (provider: string | null | undefined, model: st
   if (model.includes('/')) return model
   if (provider) return formatModelRef(provider, model)
   return model
+}
+
+export const byProviderThenName = (a: ModelInfo, b: ModelInfo): number => {
+  const providerA = parseModelRef(a.id).provider
+  const providerB = parseModelRef(b.id).provider
+  return providerA !== providerB ? providerA.localeCompare(providerB) : a.name.localeCompare(b.name)
 }

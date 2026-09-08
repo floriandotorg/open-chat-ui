@@ -1,6 +1,6 @@
+import type { ProviderModel } from '$lib/db-mappers'
 import { formatModelRef } from '$lib/model-ref'
-import type { ProviderModel } from '$lib/server/db/records'
-import type { ModelInfo } from '$lib/server/providers/types'
+import type { ModelInfo } from '$lib/types'
 
 export const fallbackModelInfo = (provider: string, modelId: string): ModelInfo => ({
   id: formatModelRef(provider, modelId),

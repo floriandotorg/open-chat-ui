@@ -1,6 +1,7 @@
 import { requireUser } from '$lib/server/auth-guard'
 import { encrypt } from '$lib/server/crypto'
 import { mapApiKey, now } from '$lib/server/db/records'
+import { ensureProviderSynced } from '$lib/server/model-sync'
 import { createOrRecover, getFirstOrNull, pb } from '$lib/server/pb'
 import { listProviders } from '$lib/server/providers'
 import type { RequestHandler } from './$types'
@@ -47,6 +48,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   } else {
     await createOrRecover('api_keys', { user: userId, provider, encryptedKey: encrypted, iv, createdAt: now(), updatedAt: now() }, pb.filter('user = {:u} && provider = {:p}', { u: userId, p: provider }), { encryptedKey: encrypted, iv, updatedAt: now() })
   }
+
+  void ensureProviderSynced(provider)
 
   return json({ success: true, keyCount: 1 })
 }
