@@ -1,7 +1,7 @@
-import { byProviderThenName, normalizeModelRef } from '$lib/model-ref'
+import { byProviderThenName } from '$lib/model-ref'
 import { storedModelInfo } from '$lib/provider-models'
 import { requireUser } from '$lib/server/auth-guard'
-import { mapConversation, mapProviderModel, mapSystemPrompt } from '$lib/server/db/records'
+import { mapProviderModel, mapSystemPrompt, toChatBootstrap } from '$lib/server/db/records'
 import { pb } from '$lib/server/pb'
 import { listProviders } from '$lib/server/providers'
 import type { LayoutServerLoad } from './$types'
@@ -19,11 +19,8 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
   const rawTtsSpeed = Number(cookies.get('tts-speed'))
   const ttsSpeed = [1, 1.25, 1.5, 1.75, 2].includes(rawTtsSpeed) ? rawTtsSpeed : undefined
 
-  const [convos, userKeys, prompts, modelRows] = await Promise.all([
-    pb
-      .collection('conversations')
-      .getFullList({ filter: pb.filter('user = {:u}', { u: userId }), sort: '-updatedAt' })
-      .then(rows => rows.map(mapConversation)),
+  const [convoRows, userKeys, prompts, modelRows] = await Promise.all([
+    pb.collection('conversations').getFullList({ filter: pb.filter('user = {:u}', { u: userId }), sort: '-updatedAt' }),
     pb.collection('api_keys').getFullList({ filter: pb.filter('user = {:u}', { u: userId }), fields: 'provider' }),
     pb
       .collection('system_prompts')
@@ -45,10 +42,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
     .sort(byProviderThenName)
 
   return {
-    conversations: convos.map(c => ({
-      ...c,
-      defaultModel: normalizeModelRef(c.defaultProvider, c.defaultModel),
-    })),
+    ...toChatBootstrap(convoRows),
     providers,
     systemPrompts: prompts,
     models,

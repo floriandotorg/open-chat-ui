@@ -1,6 +1,6 @@
 import { normalizeModelRef } from '$lib/model-ref'
 import { requireUser } from '$lib/server/auth-guard'
-import { type Conversation, mapConversation, now } from '$lib/server/db/records'
+import { type Conversation, mapConversation, now, toConversationSummary } from '$lib/server/db/records'
 import { getFirstOrNull, pb } from '$lib/server/pb'
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
@@ -65,7 +65,7 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
     ...(shouldUpdateTimestamp && { updatedAt: now() }),
   })
 
-  return json(toConversation(mapConversation(updated)))
+  return json(toConversationSummary(updated))
 }
 
 export const DELETE: RequestHandler = async ({ params, locals }) => {

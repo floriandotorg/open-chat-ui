@@ -1,6 +1,6 @@
 import { normalizeModelRef } from '$lib/model-ref'
 import { requireUser } from '$lib/server/auth-guard'
-import { type Conversation, mapConversation, mapSystemPrompt, now } from '$lib/server/db/records'
+import { type Conversation, mapConversation, mapSystemPrompt, now, toConversationSummary } from '$lib/server/db/records'
 import { getFirstOrNull, pb } from '$lib/server/pb'
 import type { RequestHandler } from './$types'
 import { json } from '@sveltejs/kit'
@@ -65,5 +65,5 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     updatedAt: now(),
   })
 
-  return json(toConversation(mapConversation(created)), { status: 201 })
+  return json(toConversationSummary(created), { status: 201 })
 }

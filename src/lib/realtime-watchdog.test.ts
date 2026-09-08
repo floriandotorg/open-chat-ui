@@ -241,3 +241,57 @@ describe('realtime watchdog', () => {
     expect(realtimeUnsubscribe).not.toHaveBeenCalled()
   })
 })
+
+describe('subscribeShared', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    realtimeUnsubscribe.mockReset()
+    heartbeatSubscribe.mockReset()
+    vi.stubGlobal('document', { visibilityState: 'visible', addEventListener: vi.fn() })
+    vi.stubGlobal('window', { addEventListener: vi.fn() })
+    vi.stubGlobal('navigator', { onLine: true })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('subscribes once per name until disposed', async () => {
+    const watchdog = await loadWatchdog()
+    let subscribes = 0
+    const subscribe = vi.fn(async () => {
+      ++subscribes
+      return vi.fn()
+    })
+
+    const first = watchdog.subscribeShared('conversations', subscribe)
+    const second = watchdog.subscribeShared('conversations', subscribe)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(second).toBe(first)
+    expect(subscribes).toBe(1)
+
+    first.dispose()
+    watchdog.subscribeShared('conversations', subscribe)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(subscribes).toBe(2)
+  })
+
+  it('runs the resync handler when the watchdog recovers the connection', async () => {
+    heartbeatSubscribe.mockResolvedValue(vi.fn())
+    const watchdog = await loadWatchdog()
+    const { pbClient } = await import('$lib/pb-client')
+    watchdog.startRealtimeWatchdog()
+    await vi.advanceTimersByTimeAsync(0)
+
+    const resync = vi.fn()
+    watchdog.subscribeShared('conversations', async () => () => {}, resync)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(resync).not.toHaveBeenCalled()
+
+    pbClient.realtime.onDisconnect?.([])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(resync).toHaveBeenCalledTimes(1)
+  })
+})

@@ -1,6 +1,6 @@
 <script lang="ts">
-import type { Conversation } from '$lib/db-mappers'
 import { splitByTerms } from '$lib/highlight'
+import type { ConversationSummary } from '$lib/types/chat'
 import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
 import ConfirmDialog from './ConfirmDialog.svelte'
@@ -14,12 +14,12 @@ let {
   onpatch,
   onremove,
 }: {
-  conversations: Conversation[]
+  conversations: ConversationSummary[]
   currentId?: string
   generatingConversationId?: string | null
   searchQuery?: string
   showFavoritesOnly?: boolean
-  onpatch?: (id: string, partial: Partial<Conversation>) => void
+  onpatch?: (id: string, partial: Partial<ConversationSummary>) => void
   onremove?: (id: string) => void
 } = $props()
 
@@ -54,7 +54,7 @@ const groupedConversations = $derived.by(() => {
   const yesterday = new Date(today.getTime() - 86400000)
   const weekAgo = new Date(today.getTime() - 7 * 86400000)
 
-  const buckets: [string, Conversation[]][] = [
+  const buckets: [string, ConversationSummary[]][] = [
     ['Today', []],
     ['Yesterday', []],
     ['Previous 7 days', []],

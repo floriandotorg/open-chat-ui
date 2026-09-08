@@ -4,11 +4,12 @@ import ModelPicker from '$lib/components/ModelPicker.svelte'
 import SystemPromptPicker from '$lib/components/SystemPromptPicker.svelte'
 import ThinkingEffortPicker from '$lib/components/ThinkingEffortPicker.svelte'
 import TtsPlayer from '$lib/components/TtsPlayer.svelte'
-import { mapSystemPrompt } from '$lib/db-mappers'
+import { mapConversationSummary, mapSystemPrompt } from '$lib/db-mappers'
 import { pbClient } from '$lib/pb-client'
-import { createRealtimeSlot, registerRealtime, startRealtimeWatchdog } from '$lib/realtime-watchdog'
+import { createRealtimeSlot, registerRealtime, startRealtimeWatchdog, subscribeShared } from '$lib/realtime-watchdog'
+import { ChatStore, setChatStore } from '$lib/stores/chat.svelte'
 import { chatContext } from '$lib/stores/chat-context.svelte'
-import { createConversationsStore } from '$lib/stores/conversations.svelte'
+import { conversationsStore } from '$lib/stores/conversations.svelte'
 import { createModelsStore } from '$lib/stores/models.svelte'
 import { createTtsPlayer } from '$lib/stores/tts-player.svelte'
 import type { SystemPrompt, ThinkingEffort } from '$lib/types'
@@ -23,8 +24,9 @@ import { fade } from 'svelte/transition'
 let { data, children }: { data: LayoutData; children: Snippet } = $props()
 
 // svelte-ignore state_referenced_locally
-const conversations = createConversationsStore(data.conversations)
-chatContext.conversationsStore = conversations
+conversationsStore.hydrate(data.conversations)
+const chat = new ChatStore()
+setChatStore(chat)
 // svelte-ignore state_referenced_locally
 const modelsStore = createModelsStore(data.models, data.providers)
 chatContext.modelsStore = modelsStore
@@ -94,10 +96,10 @@ const startResize = (e: MouseEvent) => {
 }
 
 const currentConversationId = $derived(page.params.conversationId)
-const currentConversation = $derived(conversations.conversations.find(c => c.id === currentConversationId))
+const currentConversation = $derived(conversationsStore.conversations.find(c => c.id === currentConversationId))
 
 $effect(() => {
-  conversations.seed(data.conversations)
+  conversationsStore.hydrate(data.conversations)
 })
 
 $effect(() => {
@@ -119,7 +121,7 @@ $effect(() => {
 const changeSystemPrompt = async (promptId: string | null) => {
   if (!currentConversationId) return
   const prompt = systemPrompts.find(p => p.id === promptId)
-  conversations.patch(currentConversationId, { systemPromptId: promptId, systemPrompt: prompt?.content ?? null })
+  conversationsStore.applyPatch(currentConversationId, { systemPromptId: promptId })
   await fetch(`/api/conversations/${currentConversationId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -144,7 +146,7 @@ let showFavoritesOnly = $state(false)
 const toggleCurrentConversationFavorite = async () => {
   if (!currentConversation) return
   const newFav = !currentConversation.favorite
-  conversations.patch(currentConversation.id, { favorite: newFav })
+  conversationsStore.applyPatch(currentConversation.id, { favorite: newFav })
   await fetch(`/api/conversations/${currentConversation.id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -186,24 +188,40 @@ onMount(() => {
       }
     }),
   )
-  conversations.subscribe()
+  const sharedConversations = subscribeShared(
+    'conversations',
+    () =>
+      pbClient.collection('conversations').subscribe('*', e => {
+        if (e.action === 'delete') {
+          conversationsStore.remove(e.record.id)
+        } else {
+          conversationsStore.upsert(mapConversationSummary(e.record))
+        }
+      }),
+    async () => {
+      const userId = pbClient.authStore.record?.id
+      if (!userId) return
+      const rows = await pbClient.collection('conversations').getFullList({
+        filter: pbClient.filter('user = {:u}', { u: userId }),
+        sort: '-updatedAt',
+      })
+      conversationsStore.hydrate(rows.map(mapConversationSummary))
+    },
+  )
   void promptsSlot.subscribe()
   modelsStore.subscribe()
   const deregister = registerRealtime({
     subscribe: () => {
-      conversations.subscribe()
       void promptsSlot.subscribe()
       modelsStore.subscribe()
     },
     unsubscribe: () => {
-      conversations.unsubscribe()
       promptsSlot.unsubscribe()
       modelsStore.unsubscribe()
     },
-    isHealthy: () => conversations.isSubscribed() && promptsSlot.isHealthy() && modelsStore.isSubscribed(),
+    isHealthy: () => promptsSlot.isHealthy() && modelsStore.isSubscribed(),
     resync: async () => {
       const userId = pbClient.authStore.record?.id
-      await conversations.resync()
       await modelsStore.resync()
       if (!userId) return
       const rows = await pbClient.collection('system_prompts').getFullList({
@@ -215,7 +233,7 @@ onMount(() => {
   })
   return () => {
     deregister()
-    conversations.unsubscribe()
+    sharedConversations.dispose()
     promptsSlot.cancel()
     modelsStore.unsubscribe()
   }
@@ -299,7 +317,7 @@ onMount(() => {
         </div>
       </div>
 
-      <ConversationList conversations={conversations.conversations} currentId={currentConversationId} generatingConversationId={chatContext.generatingConversationId} bind:searchQuery={sidebarSearchQuery} showFavoritesOnly={showFavoritesOnly} onpatch={conversations.patch} onremove={conversations.remove} />
+      <ConversationList conversations={conversationsStore.conversations} currentId={currentConversationId} generatingConversationId={chatContext.generatingConversationId} bind:searchQuery={sidebarSearchQuery} showFavoritesOnly={showFavoritesOnly} onpatch={conversationsStore.applyPatch} onremove={conversationsStore.remove} />
 
       <div class="liquid-glass-bar-bottom absolute inset-x-0 bottom-0 z-10 p-2" style="padding-bottom: max(0.5rem, env(safe-area-inset-bottom))">
         <a href={resolve('/settings')} class="group flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-black/5 dark:hover:bg-white/10">

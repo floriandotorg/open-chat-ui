@@ -1,5 +1,7 @@
 import type { Message } from '$lib/types'
-import { createChatStore } from './chat.svelte'
+import type { ConversationSummary } from '$lib/types/chat'
+import { ChatStore, type RequestFn } from './chat.svelte'
+import { conversationsStore } from './conversations.svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const flush = () => new Promise(r => setTimeout(r, 0))
@@ -12,7 +14,7 @@ const installFetch = (impl: (url: unknown, init?: RequestInit) => Promise<Respon
 
 const okResponse = () => new Response(JSON.stringify({ ok: true }), { status: 200 })
 
-describe('createChatStore (PocketBase realtime data plane)', () => {
+describe('ChatStore (PocketBase realtime data plane)', () => {
   let originalFetch: typeof fetch
 
   beforeEach(() => {
@@ -27,7 +29,7 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
   it('adds the user message optimistically and points the branch at it', async () => {
     installFetch(async () => okResponse())
 
-    const chat = createChatStore()
+    const chat = new ChatStore()
     chat.selectedModel = 'anthropic/claude-test'
 
     await chat.sendMessage('conv-1', 'hello', undefined, [{ id: 'img-1.png', mimeType: 'image/png' }])
@@ -45,7 +47,7 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
   it('keeps the user message and marks it with sendError when POST /api/chat fails', async () => {
     installFetch(async () => new Response(JSON.stringify({ message: 'Simulated network failure' }), { status: 500 }))
 
-    const chat = createChatStore()
+    const chat = new ChatStore()
     chat.selectedModel = 'anthropic/claude-test'
 
     await chat.sendMessage('conv-1', 'hello')
@@ -59,7 +61,7 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
   it('falls back to a generic error message when the server returns no message body', async () => {
     installFetch(async () => new Response('not-json', { status: 502 }))
 
-    const chat = createChatStore()
+    const chat = new ChatStore()
     chat.selectedModel = 'anthropic/claude-test'
 
     await chat.sendMessage('conv-1', 'hi')
@@ -73,7 +75,7 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
       throw new TypeError('Load failed')
     })
 
-    const chat = createChatStore()
+    const chat = new ChatStore()
     chat.selectedModel = 'anthropic/claude-test'
 
     await chat.sendMessage('conv-1', 'hi')
@@ -86,7 +88,7 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
   it('reconciles the optimistic message when the realtime create event arrives', async () => {
     installFetch(async () => okResponse())
 
-    const chat = createChatStore()
+    const chat = new ChatStore()
     chat.selectedModel = 'anthropic/claude-test'
 
     await chat.sendMessage('conv-1', 'hello')
@@ -102,7 +104,7 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
   it('preserves sendError when a realtime upsert replaces the failed user message', async () => {
     installFetch(async () => new Response(JSON.stringify({ message: 'Overloaded' }), { status: 500 }))
 
-    const chat = createChatStore()
+    const chat = new ChatStore()
     chat.selectedModel = 'anthropic/claude-test'
 
     await chat.sendMessage('conv-1', 'hi')
@@ -117,7 +119,7 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
   it('exposes the generating assistant record as the streaming message while realtime flushes arrive', async () => {
     installFetch(async () => okResponse())
 
-    const chat = createChatStore()
+    const chat = new ChatStore()
     chat.selectedModel = 'anthropic/claude-test'
 
     await chat.sendMessage('conv-1', 'hello')
@@ -163,12 +165,14 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
 
   it('queues messages while streaming and drains the queue once generation ends', async () => {
     const bodies: unknown[] = []
-    installFetch(async (_url, init) => {
-      bodies.push(init?.body ? JSON.parse(init.body as string) : null)
+    installFetch(async (url, init) => {
+      if (String(url) === '/api/chat') {
+        bodies.push(init?.body ? JSON.parse(init.body as string) : null)
+      }
       return okResponse()
     })
 
-    const chat = createChatStore()
+    const chat = new ChatStore()
     chat.selectedModel = 'anthropic/claude-test'
 
     await chat.sendMessage('conv-1', 'first')
@@ -201,13 +205,16 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
   it('keeps the optimistic branch selection when a stale conversation update arrives before the server confirms', async () => {
     installFetch(async () => okResponse())
 
-    const chat = createChatStore({
-      allMessages: [
-        { id: 'a1', conversationId: 'conv-1', parentId: null, role: 'assistant', content: 'one', createdAt: new Date(1) },
-        { id: 'a2', conversationId: 'conv-1', parentId: null, role: 'assistant', content: 'two', createdAt: new Date(2) },
-      ],
-      activeBranches: { __root__: 'a1' },
-    })
+    const chat = new ChatStore(
+      {},
+      {
+        allMessages: [
+          { id: 'a1', conversationId: 'conv-1', parentId: null, role: 'assistant', content: 'one', createdAt: new Date(1) },
+          { id: 'a2', conversationId: 'conv-1', parentId: null, role: 'assistant', content: 'two', createdAt: new Date(2) },
+        ],
+        activeBranches: { __root__: 'a1' },
+      },
+    )
 
     await chat.switchBranch('conv-1', '__root__', 'a2')
     expect(chat.activeBranches.__root__).toBe('a2')
@@ -225,7 +232,7 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
   it('discardFailedMessage removes the failed message, clears its branch entry, and ignores late realtime upserts for it', async () => {
     installFetch(async () => new Response(JSON.stringify({ message: 'boom' }), { status: 500 }))
 
-    const chat = createChatStore()
+    const chat = new ChatStore()
     chat.selectedModel = 'anthropic/claude-test'
 
     await chat.sendMessage('conv-1', 'hi')
@@ -251,7 +258,7 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
       return okResponse()
     })
 
-    const chat = createChatStore()
+    const chat = new ChatStore()
     chat.selectedModel = 'anthropic/claude-test'
 
     await chat.sendMessage('conv-1', 'retry me', undefined, [{ id: 'img.png', mimeType: 'image/png' }], [{ id: 'f.csv', filename: 'f.csv', mimeType: 'text/csv' }])
@@ -275,10 +282,13 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
       return okResponse()
     })
 
-    const chat = createChatStore({
-      allMessages: [{ id: 'user-1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'hi', sendError: 'Overloaded', createdAt: new Date() }],
-      activeBranches: { __root__: 'user-1' },
-    })
+    const chat = new ChatStore(
+      {},
+      {
+        allMessages: [{ id: 'user-1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'hi', sendError: 'Overloaded', createdAt: new Date() }],
+        activeBranches: { __root__: 'user-1' },
+      },
+    )
     chat.selectedModel = 'anthropic/claude-test'
 
     await chat.retryFailedMessage('conv-1', 'user-1')
@@ -298,13 +308,16 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
       return okResponse()
     })
 
-    const chat = createChatStore({
-      allMessages: [
-        { id: 'user-1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'original', createdAt: new Date(1) },
-        { id: 'asst-1', conversationId: 'conv-1', parentId: 'user-1', role: 'assistant', content: 'answer', createdAt: new Date(2) },
-      ],
-      activeBranches: { __root__: 'user-1', 'user-1': 'asst-1' },
-    })
+    const chat = new ChatStore(
+      {},
+      {
+        allMessages: [
+          { id: 'user-1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'original', createdAt: new Date(1) },
+          { id: 'asst-1', conversationId: 'conv-1', parentId: 'user-1', role: 'assistant', content: 'answer', createdAt: new Date(2) },
+        ],
+        activeBranches: { __root__: 'user-1', 'user-1': 'asst-1' },
+      },
+    )
     chat.selectedModel = 'anthropic/claude-test'
 
     await chat.editMessage('conv-1', 'user-1', 'edited')
@@ -327,13 +340,16 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
       return new Response(JSON.stringify({ message: 'regen failed' }), { status: 500 })
     })
 
-    const chat = createChatStore({
-      allMessages: [
-        { id: 'user-1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'hi', createdAt: new Date(1) },
-        { id: 'asst-1', conversationId: 'conv-1', parentId: 'user-1', role: 'assistant', content: 'answer', createdAt: new Date(2) },
-      ],
-      activeBranches: { __root__: 'user-1', 'user-1': 'asst-1' },
-    })
+    const chat = new ChatStore(
+      {},
+      {
+        allMessages: [
+          { id: 'user-1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'hi', createdAt: new Date(1) },
+          { id: 'asst-1', conversationId: 'conv-1', parentId: 'user-1', role: 'assistant', content: 'answer', createdAt: new Date(2) },
+        ],
+        activeBranches: { __root__: 'user-1', 'user-1': 'asst-1' },
+      },
+    )
     chat.selectedModel = 'anthropic/claude-test'
 
     await chat.regenerateMessage('conv-1', 'asst-1')
@@ -351,7 +367,7 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
   it('stopStreaming posts a stop command and clears the queue', async () => {
     const mock = installFetch(async () => okResponse())
 
-    const chat = createChatStore()
+    const chat = new ChatStore()
     chat.selectedModel = 'anthropic/claude-test'
 
     await chat.sendMessage('conv-1', 'hello')
@@ -365,10 +381,13 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
   it('seed replaces confirmed messages on navigation but keeps pending sends of that conversation', async () => {
     installFetch(async () => new Response(JSON.stringify({ message: 'boom' }), { status: 500 }))
 
-    const chat = createChatStore({
-      allMessages: [{ id: 'm1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'old', createdAt: new Date() }],
-      activeBranches: { __root__: 'm1' },
-    })
+    const chat = new ChatStore(
+      {},
+      {
+        allMessages: [{ id: 'm1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'old', createdAt: new Date() }],
+        activeBranches: { __root__: 'm1' },
+      },
+    )
     chat.selectedModel = 'anthropic/claude-test'
 
     await chat.sendMessage('conv-1', 'unsent')
@@ -384,7 +403,7 @@ describe('createChatStore (PocketBase realtime data plane)', () => {
   it('seed resets the busy flag when navigating to a different conversation mid-generation', async () => {
     installFetch(async () => okResponse())
 
-    const chat = createChatStore()
+    const chat = new ChatStore()
     chat.selectedModel = 'anthropic/claude-test'
 
     await chat.sendMessage('conv-1', 'hello')
@@ -410,7 +429,7 @@ describe('stream events', () => {
 
   it('applies text ops on top of the confirmed snapshot', async () => {
     installFetch(async () => okResponse())
-    const chat = createChatStore({ allMessages: [streamingAssistant()], activeBranches: {} })
+    const chat = new ChatStore({}, { allMessages: [streamingAssistant()], activeBranches: {} })
 
     chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'he' }] })
     chat.ingestEvent({ messageId: 'assist-1', seq: 2, ops: [{ t: 'text', v: 'llo' }] })
@@ -423,14 +442,14 @@ describe('stream events', () => {
   it('buffers out-of-order events, fetches the gap once, and applies after fill', async () => {
     installFetch(async () => okResponse())
     const fetches: { from: number; to: number | null }[] = []
-    const chat = createChatStore(
-      { allMessages: [streamingAssistant()], activeBranches: {} },
+    const chat = new ChatStore(
       {
         fetchStreamEvents: async (_messageId, from, to) => {
           fetches.push({ from, to })
           return [{ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'a' }] }]
         },
       },
+      { allMessages: [streamingAssistant()], activeBranches: {} },
     )
 
     chat.ingestEvent({ messageId: 'assist-1', seq: 2, ops: [{ t: 'text', v: 'b' }] })
@@ -444,7 +463,7 @@ describe('stream events', () => {
 
   it('drops ops folded into a snapshot via eventSeq', async () => {
     installFetch(async () => okResponse())
-    const chat = createChatStore({ allMessages: [streamingAssistant()], activeBranches: {} })
+    const chat = new ChatStore({}, { allMessages: [streamingAssistant()], activeBranches: {} })
 
     chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'he' }] })
     chat.ingestEvent({ messageId: 'assist-1', seq: 2, ops: [{ t: 'text', v: 'llo' }] })
@@ -459,7 +478,7 @@ describe('stream events', () => {
 
   it('ignores events already folded into the snapshot', async () => {
     installFetch(async () => okResponse())
-    const chat = createChatStore({ allMessages: [streamingAssistant({ content: 'hello', eventSeq: 2 })], activeBranches: {} })
+    const chat = new ChatStore({}, { allMessages: [streamingAssistant({ content: 'hello', eventSeq: 2 })], activeBranches: {} })
 
     chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'he' }] })
     chat.ingestEvent({ messageId: 'assist-1', seq: 2, ops: [{ t: 'text', v: 'llo' }] })
@@ -470,7 +489,7 @@ describe('stream events', () => {
 
   it('clears live state when the final snapshot arrives and ignores late events', async () => {
     installFetch(async () => okResponse())
-    const chat = createChatStore({ allMessages: [streamingAssistant()], activeBranches: {} })
+    const chat = new ChatStore({}, { allMessages: [streamingAssistant()], activeBranches: {} })
 
     chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'hi' }] })
     expect(chat.allMessages[0].content).toBe('hi')
@@ -485,7 +504,7 @@ describe('stream events', () => {
 
   it('buffers events for an unknown message and applies them when the placeholder arrives', async () => {
     installFetch(async () => okResponse())
-    const chat = createChatStore({ allMessages: [], activeBranches: {} })
+    const chat = new ChatStore({}, { allMessages: [], activeBranches: {} })
 
     chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'early' }] })
     expect(chat.allMessages.length).toBe(0)
@@ -496,7 +515,7 @@ describe('stream events', () => {
 
   it('clears live state on seed', async () => {
     installFetch(async () => okResponse())
-    const chat = createChatStore({ allMessages: [streamingAssistant()], activeBranches: {} })
+    const chat = new ChatStore({}, { allMessages: [streamingAssistant()], activeBranches: {} })
 
     chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'hi' }] })
     expect(chat.allMessages[0].content).toBe('hi')
@@ -507,12 +526,142 @@ describe('stream events', () => {
 
   it('clears awaitingGeneration when the first event arrives', async () => {
     installFetch(async () => okResponse())
-    const chat = createChatStore()
+    const chat = new ChatStore()
     chat.selectedModel = 'anthropic/claude-test'
     await chat.sendMessage('conv-1', 'hello')
     expect(chat.awaitingGeneration).toBe(true)
 
     chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'hi' }] })
     expect(chat.awaitingGeneration).toBe(false)
+  })
+})
+
+describe('HTTP response reconciliation', () => {
+  let originalFetch: typeof fetch
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    vi.restoreAllMocks()
+  })
+
+  const fakeRequest = (handler: (path: string, body: Record<string, unknown>) => unknown): RequestFn => (async (path: string, body: Record<string, unknown>) => handler(path, body)) as RequestFn
+
+  const summary = (overrides: Partial<ConversationSummary> = {}): ConversationSummary => ({
+    id: 'conv-1',
+    title: 'New Chat',
+    favorite: false,
+    generating: false,
+    systemPromptId: null,
+    updatedAt: new Date(),
+    ...overrides,
+  })
+
+  const generatingAssistant = (overrides: Partial<Message> = {}): Message => ({
+    id: 'assist-1',
+    conversationId: 'conv-1',
+    parentId: null,
+    role: 'assistant',
+    content: '',
+    generating: true,
+    eventSeq: 0,
+    createdAt: new Date(),
+    ...overrides,
+  })
+
+  it('upserts the user message returned by POST /api/chat', async () => {
+    let n = 0
+    const chat = new ChatStore({
+      id: () => `local-${++n}`,
+      now: () => new Date(1000),
+      request: fakeRequest(path => (path === '/api/chat' ? { userMessage: { id: 'local-1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'hello', createdAt: new Date(1000).toISOString() } } : {})),
+    })
+
+    await chat.sendMessage('conv-1', 'hello')
+
+    expect(chat.allMessages.length).toBe(1)
+    expect(chat.allMessages[0].id).toBe('local-1')
+    expect(chat.allMessages[0].createdAt).toBeInstanceOf(Date)
+    expect(chat.allMessages[0].sendError).toBeUndefined()
+  })
+
+  it('applies the title returned by POST /api/chat/title to conversationsStore after the first exchange', async () => {
+    conversationsStore.hydrate([summary()])
+    const requested: string[] = []
+    const chat = new ChatStore({
+      request: fakeRequest(path => {
+        requested.push(path)
+        return path === '/api/chat/title' ? { title: 'Greeting' } : {}
+      }),
+    })
+
+    await chat.sendMessage('conv-1', 'hello')
+    await flush()
+
+    expect(requested).toEqual(['/api/chat', '/api/chat/title'])
+    expect(conversationsStore.conversations.find(c => c.id === 'conv-1')?.title).toBe('Greeting')
+  })
+
+  it('does not request a title for follow-up messages', async () => {
+    const requested: string[] = []
+    const chat = new ChatStore(
+      {
+        request: fakeRequest(path => {
+          requested.push(path)
+          return {}
+        }),
+      },
+      { allMessages: [{ id: 'user-1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'hi', createdAt: new Date() }], activeBranches: {} },
+    )
+
+    await chat.sendMessage('conv-1', 'second')
+
+    expect(requested).toEqual(['/api/chat'])
+  })
+
+  it('notifies when the title request fails', async () => {
+    const errors: string[] = []
+    const chat = new ChatStore({
+      notify: m => errors.push(m),
+      request: fakeRequest(path => {
+        if (path === '/api/chat/title') {
+          throw new Error('title boom')
+        }
+        return {}
+      }),
+    })
+
+    await chat.sendMessage('conv-1', 'hello')
+    await flush()
+
+    expect(errors).toEqual(['title boom'])
+  })
+
+  it('stopStreaming fills missing events for the settled assistant message', async () => {
+    const fetches: { from: number; to: number | null }[] = []
+    const requested: string[] = []
+    const chat = new ChatStore(
+      {
+        request: fakeRequest(path => {
+          requested.push(path)
+          return {}
+        }),
+        fetchStreamEvents: async (_messageId, from, to) => {
+          fetches.push({ from, to })
+          return [{ messageId: 'assist-1', seq: 2, ops: [{ t: 'text', v: 'orld' }] }]
+        },
+      },
+      { allMessages: [generatingAssistant({ eventSeq: 1, content: 'hello w' })], activeBranches: {} },
+    )
+
+    chat.stopStreaming()
+    await flush()
+
+    expect(requested).toEqual(['/api/chat/stop'])
+    expect(fetches).toEqual([{ from: 2, to: null }])
+    expect(chat.allMessages[0].content).toBe('hello world')
   })
 })

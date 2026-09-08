@@ -158,6 +158,31 @@ export const startRealtimeWatchdog = () => {
   window.addEventListener('online', onResume)
 }
 
+export interface SharedSubscription {
+  dispose: () => void
+}
+
+const sharedSubscriptions = new Map<string, SharedSubscription>()
+
+// Permanent (layout-lifetime) subscriptions, registered once per name so
+// remounts and HMR don't stack duplicate realtime slots.
+export const subscribeShared = (name: string, subscribeFn: () => Promise<() => void>, resyncFn?: () => void | Promise<void>): SharedSubscription => {
+  const existing = sharedSubscriptions.get(name)
+  if (existing) return existing
+  const slot = createRealtimeSlot(subscribeFn, resyncFn ? () => resyncFn() : undefined)
+  void slot.subscribe()
+  const deregister = registerRealtime(slot)
+  const subscription: SharedSubscription = {
+    dispose: () => {
+      sharedSubscriptions.delete(name)
+      slot.cancel()
+      deregister()
+    },
+  }
+  sharedSubscriptions.set(name, subscription)
+  return subscription
+}
+
 export interface RealtimeSlot extends RealtimeRegistration {
   cancel: () => void
   isHealthy: () => boolean

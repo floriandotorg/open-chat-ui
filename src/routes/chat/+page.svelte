@@ -1,9 +1,10 @@
 <script lang="ts">
 import ChatInput from '$lib/components/ChatInput.svelte'
-import type { Conversation } from '$lib/db-mappers'
 import { chatContext } from '$lib/stores/chat-context.svelte'
+import { conversationsStore } from '$lib/stores/conversations.svelte'
 import { setPendingMessage } from '$lib/stores/pending-message'
 import type { FileAttachment, ImageAttachment } from '$lib/types'
+import type { ConversationSummary } from '$lib/types/chat'
 import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
 import { tick } from 'svelte'
@@ -30,12 +31,12 @@ const handleSubmit = async (content: string, images?: ImageAttachment[], files?:
     error = 'Failed to create conversation'
     return
   }
-  const conv: Conversation = await res.json()
+  const conv: ConversationSummary = await res.json()
   if (!conv?.id) {
     error = 'Failed to create conversation'
     return
   }
-  ctx.conversationsStore?.addPending({ ...conv, createdAt: new Date(conv.createdAt), updatedAt: new Date(conv.updatedAt) })
+  conversationsStore.upsert({ ...conv, updatedAt: new Date(conv.updatedAt) })
   await goto(resolve(`/chat/${conv.id}`))
 }
 </script>

@@ -1,119 +1,72 @@
-import type { Conversation } from '$lib/db-mappers'
-import { mapConversation } from '$lib/db-mappers'
-import { pbClient } from '$lib/pb-client'
-import { createOptimisticMap } from '$lib/stores/optimistic.svelte'
-import { browser } from '$app/environment'
+import type { ConversationSummary } from '$lib/types/chat'
 
-export const createConversationsStore = (initial: Conversation[]) => {
-  let byId = $state<Map<string, Conversation>>(new Map(initial.map(c => [c.id, c])))
-  const pending = createOptimisticMap<Conversation>()
-  const pendingPatches = new Map<string, Partial<Conversation>>()
+export class ConversationsStore {
+  private byId = $state(new Map<string, ConversationSummary>())
+  private pendingPatches = new Map<string, Partial<ConversationSummary>>()
 
-  const conversations = $derived([...byId.values(), ...pending.values().filter(c => !byId.has(c.id))].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()))
+  conversations = $derived([...this.byId.values()].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()))
 
-  const upsert = (c: Conversation) => {
-    pending.confirm(c.id)
-    const patch = pendingPatches.get(c.id)
-    let merged = c
-    if (patch) {
-      const leftover: Partial<Conversation> = {}
-      merged = { ...c }
-      for (const [key, value] of Object.entries(patch) as [keyof Conversation, unknown][]) {
-        if (JSON.stringify(c[key]) === JSON.stringify(value)) {
-          pendingPatches.delete(c.id)
-        } else {
-          Object.assign(merged, { [key]: value })
-          Object.assign(leftover, { [key]: value })
-        }
-      }
-      if (Object.keys(leftover).length) pendingPatches.set(c.id, leftover)
-    }
-    const next = new Map(byId)
-    next.set(c.id, merged)
-    byId = next
+  hydrate = (items: ConversationSummary[]) => {
+    this.byId = new Map(items.map(c => [c.id, this.withPendingPatch(c)]))
   }
-  const remove = (id: string) => {
-    pending.remove(id)
-    pendingPatches.delete(id)
-    const next = new Map(byId)
+
+  upsert = (conv: ConversationSummary) => {
+    const next = new Map(this.byId)
+    next.set(conv.id, this.withPendingPatch(conv))
+    this.byId = next
+  }
+
+  applyPatch = (id: string, patch: Partial<ConversationSummary>) => {
+    const current = this.byId.get(id)
+    if (!current) {
+      return
+    }
+    this.pendingPatches.set(id, { ...this.pendingPatches.get(id), ...patch })
+    const next = new Map(this.byId)
+    next.set(id, { ...current, ...patch })
+    this.byId = next
+  }
+
+  // Authoritative set from a server response; unlike applyPatch this is not
+  // tracked as an optimistic write, so later realtime events stay in charge.
+  applyTitle = (id: string, title: string) => {
+    const current = this.byId.get(id)
+    if (!current) {
+      return
+    }
+    const next = new Map(this.byId)
+    next.set(id, { ...current, title })
+    this.byId = next
+  }
+
+  remove = (id: string) => {
+    this.pendingPatches.delete(id)
+    const next = new Map(this.byId)
     next.delete(id)
-    byId = next
-  }
-  const seed = (list: Conversation[]) => {
-    byId = new Map(list.map(c => [c.id, c]))
-  }
-  const addPending = (c: Conversation) => {
-    pending.add(c)
-  }
-  const patch = (id: string, partial: Partial<Conversation>) => {
-    const current = byId.get(id)
-    if (!current) return
-    pendingPatches.set(id, { ...pendingPatches.get(id), ...partial })
-    const next = new Map(byId)
-    next.set(id, { ...current, ...partial })
-    byId = next
+    this.byId = next
   }
 
-  let unsub: (() => void) | null = null
-  let cancelled = false
-  let generation = 0
-  const subscribe = async () => {
-    if (!browser || unsub) return
-    cancelled = false
-    const gen = ++generation
-    try {
-      const u = await pbClient.collection('conversations').subscribe('*', e => {
-        if (e.action === 'delete') remove(e.record.id)
-        else upsert(mapConversation(e.record))
-      })
-      if (cancelled || gen !== generation) {
-        u()
-        return
+  private withPendingPatch = (conv: ConversationSummary): ConversationSummary => {
+    const patch = this.pendingPatches.get(conv.id)
+    if (!patch) {
+      return conv
+    }
+    const merged = { ...conv }
+    const leftover: Partial<ConversationSummary> = {}
+    for (const [key, value] of Object.entries(patch) as [keyof ConversationSummary, unknown][]) {
+      if (JSON.stringify(conv[key]) === JSON.stringify(value)) {
+        continue
       }
-      unsub = u
-    } catch (err) {
-      console.warn('[realtime] conversations subscribe failed', err)
+      Object.assign(merged, { [key]: value })
+      Object.assign(leftover, { [key]: value })
     }
-  }
-  const unsubscribe = () => {
-    cancelled = true
-    ++generation
-    unsub?.()
-    unsub = null
-  }
-
-  // Failures propagate so the realtime watchdog marks the recovery incomplete
-  // and retries, instead of leaving a stale sidebar behind a swallowed error.
-  const resync = async () => {
-    if (!browser || cancelled) return
-    const userId = pbClient.authStore.record?.id
-    if (!userId) return
-    const rows = await pbClient.collection('conversations').getFullList({
-      filter: pbClient.filter('user = {:u}', { u: userId }),
-      sort: '-updatedAt',
-    })
-    if (!cancelled) {
-      seed(
-        rows.map(mapConversation).map(c => {
-          const patch = pendingPatches.get(c.id)
-          return patch ? { ...c, ...patch } : c
-        }),
-      )
+    if (Object.keys(leftover).length) {
+      this.pendingPatches.set(conv.id, leftover)
+    } else {
+      this.pendingPatches.delete(conv.id)
     }
-  }
-
-  return {
-    get conversations() {
-      return conversations
-    },
-    upsert,
-    remove,
-    seed,
-    addPending,
-    patch,
-    subscribe,
-    unsubscribe,
-    resync,
-    isSubscribed: () => cancelled || !!unsub,
+    return merged
   }
 }
+
+export const conversationsStore = new ConversationsStore()

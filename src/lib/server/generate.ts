@@ -452,6 +452,7 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
       toolCalls: slimToolCalls.length ? slimToolCalls : null,
       eventSeq: writer.seq,
       generating: false,
+      settledAt: now(),
     }
     if (placeholderCreated) {
       await pb.collection('messages').update(assistantMsgId, finalFields)

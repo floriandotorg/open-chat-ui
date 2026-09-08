@@ -1,7 +1,7 @@
 import type { Message } from '$lib/db-mappers'
 import { resolveEffectiveParentId } from '$lib/message-tree'
 import { requireUser } from '$lib/server/auth-guard'
-import { mapConversation, mapMessage, now } from '$lib/server/db/records'
+import { mapConversation, mapMessage, now, toChatMessage } from '$lib/server/db/records'
 import { startGeneration } from '$lib/server/generate'
 import { getGeneration } from '$lib/server/generations'
 import { getFirstOrNull, pb } from '$lib/server/pb'
@@ -124,5 +124,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     preloaded: { conversation, messages: allMsgs },
   })
 
-  return json({ ok: true })
+  const userMessage = await pb.collection('messages').getOne(userMsgId).then(toChatMessage)
+  return json({ userMessage })
 }

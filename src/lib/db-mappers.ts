@@ -1,5 +1,6 @@
 import { normalizeModelRef } from '$lib/model-ref'
 import type { Message as ClientMessage, CodeExecutionSummary, FileAttachment, ImageAttachment, MessagePayload, ModelInfo, ToolCallSummary } from '$lib/types'
+import type { ChatMessage, ConversationSummary } from '$lib/types/chat'
 import type { RecordModel } from 'pocketbase'
 
 export interface ApiKey {
@@ -219,6 +220,20 @@ export const mapClientMessage = (r: RecordModel): ClientMessage => {
     createdAt: m.createdAt,
   }
 }
+
+export const mapConversationSummary = (r: RecordModel): ConversationSummary => ({
+  id: r.id,
+  title: typeof r.title === 'string' ? r.title : '',
+  favorite: r.favorite ?? false,
+  generating: r.generating ?? false,
+  systemPromptId: orNull(r.systemPromptRef),
+  updatedAt: toDate(r.updatedAt),
+})
+
+export const mapChatMessage = (r: RecordModel): ChatMessage => ({
+  ...mapClientMessage(r),
+  settledAt: typeof r.settledAt === 'string' && r.settledAt !== '' ? new Date(r.settledAt) : undefined,
+})
 
 export const mapSystemPrompt = (r: RecordModel): SystemPrompt => ({
   id: r.id,

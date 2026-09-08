@@ -1,15 +1,14 @@
 <script lang="ts">
 import ChatInput from '$lib/components/ChatInput.svelte'
 import ChatMessage from '$lib/components/ChatMessage.svelte'
-import { mapClientMessage, mapConversation } from '$lib/db-mappers'
+import { mapChatMessage } from '$lib/db-mappers'
 import { pbClient } from '$lib/pb-client'
 import { createRealtimeSlot, registerRealtime } from '$lib/realtime-watchdog'
 import { selectionIntersects } from '$lib/selection'
-import { createChatStore } from '$lib/stores/chat.svelte'
+import { getChatStore } from '$lib/stores/chat.svelte'
 import { chatContext } from '$lib/stores/chat-context.svelte'
 import { invalidatePayload } from '$lib/stores/payloads.svelte'
 import { consumePendingMessage } from '$lib/stores/pending-message'
-import { fetchStreamEvents } from '$lib/stream-events-client'
 import type { Message } from '$lib/types'
 import { browser } from '$app/environment'
 import { replaceState } from '$app/navigation'
@@ -21,22 +20,9 @@ let { data }: { data: PageData } = $props()
 
 const ctx = chatContext
 
-const mapServerMessages = (serverMsgs: typeof data.allMessages): Message[] =>
-  serverMsgs.map(m => ({
-    ...m,
-    role: m.role as Message['role'],
-    createdAt: new Date(m.createdAt),
-  }))
-
-const chat = createChatStore(
-  {
-    // svelte-ignore state_referenced_locally
-    allMessages: mapServerMessages(data.allMessages),
-    // svelte-ignore state_referenced_locally
-    activeBranches: data.activeBranches,
-  },
-  { fetchStreamEvents },
-)
+const chat = getChatStore()
+// svelte-ignore state_referenced_locally
+chat.seed(data.conversation.id, data.messages, data.conversation.activeBranches)
 chat.selectedModel = ctx.selectedModel
 chat.thinkingEffort = ctx.thinkingEffort
 
@@ -72,14 +58,6 @@ const onSelectionChange = () => {
   userInteracting = selectionInsideContainer()
 }
 
-chat.onFirstReply = async (conversationId: string) => {
-  await fetch('/api/chat/title', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ conversationId }),
-  })
-}
-
 let activeConvId: string | undefined
 
 const consumeQueryMessage = (): string | null => {
@@ -106,7 +84,7 @@ const attachToConversation = (convId: string) => {
     return
   }
   const queryMessage = consumeQueryMessage()
-  if (queryMessage && data.allMessages.length === 0) {
+  if (queryMessage && data.messages.length === 0) {
     chat.sendMessage(convId, queryMessage)
     return
   }
@@ -114,8 +92,8 @@ const attachToConversation = (convId: string) => {
 }
 
 $effect(() => {
-  const serverAllMessages = data.allMessages
-  const serverBranches = data.activeBranches
+  const serverMessages = data.messages
+  const serverBranches = data.conversation.activeBranches
   const convId = data.conversation.id
   const isFirstAttach = activeConvId === undefined
   const convChanged = !isFirstAttach && activeConvId !== convId
@@ -126,7 +104,7 @@ $effect(() => {
   }
 
   if (convChanged || !untrack(() => chat.isStreaming)) {
-    untrack(() => chat.seed(convId, mapServerMessages(serverAllMessages), serverBranches))
+    untrack(() => chat.seed(convId, serverMessages, serverBranches))
   }
 
   if (convChanged || isFirstAttach) {
@@ -174,7 +152,7 @@ $effect(() => {
     pbClient
       .collection('messages')
       .getOne(streaming.id)
-      .then(row => chat.upsertMessage(mapClientMessage(row)))
+      .then(row => chat.upsertMessage(mapChatMessage(row)))
       .catch(() => {})
   }, 4_000)
   return () => clearInterval(interval)
@@ -203,7 +181,7 @@ $effect(() => {
             chat.removeMessage(e.record.id)
             return
           }
-          const msg = mapClientMessage(e.record)
+          const msg = mapChatMessage(e.record)
           // The payload is written right before the final message update.
           if (!msg.generating) invalidatePayload(msg.id)
           chat.upsertMessage(msg)
@@ -223,9 +201,8 @@ $effect(() => {
         pbClient.collection('conversations').getOne(convId),
       ])
       if (!isCurrent()) return
-      const conv = mapConversation(convRecord)
-      chat.seed(convId, rows.map(mapClientMessage), conv.activeBranches ?? {})
-      remoteGenerating = conv.generating ?? false
+      chat.seed(convId, rows.map(mapChatMessage), convRecord.activeBranches ?? {})
+      remoteGenerating = convRecord.generating ?? false
       chat.setConversationGenerating(remoteGenerating)
       await catchUpStreams()
     },
@@ -233,9 +210,8 @@ $effect(() => {
   const conversationSlot = createRealtimeSlot(() =>
     pbClient.collection('conversations').subscribe(convId, e => {
       if (e.action === 'delete') return
-      const c = mapConversation(e.record)
-      chat.applyServerBranches(c.activeBranches ?? {})
-      remoteGenerating = c.generating ?? false
+      chat.applyServerBranches(e.record.activeBranches ?? {})
+      remoteGenerating = e.record.generating ?? false
       chat.setConversationGenerating(remoteGenerating)
     }),
   )

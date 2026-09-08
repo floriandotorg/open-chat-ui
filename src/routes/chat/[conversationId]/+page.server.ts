@@ -1,7 +1,5 @@
-import type { BranchMap } from '$lib/message-tree'
-import { normalizeModelRef } from '$lib/model-ref'
 import { requireUser } from '$lib/server/auth-guard'
-import { mapClientMessage, mapConversation } from '$lib/server/db/records'
+import { toChatPageData } from '$lib/server/db/records'
 import { getFirstOrNull, pb } from '$lib/server/pb'
 import type { PageServerLoad } from './$types'
 import { error } from '@sveltejs/kit'
@@ -9,31 +7,14 @@ import { error } from '@sveltejs/kit'
 export const load: PageServerLoad = async ({ params, locals }) => {
   const userId = requireUser(locals.user).id
 
-  const [conversation, allMsgs] = await Promise.all([
-    getFirstOrNull(
-      pb
-        .collection('conversations')
-        .getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: params.conversationId, u: userId }))
-        .then(mapConversation),
-    ),
-    pb
-      .collection('messages')
-      .getFullList({ filter: pb.filter('conversation = {:c}', { c: params.conversationId }), sort: 'createdAt' })
-      .then(rows => rows.map(mapClientMessage)),
+  const [conversation, messages] = await Promise.all([
+    getFirstOrNull(pb.collection('conversations').getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: params.conversationId, u: userId }))),
+    pb.collection('messages').getFullList({ filter: pb.filter('conversation = {:c}', { c: params.conversationId }), sort: 'createdAt' }),
   ])
 
   if (!conversation) {
     throw error(404, 'Conversation not found')
   }
-  const activeBranches: BranchMap = conversation.activeBranches ?? {}
 
-  return {
-    conversation: {
-      ...conversation,
-      systemPromptId: conversation.systemPromptId,
-      defaultModel: normalizeModelRef(conversation.defaultProvider, conversation.defaultModel),
-    },
-    allMessages: allMsgs,
-    activeBranches,
-  }
+  return toChatPageData(conversation, messages)
 }
