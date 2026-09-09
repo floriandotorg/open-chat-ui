@@ -22,6 +22,7 @@ COPY --from=builder /app/package.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/pocketbase ./pocketbase
 COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/src ./src
 COPY entrypoint.sh ./
 RUN chmod +x entrypoint.sh
 ENV NODE_ENV=production
