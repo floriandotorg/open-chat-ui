@@ -7,9 +7,46 @@ const MODELS_URL = `${BASE_URL}/models`
 const MODELS_TTL_MS = 60 * 60 * 1000
 const SEARCH_LIMIT = 25
 
-const PROVIDER_ROUTING = {
+type ProviderRouting = {
+  zdr?: boolean
+  data_collection?: 'deny' | 'allow'
+  ignore?: string[]
+  only?: string[]
+  quantizations?: string[]
+  allow_fallbacks?: boolean
+  max_price?: { prompt: number; completion: number }
+}
+
+const PROVIDER_ROUTING: ProviderRouting = {
+  zdr: true,
   data_collection: 'deny',
-  quantizations: ['int8', 'fp8', 'mxfp8', 'fp16', 'bf16', 'fp32'],
+  ignore: ['novita', 'siliconflow', 'alibaba', 'gmicloud', 'atlas-cloud', 'chutes', 'deepseek', 'moonshotai', 'z-ai', 'minimax', 'baidu', 'tencent', 'stepfun', 'xiaomi', 'phala', 'open-inference', 'sail-research', 'inceptron', 'nextbit', 'mancer', 'morph'],
+}
+
+const MODEL_ROUTING: Record<string, ProviderRouting> = {
+  'deepseek/deepseek-v4-flash-0731': {
+    only: ['baseten', 'fireworks', 'together', 'coreweave', 'makora', 'wafer', 'parasail', 'relace', 'venice'],
+    allow_fallbacks: false,
+  },
+  'z-ai/glm-5.3': {
+    quantizations: ['fp8'],
+    only: ['fireworks', 'baseten', 'together', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'parasail'],
+    allow_fallbacks: false,
+    max_price: { prompt: 1.4, completion: 4.4 },
+  },
+  'moonshotai/kimi-k3': {
+    only: ['fireworks', 'baseten', 'together', 'modal', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean'],
+    allow_fallbacks: false,
+    max_price: { prompt: 3, completion: 15 },
+  },
+}
+
+const routingForModel = (model: string): ProviderRouting => {
+  const override = MODEL_ROUTING[model]
+  if (!override) return PROVIDER_ROUTING
+  const merged = { ...PROVIDER_ROUTING, ...override }
+  if (merged.only) delete merged.ignore
+  return merged
 }
 
 export interface OpenRouterRawModel {
@@ -169,7 +206,7 @@ const createOpenRouterAdapter = (apiKey: string): LLMProvider => ({
       stream: true,
       stream_options: { include_usage: true },
       usage: { include: true },
-      provider: PROVIDER_ROUTING,
+      provider: routingForModel(request.model),
     }
 
     if (request.thinkingEffort && request.thinkingEffort !== 'none') {

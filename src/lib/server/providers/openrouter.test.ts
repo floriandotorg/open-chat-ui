@@ -94,18 +94,62 @@ describe('filterOpenRouterModels', () => {
 })
 
 describe('chat provider routing', () => {
-  it('restricts routing to 8-bit or better quantization and denies data collection', async () => {
+  const runChat = async (model: string) => {
     streamChunks.value = [{ choices: [{ delta: {}, finish_reason: 'stop' }] }]
     chatCreateArgs.value = []
-
     const provider = createOpenRouterProvider('key')
-    for await (const _event of provider.chat({ model: 'test-model', messages: [] })) {
+    for await (const _event of provider.chat({ model, messages: [] })) {
     }
+    return chatCreateArgs.value.at(-1)
+  }
 
-    expect(chatCreateArgs.value.at(-1)).toMatchObject({
+  it('enforces zero data retention, denies data collection, and ignores untrusted providers by default', async () => {
+    const args = await runChat('test-model')
+
+    expect(args).toMatchObject({
       provider: {
+        zdr: true,
         data_collection: 'deny',
-        quantizations: ['int8', 'fp8', 'mxfp8', 'fp16', 'bf16', 'fp32'],
+        ignore: ['novita', 'siliconflow', 'alibaba', 'gmicloud', 'atlas-cloud', 'chutes', 'deepseek', 'moonshotai', 'z-ai', 'minimax', 'baidu', 'tencent', 'stepfun', 'xiaomi', 'phala', 'open-inference', 'sail-research', 'inceptron', 'nextbit', 'mancer', 'morph'],
+      },
+    })
+  })
+
+  it('pins overridden models to trusted providers without fallbacks', async () => {
+    const args = await runChat('deepseek/deepseek-v4-flash-0731')
+
+    expect(args).toMatchObject({
+      provider: {
+        zdr: true,
+        data_collection: 'deny',
+        only: ['baseten', 'fireworks', 'together', 'coreweave', 'makora', 'wafer', 'parasail', 'relace', 'venice'],
+        allow_fallbacks: false,
+      },
+    })
+    expect((args as { provider: Record<string, unknown> }).provider.ignore).toBeUndefined()
+  })
+
+  it('applies quantization and price caps for glm-5.3', async () => {
+    const args = await runChat('z-ai/glm-5.3')
+
+    expect(args).toMatchObject({
+      provider: {
+        quantizations: ['fp8'],
+        only: ['fireworks', 'baseten', 'together', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'parasail'],
+        allow_fallbacks: false,
+        max_price: { prompt: 1.4, completion: 4.4 },
+      },
+    })
+  })
+
+  it('applies price caps for kimi-k3', async () => {
+    const args = await runChat('moonshotai/kimi-k3')
+
+    expect(args).toMatchObject({
+      provider: {
+        only: ['fireworks', 'baseten', 'together', 'modal', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean'],
+        allow_fallbacks: false,
+        max_price: { prompt: 3, completion: 15 },
       },
     })
   })
