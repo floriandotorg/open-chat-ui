@@ -115,15 +115,15 @@ describe('chat provider routing', () => {
     })
   })
 
-  it('pins overridden models to trusted providers without fallbacks', async () => {
+  it('pins overridden models to trusted providers with fallbacks', async () => {
     const args = await runChat('deepseek/deepseek-v4-flash-0731')
 
     expect(args).toMatchObject({
       provider: {
         zdr: true,
         data_collection: 'deny',
-        only: ['baseten', 'fireworks', 'together', 'coreweave', 'makora', 'wafer', 'parasail', 'relace', 'venice'],
-        allow_fallbacks: false,
+        only: ['baseten', 'fireworks', 'together', 'coreweave', 'makora', 'wafer', 'parasail', 'relace', 'venice', 'openinference'],
+        allow_fallbacks: true,
       },
     })
     expect((args as { provider: Record<string, unknown> }).provider.ignore).toBeUndefined()
@@ -135,8 +135,8 @@ describe('chat provider routing', () => {
     expect(args).toMatchObject({
       provider: {
         quantizations: ['fp8'],
-        only: ['fireworks', 'baseten', 'together', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'parasail'],
-        allow_fallbacks: false,
+        only: ['fireworks', 'baseten', 'together', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'parasail', 'openinference'],
+        allow_fallbacks: true,
         max_price: { prompt: 1.4, completion: 4.4 },
       },
     })
@@ -147,8 +147,8 @@ describe('chat provider routing', () => {
 
     expect(args).toMatchObject({
       provider: {
-        only: ['fireworks', 'baseten', 'together', 'modal', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean'],
-        allow_fallbacks: false,
+        only: ['fireworks', 'baseten', 'together', 'modal', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'openinference'],
+        allow_fallbacks: true,
         max_price: { prompt: 3, completion: 15 },
       },
     })

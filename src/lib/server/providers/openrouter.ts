@@ -25,18 +25,18 @@ const PROVIDER_ROUTING: ProviderRouting = {
 
 const MODEL_ROUTING: Record<string, ProviderRouting> = {
   'deepseek/deepseek-v4-flash-0731': {
-    only: ['baseten', 'fireworks', 'together', 'coreweave', 'makora', 'wafer', 'parasail', 'relace', 'venice'],
-    allow_fallbacks: false,
+    only: ['baseten', 'fireworks', 'together', 'coreweave', 'makora', 'wafer', 'parasail', 'relace', 'venice', 'openinference'],
+    allow_fallbacks: true,
   },
   'z-ai/glm-5.3': {
     quantizations: ['fp8'],
-    only: ['fireworks', 'baseten', 'together', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'parasail'],
-    allow_fallbacks: false,
+    only: ['fireworks', 'baseten', 'together', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'parasail', 'openinference'],
+    allow_fallbacks: true,
     max_price: { prompt: 1.4, completion: 4.4 },
   },
   'moonshotai/kimi-k3': {
-    only: ['fireworks', 'baseten', 'together', 'modal', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean'],
-    allow_fallbacks: false,
+    only: ['fireworks', 'baseten', 'together', 'modal', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'openinference'],
+    allow_fallbacks: true,
     max_price: { prompt: 3, completion: 15 },
   },
 }
