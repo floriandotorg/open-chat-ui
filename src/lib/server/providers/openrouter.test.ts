@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 const streamChunks = vi.hoisted(() => ({ value: [] as unknown[] }))
 const chatCreateArgs = vi.hoisted(() => ({ value: [] as unknown[] }))
+const createFailures = vi.hoisted(() => ({ value: [] as unknown[] }))
+const streamError = vi.hoisted(() => ({ value: null as unknown }))
 
 vi.mock('openai', () => ({
   default: class {
@@ -11,9 +13,12 @@ vi.mock('openai', () => ({
       completions: {
         create: async (args: unknown) => {
           chatCreateArgs.value.push(args)
+          const failure = createFailures.value.shift()
+          if (failure) throw failure
           return {
             async *[Symbol.asyncIterator]() {
               for (const chunk of streamChunks.value) yield chunk
+              if (streamError.value) throw streamError.value
             },
           }
         },
@@ -21,6 +26,8 @@ vi.mock('openai', () => ({
     }
   },
 }))
+
+const rateLimitError = () => Object.assign(new Error('429 Too Many Requests'), { status: 429 })
 
 const raw = (overrides: Partial<OpenRouterRawModel> = {}): OpenRouterRawModel => ({
   id: 'moonshotai/kimi-k3',
@@ -97,6 +104,8 @@ describe('chat provider routing', () => {
   const runChat = async (model: string) => {
     streamChunks.value = [{ choices: [{ delta: {}, finish_reason: 'stop' }] }]
     chatCreateArgs.value = []
+    createFailures.value = []
+    streamError.value = null
     const provider = createOpenRouterProvider('key')
     for await (const _event of provider.chat({ model, messages: [] })) {
     }
@@ -110,23 +119,25 @@ describe('chat provider routing', () => {
       provider: {
         zdr: true,
         data_collection: 'deny',
-        ignore: ['novita', 'siliconflow', 'alibaba', 'gmicloud', 'atlas-cloud', 'chutes', 'deepseek', 'moonshotai', 'z-ai', 'minimax', 'baidu', 'tencent', 'stepfun', 'xiaomi', 'phala', 'open-inference', 'sail-research', 'inceptron', 'nextbit', 'mancer', 'morph'],
+        ignore: ['novita', 'siliconflow', 'alibaba', 'gmicloud', 'atlas-cloud', 'chutes', 'deepseek', 'moonshotai', 'z-ai', 'minimax', 'baidu', 'tencent', 'stepfun', 'xiaomi', 'phala', 'sail-research', 'inceptron', 'nextbit', 'mancer', 'morph'],
       },
     })
   })
 
   it('pins overridden models to trusted providers with fallbacks', async () => {
-    const args = await runChat('deepseek/deepseek-v4-flash-0731')
+    for (const model of ['deepseek/deepseek-v4-flash-0731', 'deepseek/deepseek-v4.1-flash']) {
+      const args = await runChat(model)
 
-    expect(args).toMatchObject({
-      provider: {
-        zdr: true,
-        data_collection: 'deny',
-        only: ['baseten', 'fireworks', 'together', 'coreweave', 'makora', 'wafer', 'parasail', 'relace', 'venice', 'openinference'],
-        allow_fallbacks: true,
-      },
-    })
-    expect((args as { provider: Record<string, unknown> }).provider.ignore).toBeUndefined()
+      expect(args).toMatchObject({
+        provider: {
+          zdr: true,
+          data_collection: 'deny',
+          only: ['baseten', 'fireworks', 'together', 'coreweave', 'makora', 'wafer', 'parasail', 'relace', 'venice', 'open-inference'],
+          allow_fallbacks: true,
+        },
+      })
+      expect((args as { provider: Record<string, unknown> }).provider.ignore).toBeUndefined()
+    }
   })
 
   it('applies quantization and price caps for glm-5.3', async () => {
@@ -134,8 +145,8 @@ describe('chat provider routing', () => {
 
     expect(args).toMatchObject({
       provider: {
-        quantizations: ['fp8'],
-        only: ['fireworks', 'baseten', 'together', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'parasail', 'openinference'],
+        quantizations: ['fp8', 'bf16', 'fp16'],
+        only: ['fireworks', 'baseten', 'together', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'parasail', 'open-inference'],
         allow_fallbacks: true,
         max_price: { prompt: 1.4, completion: 4.4 },
       },
@@ -147,7 +158,7 @@ describe('chat provider routing', () => {
 
     expect(args).toMatchObject({
       provider: {
-        only: ['fireworks', 'baseten', 'together', 'modal', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'openinference'],
+        only: ['fireworks', 'baseten', 'together', 'modal', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'open-inference'],
         allow_fallbacks: true,
         max_price: { prompt: 3, completion: 15 },
       },
@@ -155,8 +166,92 @@ describe('chat provider routing', () => {
   })
 })
 
+describe('chat 429 retry', () => {
+  const drain = async () => {
+    const provider = createOpenRouterProvider('key')
+    const events: ChatStreamEvent[] = []
+    for await (const event of provider.chat({ model: 'test-model', messages: [] })) {
+      events.push(event)
+    }
+    return events
+  }
+
+  const withFakeTimers = async (fn: () => Promise<void>) => {
+    vi.useFakeTimers()
+    try {
+      await fn()
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  it('retries rate-limited requests with backoff until success', () =>
+    withFakeTimers(async () => {
+      streamChunks.value = [{ choices: [{ delta: {}, finish_reason: 'stop' }] }]
+      chatCreateArgs.value = []
+      createFailures.value = [rateLimitError(), rateLimitError()]
+      streamError.value = null
+
+      const pending = drain()
+      await vi.runAllTimersAsync()
+      const events = await pending
+
+      expect(chatCreateArgs.value).toHaveLength(3)
+      expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'end' })
+    }))
+
+  it('surfaces an error after exhausting retries', () =>
+    withFakeTimers(async () => {
+      streamChunks.value = []
+      chatCreateArgs.value = []
+      createFailures.value = [rateLimitError(), rateLimitError(), rateLimitError(), rateLimitError(), rateLimitError(), rateLimitError(), rateLimitError()]
+      streamError.value = null
+
+      const pending = drain()
+      await vi.runAllTimersAsync()
+      const events = await pending
+
+      expect(chatCreateArgs.value).toHaveLength(7)
+      expect(events).toEqual([{ type: 'error', error: '429 Too Many Requests' }])
+    }))
+
+  it('does not retry non-429 errors', () =>
+    withFakeTimers(async () => {
+      streamChunks.value = []
+      chatCreateArgs.value = []
+      createFailures.value = [Object.assign(new Error('500 Internal Server Error'), { status: 500 })]
+      streamError.value = null
+
+      const pending = drain()
+      await vi.runAllTimersAsync()
+      const events = await pending
+
+      expect(chatCreateArgs.value).toHaveLength(1)
+      expect(events).toEqual([{ type: 'error', error: '500 Internal Server Error' }])
+    }))
+
+  it('does not retry once content has been streamed', () =>
+    withFakeTimers(async () => {
+      streamChunks.value = [{ choices: [{ delta: { content: 'hello' } }] }]
+      chatCreateArgs.value = []
+      createFailures.value = []
+      streamError.value = rateLimitError()
+
+      const pending = drain()
+      await vi.runAllTimersAsync()
+      const events = await pending
+
+      expect(chatCreateArgs.value).toHaveLength(1)
+      expect(events).toEqual([
+        { type: 'text_delta', text: 'hello' },
+        { type: 'error', error: '429 Too Many Requests' },
+      ])
+    }))
+})
+
 describe('chat tool call streaming', () => {
   it('accumulates interleaved tool calls by their index, not array position', async () => {
+    streamError.value = null
     streamChunks.value = [
       { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'brave_search', arguments: '{"que' } }] } }] },
       { choices: [{ delta: { tool_calls: [{ index: 1, id: 'call_2', function: { name: 'brave_search', arguments: '{"que' } }] } }] },

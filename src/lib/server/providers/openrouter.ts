@@ -20,22 +20,25 @@ type ProviderRouting = {
 const PROVIDER_ROUTING: ProviderRouting = {
   zdr: true,
   data_collection: 'deny',
-  ignore: ['novita', 'siliconflow', 'alibaba', 'gmicloud', 'atlas-cloud', 'chutes', 'deepseek', 'moonshotai', 'z-ai', 'minimax', 'baidu', 'tencent', 'stepfun', 'xiaomi', 'phala', 'open-inference', 'sail-research', 'inceptron', 'nextbit', 'mancer', 'morph'],
+  ignore: ['novita', 'siliconflow', 'alibaba', 'gmicloud', 'atlas-cloud', 'chutes', 'deepseek', 'moonshotai', 'z-ai', 'minimax', 'baidu', 'tencent', 'stepfun', 'xiaomi', 'phala', 'sail-research', 'inceptron', 'nextbit', 'mancer', 'morph'],
+}
+
+const DEEPSEEK_V4_FLASH_ROUTING: ProviderRouting = {
+  only: ['baseten', 'fireworks', 'together', 'coreweave', 'makora', 'wafer', 'parasail', 'relace', 'venice', 'open-inference'],
+  allow_fallbacks: true,
 }
 
 const MODEL_ROUTING: Record<string, ProviderRouting> = {
-  'deepseek/deepseek-v4-flash-0731': {
-    only: ['baseten', 'fireworks', 'together', 'coreweave', 'makora', 'wafer', 'parasail', 'relace', 'venice', 'openinference'],
-    allow_fallbacks: true,
-  },
+  'deepseek/deepseek-v4-flash-0731': DEEPSEEK_V4_FLASH_ROUTING,
+  'deepseek/deepseek-v4.1-flash': DEEPSEEK_V4_FLASH_ROUTING,
   'z-ai/glm-5.3': {
-    quantizations: ['fp8'],
-    only: ['fireworks', 'baseten', 'together', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'parasail', 'openinference'],
+    quantizations: ['fp8', 'bf16', 'fp16'],
+    only: ['fireworks', 'baseten', 'together', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'parasail', 'open-inference'],
     allow_fallbacks: true,
     max_price: { prompt: 1.4, completion: 4.4 },
   },
   'moonshotai/kimi-k3': {
-    only: ['fireworks', 'baseten', 'together', 'modal', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'openinference'],
+    only: ['fireworks', 'baseten', 'together', 'modal', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'open-inference'],
     allow_fallbacks: true,
     max_price: { prompt: 3, completion: 15 },
   },
@@ -173,6 +176,40 @@ const reasoningDelta = (delta: unknown): string => {
 
 const mapEffort = (effort: 'low' | 'medium' | 'high' | 'max'): 'low' | 'medium' | 'high' => (effort === 'max' ? 'high' : effort)
 
+const MAX_RATE_LIMIT_RETRIES = 6
+const BASE_BACKOFF_MS = 1000
+const MAX_BACKOFF_MS = 15_000
+const JITTER_MS = 250
+
+const isRateLimited = (err: unknown): boolean => {
+  if (err && typeof err === 'object' && (err as { status?: unknown }).status === 429) return true
+  return err instanceof Error && /\b429\b/.test(err.message)
+}
+
+const retryAfterMs = (err: unknown): number | undefined => {
+  if (!err || typeof err !== 'object') return undefined
+  const headers = (err as { headers?: { get?: (name: string) => string | null } }).headers
+  const value = headers?.get?.('retry-after')
+  if (!value) return undefined
+  const seconds = Number(value)
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : undefined
+}
+
+const backoffMs = (attempt: number, err: unknown): number => Math.min(retryAfterMs(err) ?? BASE_BACKOFF_MS * 2 ** attempt + Math.random() * JITTER_MS, MAX_BACKOFF_MS)
+
+const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms)
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer)
+        reject(new Error('aborted'))
+      },
+      { once: true },
+    )
+  })
+
 type OpenRouterUsage = {
   prompt_tokens?: number
   completion_tokens?: number
@@ -196,7 +233,7 @@ const createOpenRouterAdapter = (apiKey: string): LLMProvider => ({
   },
 
   async *chat(request: ChatRequest): AsyncGenerator<ChatStreamEvent> {
-    const client = new OpenAI({ apiKey, baseURL: BASE_URL })
+    const client = new OpenAI({ apiKey, baseURL: BASE_URL, maxRetries: 0 })
 
     const params: Record<string, unknown> = {
       model: request.model,
@@ -220,73 +257,89 @@ const createOpenRouterAdapter = (apiKey: string): LLMProvider => ({
       }))
     }
 
-    try {
-      const stream = await client.chat.completions.create(params as unknown as OpenAI.Chat.ChatCompletionCreateParamsStreaming, { signal: request.signal })
+    for (let attempt = 0; ; ++attempt) {
+      let streamedContent = false
+      try {
+        const stream = await client.chat.completions.create(params as unknown as OpenAI.Chat.ChatCompletionCreateParamsStreaming, { signal: request.signal })
 
-      let usage: OpenRouterUsage | undefined
-      let stopReason: 'end' | 'tool_use' = 'end'
-      const toolCallAccumulator = new Map<number, { id: string; name: string; args: string }>()
+        let usage: OpenRouterUsage | undefined
+        let stopReason: 'end' | 'tool_use' = 'end'
+        const toolCallAccumulator = new Map<number, { id: string; name: string; args: string }>()
 
-      for await (const chunk of stream) {
-        const choice = chunk.choices[0]
-        const delta = choice?.delta
+        for await (const chunk of stream) {
+          const choice = chunk.choices[0]
+          const delta = choice?.delta
 
-        if (typeof delta?.content === 'string' && delta.content) {
-          yield { type: 'text_delta', text: delta.content }
-        }
+          if (typeof delta?.content === 'string' && delta.content) {
+            streamedContent = true
+            yield { type: 'text_delta', text: delta.content }
+          }
 
-        const thinking = reasoningDelta(delta)
-        if (thinking) {
-          yield { type: 'thinking_delta', thinking }
-        }
+          const thinking = reasoningDelta(delta)
+          if (thinking) {
+            streamedContent = true
+            yield { type: 'thinking_delta', thinking }
+          }
 
-        if (delta?.tool_calls) {
-          for (const [position, tc] of delta.tool_calls.entries()) {
-            const key = tc.index ?? position
-            let acc = toolCallAccumulator.get(key)
-            if (!acc) {
-              acc = { id: '', name: '', args: '' }
-              toolCallAccumulator.set(key, acc)
+          if (delta?.tool_calls) {
+            for (const [position, tc] of delta.tool_calls.entries()) {
+              const key = tc.index ?? position
+              let acc = toolCallAccumulator.get(key)
+              if (!acc) {
+                acc = { id: '', name: '', args: '' }
+                toolCallAccumulator.set(key, acc)
+              }
+              if (tc.id) acc.id = tc.id
+              if (tc.function?.name) acc.name = tc.function.name
+              if (tc.function?.arguments) acc.args += tc.function.arguments
             }
-            if (tc.id) acc.id = tc.id
-            if (tc.function?.name) acc.name = tc.function.name
-            if (tc.function?.arguments) acc.args += tc.function.arguments
+          }
+
+          if (choice?.finish_reason === 'tool_calls') {
+            stopReason = 'tool_use'
+          }
+
+          if (chunk.usage) {
+            usage = chunk.usage as OpenRouterUsage
           }
         }
 
-        if (choice?.finish_reason === 'tool_calls') {
-          stopReason = 'tool_use'
+        const toolCalls: ToolCallInfo[] = [...toolCallAccumulator.values()].map(tc => {
+          let args: Record<string, unknown> = {}
+          try {
+            args = JSON.parse(tc.args || '{}')
+          } catch {}
+          return { id: tc.id, name: tc.name, arguments: args }
+        })
+
+        for (const tc of toolCalls) {
+          yield { type: 'tool_call', toolCall: tc }
         }
 
-        if (chunk.usage) {
-          usage = chunk.usage as OpenRouterUsage
+        const cachedTokens = usage?.prompt_tokens_details?.cached_tokens ?? 0
+        yield {
+          type: 'usage',
+          inputTokens: (usage?.prompt_tokens ?? 0) - cachedTokens,
+          outputTokens: usage?.completion_tokens ?? 0,
+          cacheReadInputTokens: cachedTokens,
+          cost: usage?.cost,
         }
+        yield { type: 'done', stopReason: toolCalls.length > 0 ? 'tool_use' : stopReason }
+        return
+      } catch (err) {
+        if (request.signal?.aborted) return
+        if (!streamedContent && isRateLimited(err) && attempt < MAX_RATE_LIMIT_RETRIES) {
+          try {
+            await sleep(backoffMs(attempt, err), request.signal)
+          } catch {
+            return
+          }
+          continue
+        }
+        const message = err instanceof Error ? err.message : 'Unknown error'
+        yield { type: 'error', error: message }
+        return
       }
-
-      const toolCalls: ToolCallInfo[] = [...toolCallAccumulator.values()].map(tc => {
-        let args: Record<string, unknown> = {}
-        try {
-          args = JSON.parse(tc.args || '{}')
-        } catch {}
-        return { id: tc.id, name: tc.name, arguments: args }
-      })
-
-      for (const tc of toolCalls) {
-        yield { type: 'tool_call', toolCall: tc }
-      }
-
-      const cachedTokens = usage?.prompt_tokens_details?.cached_tokens ?? 0
-      yield {
-        type: 'usage',
-        inputTokens: (usage?.prompt_tokens ?? 0) - cachedTokens,
-        outputTokens: usage?.completion_tokens ?? 0,
-        cacheReadInputTokens: cachedTokens,
-        cost: usage?.cost,
-      }
-      yield { type: 'done', stopReason: toolCalls.length > 0 ? 'tool_use' : stopReason }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
-      yield { type: 'error', error: message }
     }
   },
 })
