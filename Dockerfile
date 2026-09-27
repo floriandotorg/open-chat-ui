@@ -1,4 +1,4 @@
-FROM oven/bun:1 AS builder
+FROM oven/bun:1.4 AS builder
 RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json bun.lock ./
@@ -12,7 +12,7 @@ RUN POCKETBASE_URL=http://localhost:8090 \
     ENCRYPTION_SECRET=build-secret-placeholder-32chars-minimum \
     bun run build
 
-FROM oven/bun:1
+FROM oven/bun:1.4
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip python3-venv pipx && rm -rf /var/lib/apt/lists/*
 RUN pipx install flights && pipx inject flights click
 ENV PATH="/root/.local/bin:${PATH}"

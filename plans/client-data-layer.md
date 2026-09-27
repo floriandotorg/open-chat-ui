@@ -1,5 +1,7 @@
 # Plan: Client data layer
 
+Status: implemented. Deviations: realtime is routed app wide (`src/lib/stores/chat-sync.svelte.ts`) instead of per page, so cached stores stay current in the background; a cache miss loads through `/api/conversations/[id]/detail` in the browser too (replayed from SSR on hydration); scroll follows content via `ResizeObserver`.
+
 Goal: SvelteKit renders the complete shell once on first load. After hydration all data lives in browser memory (Svelte stores) and is kept correct by PocketBase realtime. Navigation never asks the SvelteKit server for data. Sidebar data is slimmed to what the sidebar renders. Creating a chat and sending the first message is a single server request. Fully independent of the other plans.
 
 No IndexedDB, no persistence. A reload starts from SSR again.
