@@ -8,6 +8,7 @@ const summary = (id: string, overrides: Partial<ConversationSummary> = {}): Conv
   favorite: false,
   generating: false,
   systemPromptId: null,
+  defaultModel: null,
   updatedAt: new Date(1000),
   ...overrides,
 })

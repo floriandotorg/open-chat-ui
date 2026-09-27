@@ -11,10 +11,11 @@ export interface ConversationSummary {
   favorite: boolean
   generating: boolean
   systemPromptId: string | null
+  defaultModel: string | null
   updatedAt: Date
 }
 
-export const CONVERSATION_SUMMARY_FIELDS = 'id,title,favorite,generating,systemPromptRef,updatedAt'
+export const CONVERSATION_SUMMARY_FIELDS = 'id,title,favorite,generating,systemPromptRef,defaultProvider,defaultModel,updatedAt'
 
 export const CONVERSATION_REALTIME_FIELDS = `${CONVERSATION_SUMMARY_FIELDS},activeBranches`
 

@@ -49,7 +49,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       .getFullList({ filter: pb.filter('conversation = {:c}', { c: conversationId }), sort: 'createdAt' })
       .then(rows => rows.map(mapMessage)),
   ])
-  const conversation = existingConversation ?? (newConversation ? mapConversation(await createConversation(userId, { id: conversationId, systemPromptId: newConversation.systemPromptId })) : null)
+  const conversation = existingConversation ?? (newConversation ? mapConversation(await createConversation(userId, { id: conversationId, systemPromptId: newConversation.systemPromptId, defaultModel: modelRef })) : null)
   if (!conversation) {
     throw error(404, 'Conversation not found')
   }

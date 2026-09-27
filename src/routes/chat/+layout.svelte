@@ -46,6 +46,9 @@ let sidebarOpen = $state(true)
 let mobileSidebarOpen = $state(false)
 // svelte-ignore state_referenced_locally
 chatContext.selectedModel = data.selectedModel ?? ''
+// Global fallback (cookie) used for new chats; an open conversation overrides it with its own stored model.
+// svelte-ignore state_referenced_locally
+let fallbackModel = $state(data.selectedModel ?? '')
 // svelte-ignore state_referenced_locally
 chatContext.thinkingEffort = (data.thinkingEffort as ThinkingEffort) ?? 'none'
 // svelte-ignore state_referenced_locally
@@ -113,6 +116,10 @@ $effect(() => {
   }
 })
 
+$effect(() => {
+  chatContext.selectedModel = currentConversation?.defaultModel ?? fallbackModel
+})
+
 const patchConversation = (id: string, patch: Partial<ConversationSummary>, revert: Partial<ConversationSummary>, body: Record<string, unknown>) => {
   conversationsStore.applyPatch(id, patch)
   fetch(`/api/conversations/${id}`, {
@@ -162,6 +169,11 @@ const goToNewChat = () => {
 
 const handleModelChange = (id: string) => {
   setCookie('selected-model', id)
+  fallbackModel = id
+  if (!currentConversation) return
+  const defaultModel = id || null
+  if (currentConversation.defaultModel === defaultModel) return
+  patchConversation(currentConversation.id, { defaultModel }, { defaultModel: currentConversation.defaultModel }, { defaultModel })
 }
 
 const userName = $derived(data.user?.name ?? data.user?.email ?? 'User')

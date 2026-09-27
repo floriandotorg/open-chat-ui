@@ -227,6 +227,7 @@ export const mapConversationSummary = (r: RecordModel): ConversationSummary => (
   favorite: r.favorite ?? false,
   generating: r.generating ?? false,
   systemPromptId: orNull(r.systemPromptRef),
+  defaultModel: normalizeModelRef(orNull(r.defaultProvider), orNull(r.defaultModel)),
   updatedAt: toDate(r.updatedAt),
 })
 

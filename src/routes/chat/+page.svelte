@@ -23,7 +23,7 @@ $effect(() => {
 const startConversation = (content: string, images?: ImageAttachment[], files?: FileAttachment[], replaceState = false) => {
   const id = crypto.randomUUID()
   const systemPromptId = ctx.currentSystemPromptId
-  conversationsStore.upsert({ id, title: 'New Chat', favorite: false, generating: false, systemPromptId, updatedAt: new Date() })
+  conversationsStore.upsert({ id, title: 'New Chat', favorite: false, generating: false, systemPromptId, defaultModel: ctx.selectedModel || null, updatedAt: new Date() })
   const store = getChatStores().createEmpty(id, systemPromptId)
   store.selectedModel = ctx.selectedModel
   store.thinkingEffort = ctx.thinkingEffort

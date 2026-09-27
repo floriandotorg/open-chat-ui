@@ -556,6 +556,7 @@ describe('HTTP response reconciliation', () => {
     favorite: false,
     generating: false,
     systemPromptId: null,
+    defaultModel: null,
     updatedAt: new Date(),
     ...overrides,
   })
