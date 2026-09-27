@@ -1,4 +1,4 @@
-FROM alpine:latest
+FROM docker.io/library/alpine:latest
 ARG PB_VERSION=0.27.0
 RUN apk add --no-cache unzip ca-certificates curl wget
 WORKDIR /pb
