@@ -14,11 +14,20 @@ export interface ConversationSummary {
   updatedAt: Date
 }
 
+export const CONVERSATION_SUMMARY_FIELDS = 'id,title,favorite,generating,systemPromptRef,updatedAt'
+
+export const CONVERSATION_REALTIME_FIELDS = `${CONVERSATION_SUMMARY_FIELDS},activeBranches`
+
 export interface ChatBootstrap {
   conversations: ConversationSummary[]
 }
 
-export interface ChatPageData {
-  conversation: ConversationSummary & { activeBranches: BranchMap }
+export interface ConversationState {
+  generating: boolean
+  activeBranches: BranchMap
+}
+
+export interface ConversationDetail {
+  conversation: ConversationState & { id: string }
   messages: ChatMessage[]
 }

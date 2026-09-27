@@ -5,7 +5,6 @@ import { createOptimisticMap } from '$lib/stores/optimistic.svelte'
 import { applyStreamOps } from '$lib/stream-ops'
 import type { FileAttachment, ImageAttachment, StreamEvent, StreamOp, ThinkingEffort } from '$lib/types'
 import type { ChatMessage } from '$lib/types/chat'
-import { getContext, setContext } from 'svelte'
 
 export type FetchStreamEvents = (messageId: string, from: number, to: number | null) => Promise<StreamEvent[]>
 
@@ -20,6 +19,7 @@ export interface ChatStoreDeps {
   now?: () => Date
   id?: () => string
   fetchStreamEvents?: FetchStreamEvents
+  persistQueue?: (queue: QueueEntry[]) => void
 }
 
 interface LiveState {
@@ -28,7 +28,7 @@ interface LiveState {
   pendingGap: Promise<void> | null
 }
 
-interface QueueEntry {
+export interface QueueEntry {
   id: string
   conversationId: string
   content: string
@@ -63,18 +63,6 @@ const defaultRequest: RequestFn = async <T>(path: string, body: Record<string, u
   return data as T
 }
 
-const CHAT_STORE_KEY = Symbol('chat-store')
-
-export const setChatStore = (store: ChatStore) => setContext(CHAT_STORE_KEY, store)
-
-export const getChatStore = (): ChatStore => {
-  const store = getContext<ChatStore | undefined>(CHAT_STORE_KEY)
-  if (!store) {
-    throw new Error('ChatStore is only available inside the chat layout')
-  }
-  return store
-}
-
 export class ChatStore {
   private confirmed = $state<ChatMessage[]>([])
   private branches = $state<BranchMap>({})
@@ -94,11 +82,15 @@ export class ChatStore {
   private awaiting = $state(false)
   private serverGenerating = $state(false)
   private activeConversationId: string | null = null
-  private deps: Required<ChatStoreDeps>
+  private deps: Required<Omit<ChatStoreDeps, 'persistQueue'>>
+  private disposeEffects: () => void
 
   lastStreamActivity = $state(0)
   selectedModel = $state('')
   thinkingEffort = $state<ThinkingEffort>('none')
+  // Set for a conversation created client side; the first successful
+  // POST /api/chat creates the record on the server.
+  pendingCreation: { systemPromptId: string | null } | null = null
 
   constructor(deps: ChatStoreDeps = {}, initial?: { allMessages: ChatMessage[]; activeBranches: BranchMap }) {
     this.deps = {
@@ -113,7 +105,8 @@ export class ChatStore {
       this.branches = initial.activeBranches
       this.conversationId = initial.allMessages[0]?.conversationId ?? null
     }
-    $effect.root(() => {
+    const { persistQueue } = deps
+    this.disposeEffects = $effect.root(() => {
       let wasStreaming = false
       $effect(() => {
         const streaming = this.isStreaming
@@ -122,8 +115,13 @@ export class ChatStore {
         }
         wasStreaming = streaming
       })
+      if (persistQueue) {
+        $effect(() => persistQueue(this.queue))
+      }
     })
   }
+
+  dispose = () => this.disposeEffects()
 
   private annotate = createStableAnnotator<ChatMessage>()
 
@@ -272,6 +270,14 @@ export class ChatStore {
     await this.fillGap(messageId, from, null)
   }
 
+  catchUpStreams = async () => {
+    for (const m of this.allMessages) {
+      if (m.generating && m.role === 'assistant') {
+        await this.fillMissingEvents(m.id)
+      }
+    }
+  }
+
   private getLastMessageId = (): string | null => {
     const resolved = resolveAndAnnotate(this.allMessages, this.branches)
     return resolved.length > 0 ? resolved[resolved.length - 1].id : null
@@ -287,8 +293,8 @@ export class ChatStore {
     this.queue = []
   }
 
-  private triggerGeneration = (conversationId: string, message: string, parentId: string | null, userMsgId: string, skipUserInsert: boolean, systemPrompt?: string, images?: ImageAttachment[], files?: FileAttachment[]) =>
-    this.deps.request<ChatResponse>('/api/chat', {
+  private triggerGeneration = async (conversationId: string, message: string, parentId: string | null, userMsgId: string, skipUserInsert: boolean, systemPrompt?: string, images?: ImageAttachment[], files?: FileAttachment[]) => {
+    const response = await this.deps.request<ChatResponse>('/api/chat', {
       conversationId,
       model: this.selectedModel,
       message,
@@ -299,7 +305,11 @@ export class ChatStore {
       parentId,
       userMsgId,
       skipUserInsert,
+      createConversation: this.pendingCreation ?? undefined,
     })
+    this.pendingCreation = null
+    return response
+  }
 
   private reconcileUserMessage = (msg: ChatMessage | undefined) => {
     if (!msg) {
@@ -501,9 +511,12 @@ export class ChatStore {
       this.awaiting = false
       this.lastStreamActivity = Date.now()
     }
-    const inheritedError = (this.confirmed.find(m => m.id === msg.id) ?? this.pending.get(msg.id))?.sendError
-    this.pending.confirm(msg.id)
     const existing = this.confirmed.find(m => m.id === msg.id)
+    if ((msg.eventSeq ?? 0) < (existing?.eventSeq ?? 0)) {
+      return
+    }
+    const inheritedError = (existing ?? this.pending.get(msg.id))?.sendError
+    this.pending.confirm(msg.id)
     const merged = inheritedError && !msg.sendError ? { ...msg, sendError: inheritedError } : msg
     this.confirmed = existing ? this.confirmed.map(m => (m.id === msg.id ? merged : m)) : [...this.confirmed, merged]
     const state = this.live.get(msg.id)

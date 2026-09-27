@@ -37,12 +37,7 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
   const userId = requireUser(locals.user).id
   const body = await request.json()
 
-  const conversation = await getFirstOrNull(
-    pb
-      .collection('conversations')
-      .getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: params.id, u: userId }))
-      .then(mapConversation),
-  )
+  const conversation = await getFirstOrNull(pb.collection('conversations').getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: params.id, u: userId }), { fields: 'id' }))
   if (!conversation) {
     throw error(404, 'Conversation not found')
   }

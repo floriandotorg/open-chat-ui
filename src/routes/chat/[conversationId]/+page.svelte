@@ -3,16 +3,13 @@ import ChatInput from '$lib/components/ChatInput.svelte'
 import ChatMessage from '$lib/components/ChatMessage.svelte'
 import { mapChatMessage } from '$lib/db-mappers'
 import { pbClient } from '$lib/pb-client'
-import { createRealtimeSlot, registerRealtime } from '$lib/realtime-watchdog'
 import { selectionIntersects } from '$lib/selection'
-import { getChatStore } from '$lib/stores/chat.svelte'
+import { ChatStore } from '$lib/stores/chat.svelte'
 import { chatContext } from '$lib/stores/chat-context.svelte'
-import { invalidatePayload } from '$lib/stores/payloads.svelte'
-import { consumePendingMessage } from '$lib/stores/pending-message'
-import type { Message } from '$lib/types'
+import { getChatStores } from '$lib/stores/chat-sync.svelte'
+import type { FileAttachment, ImageAttachment, Message } from '$lib/types'
+import type { ConversationDetail } from '$lib/types/chat'
 import { browser } from '$app/environment'
-import { replaceState } from '$app/navigation'
-import { page } from '$app/state'
 import type { PageData } from './$types'
 import { tick, untrack } from 'svelte'
 
@@ -20,18 +17,23 @@ let { data }: { data: PageData } = $props()
 
 const ctx = chatContext
 
-const chat = getChatStore()
-// svelte-ignore state_referenced_locally
-chat.seed(data.conversation.id, data.messages, data.conversation.activeBranches)
-chat.selectedModel = ctx.selectedModel
-chat.thinkingEffort = ctx.thinkingEffort
+const createServerStore = (initial: ConversationDetail | null) => {
+  if (!initial) {
+    throw new Error('Server render requires the conversation detail')
+  }
+  const store = new ChatStore({}, { allMessages: initial.messages, activeBranches: initial.conversation.activeBranches })
+  store.setConversationGenerating(initial.conversation.generating)
+  return store
+}
+
+const chat = $derived(browser ? getChatStores().require(data.conversationId) : createServerStore(data.initial))
 
 let messageContainer: HTMLDivElement | undefined = $state()
+let messageContent: HTMLDivElement | undefined = $state()
 let stickToBottom = $state(true)
 let editingQueueId = $state<string | null>(null)
 let editContent = $state('')
 let editTextarea: HTMLTextAreaElement | undefined = $state()
-let queueMounted = $state(false)
 let userInteracting = $state(false)
 
 const SCROLL_THRESHOLD = 40
@@ -58,65 +60,32 @@ const onSelectionChange = () => {
   userInteracting = selectionInsideContainer()
 }
 
-let activeConvId: string | undefined
-
-const consumeQueryMessage = (): string | null => {
-  const q = page.url.searchParams.get('q')?.trim()
-  if (!q) return null
-  tick().then(() => {
-    const cleanUrl = new URL(page.url)
-    if (!cleanUrl.searchParams.has('q')) return
-    cleanUrl.searchParams.delete('q')
-    replaceState(cleanUrl, page.state)
-  })
-  return q
-}
-
-const attachToConversation = (convId: string) => {
-  const key = `chat-queue-${convId}`
-  const stored = localStorage.getItem(key)
-  const parsed = stored ? JSON.parse(stored) : null
-  chat.messageQueue = Array.isArray(parsed) ? parsed : []
-
-  const { message, images, files } = consumePendingMessage()
-  if (message) {
-    chat.sendMessage(convId, message, undefined, images ?? undefined, files ?? undefined)
-    return
+const scrollToBottom = () => {
+  if (messageContainer) {
+    messageContainer.scrollTop = messageContainer.scrollHeight
   }
-  const queryMessage = consumeQueryMessage()
-  if (queryMessage && data.messages.length === 0) {
-    chat.sendMessage(convId, queryMessage)
-    return
-  }
-  chat.processQueue()
 }
 
 $effect(() => {
-  const serverMessages = data.messages
-  const serverBranches = data.conversation.activeBranches
-  const convId = data.conversation.id
-  const isFirstAttach = activeConvId === undefined
-  const convChanged = !isFirstAttach && activeConvId !== convId
-  activeConvId = convId
-
-  if (convChanged) {
+  const store = chat
+  untrack(() => {
     stickToBottom = true
-  }
+    scrollToBottom()
+    store.processQueue()
+  })
+})
 
-  if (convChanged || !untrack(() => chat.isStreaming)) {
-    untrack(() => chat.seed(convId, serverMessages, serverBranches))
-  }
-
-  if (convChanged || isFirstAttach) {
-    void catchUpStreams()
-  }
-
-  if (isFirstAttach) {
-    untrack(() => {
-      attachToConversation(convId)
-      queueMounted = true
-    })
-  }
+// Follows every height change: new messages, streamed text, and off-screen
+// rows resolving their real size after content-visibility skipped them.
+$effect(() => {
+  if (!messageContent) return
+  const observer = new ResizeObserver(() => {
+    if (stickToBottom && !userInteracting) {
+      scrollToBottom()
+    }
+  })
+  observer.observe(messageContent)
+  return () => observer.disconnect()
 })
 
 $effect(() => {
@@ -127,155 +96,51 @@ $effect(() => {
   chat.thinkingEffort = ctx.thinkingEffort
 })
 
-let remoteGenerating = $state(false)
-
-// Late joiners and reconnects render generating messages from their snapshot
-// plus every stream event after eventSeq.
-const catchUpStreams = async () => {
-  for (const m of chat.allMessages) {
-    if (m.generating && m.role === 'assistant') {
-      await chat.fillMissingEvents(m.id)
-    }
-  }
-}
-
 // Mid-stream recovery: while a message is generating but neither events nor
 // snapshots arrived for 8 s, fill the event gap and refetch that one record.
 $effect(() => {
-  if (!browser) return
+  const store = chat
   const interval = setInterval(() => {
     if (document.visibilityState !== 'visible') return
-    const streaming = chat.streamingMessage
+    const streaming = store.streamingMessage
     if (!streaming?.generating) return
-    if (Date.now() - chat.lastStreamActivity < 8_000) return
-    void chat.fillMissingEvents(streaming.id)
+    if (Date.now() - store.lastStreamActivity < 8_000) return
+    void store.fillMissingEvents(streaming.id)
     pbClient
       .collection('messages')
       .getOne(streaming.id)
-      .then(row => chat.upsertMessage(mapChatMessage(row)))
+      .then(row => store.upsertMessage(mapChatMessage(row)))
       .catch(() => {})
   }, 4_000)
   return () => clearInterval(interval)
 })
 
 $effect(() => {
-  const convId = data.conversation.id
-  ctx.generatingConversationId = chat.isStreaming || remoteGenerating ? convId : null
+  const convId = data.conversationId
+  ctx.generatingConversationId = chat.isStreaming ? convId : null
   return () => {
     if (ctx.generatingConversationId === convId) ctx.generatingConversationId = null
   }
 })
 
-$effect(() => {
-  const convId = data.conversation.id
-  if (!browser) return
-  const initialGenerating = untrack(() => data.conversation.generating ?? false)
-  remoteGenerating = initialGenerating
-  chat.setConversationGenerating(initialGenerating)
-  const messagesSlot = createRealtimeSlot(
-    () =>
-      pbClient.collection('messages').subscribe(
-        '*',
-        e => {
-          if (e.action === 'delete') {
-            chat.removeMessage(e.record.id)
-            return
-          }
-          const msg = mapChatMessage(e.record)
-          // The payload is written right before the final message update.
-          if (!msg.generating) invalidatePayload(msg.id)
-          chat.upsertMessage(msg)
-        },
-        { filter: pbClient.filter('conversation = {:c}', { c: convId }) },
-      ),
-    // Resync must run even while a stream looks active locally: after an SSE
-    // drop mid-generation the local placeholder keeps `generating: true`
-    // forever, so gating on isStreaming would deadlock recovery and the
-    // conversation would never learn the generation finished.
-    async isCurrent => {
-      const [rows, convRecord] = await Promise.all([
-        pbClient.collection('messages').getFullList({
-          filter: pbClient.filter('conversation = {:c}', { c: convId }),
-          sort: 'createdAt',
-        }),
-        pbClient.collection('conversations').getOne(convId),
-      ])
-      if (!isCurrent()) return
-      chat.seed(convId, rows.map(mapChatMessage), convRecord.activeBranches ?? {})
-      remoteGenerating = convRecord.generating ?? false
-      chat.setConversationGenerating(remoteGenerating)
-      await catchUpStreams()
-    },
-  )
-  const conversationSlot = createRealtimeSlot(() =>
-    pbClient.collection('conversations').subscribe(convId, e => {
-      if (e.action === 'delete') return
-      chat.applyServerBranches(e.record.activeBranches ?? {})
-      remoteGenerating = e.record.generating ?? false
-      chat.setConversationGenerating(remoteGenerating)
-    }),
-  )
-  const eventsSlot = createRealtimeSlot(() =>
-    pbClient.collection('stream_events').subscribe(
-      '*',
-      e => {
-        if (e.action !== 'create') return
-        chat.ingestEvent({ messageId: e.record.message, seq: e.record.seq, ops: Array.isArray(e.record.ops) ? e.record.ops : [] })
-      },
-      { filter: pbClient.filter('conversation = {:c}', { c: convId }) },
-    ),
-  )
-  void messagesSlot.subscribe()
-  void conversationSlot.subscribe()
-  void eventsSlot.subscribe()
-  const deregister = registerRealtime(messagesSlot, conversationSlot, eventsSlot)
-  return () => {
-    deregister()
-    messagesSlot.cancel()
-    conversationSlot.cancel()
-    eventsSlot.cancel()
-  }
-})
-
-$effect(() => {
-  void chat.messages.length
-  void chat.streamingMessage?.content
-  void chat.streamingMessage?.thinking
-  void chat.messageQueue.length
-  if (stickToBottom && messageContainer && !userInteracting) {
-    messageContainer.scrollTop = messageContainer.scrollHeight
-  }
-})
-
-$effect(() => {
-  if (!queueMounted) return
-  const key = `chat-queue-${data.conversation.id}`
-  const queue = chat.messageQueue
-  if (queue.length > 0) {
-    localStorage.setItem(key, JSON.stringify(queue))
-  } else {
-    localStorage.removeItem(key)
-  }
-})
-
-const handleSubmit = (content: string, images?: import('$lib/types').ImageAttachment[], files?: import('$lib/types').FileAttachment[]) => {
+const handleSubmit = (content: string, images?: ImageAttachment[], files?: FileAttachment[]) => {
   stickToBottom = true
-  chat.sendMessage(data.conversation.id, content, undefined, images, files)
+  chat.sendMessage(data.conversationId, content, undefined, images, files)
 }
 
 const handleRegenerate = (messageId: string) => {
   stickToBottom = true
-  chat.regenerateMessage(data.conversation.id, messageId)
+  chat.regenerateMessage(data.conversationId, messageId)
 }
 
 const handleEdit = (messageId: string, content: string) => {
   stickToBottom = true
-  chat.editMessage(data.conversation.id, messageId, content)
+  chat.editMessage(data.conversationId, messageId, content)
 }
 
 const handleRetry = (messageId: string) => {
   stickToBottom = true
-  chat.retryFailedMessage(data.conversation.id, messageId)
+  chat.retryFailedMessage(data.conversationId, messageId)
 }
 
 const handleDiscard = (messageId: string) => {
@@ -293,7 +158,7 @@ const handleSwitchBranch = (messageId: string, direction: 'prev' | 'next') => {
   const newIdx = direction === 'prev' ? currentIdx - 1 : currentIdx + 1
   if (newIdx < 0 || newIdx >= siblings.length) return
 
-  chat.switchBranch(data.conversation.id, parentKey, siblings[newIdx].id)
+  chat.switchBranch(data.conversationId, parentKey, siblings[newIdx].id)
 }
 
 const startEdit = (entry: { id: string; content: string }) => {
@@ -356,7 +221,7 @@ const isEmptyGeneration = (message: Message) => message.generating && !message.c
 <svelte:window onpointerdown={onPointerDown} onpointerup={onPointerUp} onselectionchange={onSelectionChange} />
 <div class="relative flex h-full flex-col">
   <div bind:this={messageContainer} onscroll={onScroll} class="flex flex-1 flex-col overflow-y-auto px-4 pt-16 pb-32 lg:px-8">
-    <div class="mt-auto w-full space-y-6">
+    <div bind:this={messageContent} class="mt-auto w-full space-y-6">
       {#each chat.messages as message (message.id)}
         {#if isEmptyGeneration(message)}
           {@render typingDots()}
@@ -444,7 +309,7 @@ const isEmptyGeneration = (message: Message) => message.generating && !message.c
     <ChatInput
       onsubmit={handleSubmit}
       disabled={!ctx.selectedModel}
-      isStreaming={chat.isStreaming || remoteGenerating}
+      isStreaming={chat.isStreaming}
       onstop={chat.stopStreaming}
     />
   </div>

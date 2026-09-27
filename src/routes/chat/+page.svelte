@@ -1,17 +1,16 @@
 <script lang="ts">
 import ChatInput from '$lib/components/ChatInput.svelte'
 import { chatContext } from '$lib/stores/chat-context.svelte'
+import { getChatStores } from '$lib/stores/chat-sync.svelte'
 import { conversationsStore } from '$lib/stores/conversations.svelte'
-import { setPendingMessage } from '$lib/stores/pending-message'
 import type { FileAttachment, ImageAttachment } from '$lib/types'
-import type { ConversationSummary } from '$lib/types/chat'
 import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
-import { tick } from 'svelte'
+import { page } from '$app/state'
+import { onMount, tick } from 'svelte'
 
 const ctx = chatContext
 
-let error = $state('')
 let textarea: HTMLTextAreaElement | undefined = $state()
 
 $effect(() => {
@@ -19,26 +18,27 @@ $effect(() => {
   tick().then(() => textarea?.focus())
 })
 
-const handleSubmit = async (content: string, images?: ImageAttachment[], files?: FileAttachment[]) => {
-  error = ''
-  setPendingMessage(content, images, files)
-  const res = await fetch('/api/conversations', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ systemPromptId: ctx.currentSystemPromptId }),
-  })
-  if (!res.ok) {
-    error = 'Failed to create conversation'
-    return
-  }
-  const conv: ConversationSummary = await res.json()
-  if (!conv?.id) {
-    error = 'Failed to create conversation'
-    return
-  }
-  conversationsStore.upsert({ ...conv, updatedAt: new Date(conv.updatedAt) })
-  await goto(resolve(`/chat/${conv.id}`))
+// The conversation exists locally first; the first POST /api/chat creates it
+// on the server, so starting a chat costs a single request.
+const startConversation = (content: string, images?: ImageAttachment[], files?: FileAttachment[], replaceState = false) => {
+  const id = crypto.randomUUID()
+  const systemPromptId = ctx.currentSystemPromptId
+  conversationsStore.upsert({ id, title: 'New Chat', favorite: false, generating: false, systemPromptId, updatedAt: new Date() })
+  const store = getChatStores().createEmpty(id, systemPromptId)
+  store.selectedModel = ctx.selectedModel
+  store.thinkingEffort = ctx.thinkingEffort
+  void store.sendMessage(id, content, undefined, images, files)
+  void goto(resolve(`/chat/${id}`), { replaceState })
 }
+
+const handleSubmit = (content: string, images?: ImageAttachment[], files?: FileAttachment[]) => startConversation(content, images, files)
+
+onMount(() => {
+  const query = page.url.searchParams.get('q')?.trim()
+  if (query) {
+    startConversation(query, undefined, undefined, true)
+  }
+})
 </script>
 
 <div class="flex h-full flex-col items-center justify-center px-4 lg:px-8">
@@ -47,8 +47,5 @@ const handleSubmit = async (content: string, images?: ImageAttachment[], files?:
   </div>
   <div class="w-full">
     <ChatInput onsubmit={handleSubmit} disabled={!ctx.selectedModel} bind:textarea />
-    {#if error}
-      <p class="mt-3 text-center text-sm text-red-600 dark:text-red-400">{error}</p>
-    {/if}
   </div>
 </div>

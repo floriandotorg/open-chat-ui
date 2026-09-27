@@ -1,7 +1,8 @@
 import { normalizeModelRef } from '$lib/model-ref'
 import { requireUser } from '$lib/server/auth-guard'
-import { type Conversation, mapConversation, mapSystemPrompt, now, toConversationSummary } from '$lib/server/db/records'
-import { getFirstOrNull, pb } from '$lib/server/pb'
+import { createConversation } from '$lib/server/conversations'
+import { type Conversation, mapConversation, toConversationSummary } from '$lib/server/db/records'
+import { pb } from '$lib/server/pb'
 import type { RequestHandler } from './$types'
 import { json } from '@sveltejs/kit'
 
@@ -27,43 +28,6 @@ export const GET: RequestHandler = async ({ locals }) => {
 export const POST: RequestHandler = async ({ request, locals }) => {
   const userId = requireUser(locals.user).id
   const body = await request.json()
-
-  let systemPromptId: string | null = body.systemPromptId ?? null
-  let systemPromptContent: string | null = null
-
-  if (systemPromptId) {
-    const sp = await getFirstOrNull(
-      pb
-        .collection('system_prompts')
-        .getFirstListItem(pb.filter('id = {:id} && user = {:u}', { id: systemPromptId, u: userId }))
-        .then(mapSystemPrompt),
-    )
-    if (sp) {
-      systemPromptContent = sp.content
-    } else {
-      systemPromptId = null
-    }
-  }
-
-  if (!systemPromptId) {
-    const defaultPrompt = await getFirstOrNull(
-      pb
-        .collection('system_prompts')
-        .getFirstListItem(pb.filter('user = {:u} && isDefault = true', { u: userId }))
-        .then(mapSystemPrompt),
-    )
-    systemPromptId = defaultPrompt?.id ?? null
-    systemPromptContent = defaultPrompt?.content ?? body.systemPrompt ?? null
-  }
-
-  const created = await pb.collection('conversations').create({
-    user: userId,
-    title: body.title ?? 'New Chat',
-    systemPrompt: systemPromptContent,
-    systemPromptRef: systemPromptId,
-    createdAt: now(),
-    updatedAt: now(),
-  })
-
+  const created = await createConversation(userId, { title: body.title, systemPromptId: body.systemPromptId ?? null, fallbackSystemPrompt: body.systemPrompt })
   return json(toConversationSummary(created), { status: 201 })
 }

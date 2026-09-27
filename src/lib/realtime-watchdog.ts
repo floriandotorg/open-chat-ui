@@ -154,7 +154,11 @@ export const startRealtimeWatchdog = () => {
   void ensureHeartbeat()
   setInterval(check, CHECK_INTERVAL_MS)
   document.addEventListener('visibilitychange', onVisibilityChange)
-  window.addEventListener('pageshow', onResume)
+  window.addEventListener('pageshow', e => {
+    if (e.persisted) {
+      onResume()
+    }
+  })
   window.addEventListener('online', onResume)
 }
 

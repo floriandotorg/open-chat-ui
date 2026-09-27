@@ -1,6 +1,7 @@
 import type { Message } from '$lib/db-mappers'
 import { resolveEffectiveParentId } from '$lib/message-tree'
 import { requireUser } from '$lib/server/auth-guard'
+import { createConversation } from '$lib/server/conversations'
 import { mapConversation, mapMessage, now, toChatMessage } from '$lib/server/db/records'
 import { startGeneration } from '$lib/server/generate'
 import { getGeneration } from '$lib/server/generations'
@@ -22,6 +23,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     parentId: requestParentId,
     userMsgId: requestUserMsgId,
     skipUserInsert,
+    createConversation: newConversation,
   } = body as {
     conversationId: string
     model: string
@@ -32,9 +34,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     parentId?: string | null
     userMsgId?: string
     skipUserInsert?: boolean
+    createConversation?: { systemPromptId: string | null }
   }
 
-  const [conversation, priorMsgs] = await Promise.all([
+  const [existingConversation, priorMsgs] = await Promise.all([
     getFirstOrNull(
       pb
         .collection('conversations')
@@ -46,6 +49,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       .getFullList({ filter: pb.filter('conversation = {:c}', { c: conversationId }), sort: 'createdAt' })
       .then(rows => rows.map(mapMessage)),
   ])
+  const conversation = existingConversation ?? (newConversation ? mapConversation(await createConversation(userId, { id: conversationId, systemPromptId: newConversation.systemPromptId })) : null)
   if (!conversation) {
     throw error(404, 'Conversation not found')
   }

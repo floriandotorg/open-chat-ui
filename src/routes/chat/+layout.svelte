@@ -7,12 +7,13 @@ import TtsPlayer from '$lib/components/TtsPlayer.svelte'
 import { mapConversationSummary, mapSystemPrompt } from '$lib/db-mappers'
 import { pbClient } from '$lib/pb-client'
 import { createRealtimeSlot, registerRealtime, startRealtimeWatchdog, subscribeShared } from '$lib/realtime-watchdog'
-import { ChatStore, setChatStore } from '$lib/stores/chat.svelte'
 import { chatContext } from '$lib/stores/chat-context.svelte'
+import { attachChatRealtime, getChatStores } from '$lib/stores/chat-sync.svelte'
 import { conversationsStore } from '$lib/stores/conversations.svelte'
 import { createModelsStore } from '$lib/stores/models.svelte'
 import { createTtsPlayer } from '$lib/stores/tts-player.svelte'
 import type { SystemPrompt, ThinkingEffort } from '$lib/types'
+import { CONVERSATION_REALTIME_FIELDS, CONVERSATION_SUMMARY_FIELDS, type ConversationSummary } from '$lib/types/chat'
 import { afterNavigate, goto } from '$app/navigation'
 import { resolve } from '$app/paths'
 import { page } from '$app/state'
@@ -25,8 +26,6 @@ let { data, children }: { data: LayoutData; children: Snippet } = $props()
 
 // svelte-ignore state_referenced_locally
 conversationsStore.hydrate(data.conversations)
-const chat = new ChatStore()
-setChatStore(chat)
 // svelte-ignore state_referenced_locally
 const modelsStore = createModelsStore(data.models, data.providers)
 chatContext.modelsStore = modelsStore
@@ -99,10 +98,6 @@ const currentConversationId = $derived(page.params.conversationId)
 const currentConversation = $derived(conversationsStore.conversations.find(c => c.id === currentConversationId))
 
 $effect(() => {
-  conversationsStore.hydrate(data.conversations)
-})
-
-$effect(() => {
   modelsStore.seed(data.models)
 })
 
@@ -118,18 +113,25 @@ $effect(() => {
   }
 })
 
-const changeSystemPrompt = async (promptId: string | null) => {
-  if (!currentConversationId) return
-  const prompt = systemPrompts.find(p => p.id === promptId)
-  conversationsStore.applyPatch(currentConversationId, { systemPromptId: promptId })
-  await fetch(`/api/conversations/${currentConversationId}`, {
+const patchConversation = (id: string, patch: Partial<ConversationSummary>, revert: Partial<ConversationSummary>, body: Record<string, unknown>) => {
+  conversationsStore.applyPatch(id, patch)
+  fetch(`/api/conversations/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      systemPromptId: promptId,
-      systemPrompt: prompt?.content ?? null,
-    }),
+    body: JSON.stringify(body),
   })
+    .then(res => {
+      if (!res.ok) {
+        throw new Error(`PATCH failed with ${res.status}`)
+      }
+    })
+    .catch(() => conversationsStore.applyPatch(id, revert))
+}
+
+const changeSystemPrompt = (promptId: string | null) => {
+  if (!currentConversation) return
+  const prompt = systemPrompts.find(p => p.id === promptId)
+  patchConversation(currentConversation.id, { systemPromptId: promptId }, { systemPromptId: currentConversation.systemPromptId }, { systemPromptId: promptId, systemPrompt: prompt?.content ?? null })
 }
 
 afterNavigate(() => {
@@ -143,23 +145,18 @@ setContext('tts-player', ttsPlayer)
 let sidebarSearchQuery = $state('')
 let showFavoritesOnly = $state(false)
 
-const toggleCurrentConversationFavorite = async () => {
+const toggleCurrentConversationFavorite = () => {
   if (!currentConversation) return
-  const newFav = !currentConversation.favorite
-  conversationsStore.applyPatch(currentConversation.id, { favorite: newFav })
-  await fetch(`/api/conversations/${currentConversation.id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ favorite: newFav }),
-  })
+  const favorite = !currentConversation.favorite
+  patchConversation(currentConversation.id, { favorite }, { favorite: !favorite }, { favorite })
 }
 
 const clearSidebarSearch = () => {
   sidebarSearchQuery = ''
 }
 
-const goToNewChat = async () => {
-  await goto(resolve('/chat'))
+const goToNewChat = () => {
+  void goto(resolve('/chat'))
   ++chatContext.newChatFocusToken
 }
 
@@ -173,11 +170,22 @@ const userInitial = $derived(userName[0]?.toUpperCase() ?? 'U')
 const handleGlobalKeydown = (e: KeyboardEvent) => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
     e.preventDefault()
-    void goToNewChat()
+    goToNewChat()
   }
 }
+const PREFETCH_COUNT = 5
+const PREFETCH_DELAY_MS = 1_000
+
+const prefetchRecentConversations = () => {
+  const connection: { saveData?: boolean } | undefined = Reflect.get(navigator, 'connection')
+  if (connection?.saveData) return
+  getChatStores().prefetch(conversationsStore.conversations.slice(0, PREFETCH_COUNT).map(c => c.id))
+}
+
 onMount(() => {
   startRealtimeWatchdog()
+  const detachChatRealtime = attachChatRealtime()
+  const prefetchTimer = setTimeout(prefetchRecentConversations, PREFETCH_DELAY_MS)
   const promptsSlot = createRealtimeSlot(() =>
     pbClient.collection('system_prompts').subscribe('*', e => {
       if (e.action === 'delete') {
@@ -191,19 +199,25 @@ onMount(() => {
   const sharedConversations = subscribeShared(
     'conversations',
     () =>
-      pbClient.collection('conversations').subscribe('*', e => {
-        if (e.action === 'delete') {
-          conversationsStore.remove(e.record.id)
-        } else {
+      pbClient.collection('conversations').subscribe(
+        '*',
+        e => {
+          if (e.action === 'delete') {
+            conversationsStore.remove(e.record.id)
+            return
+          }
           conversationsStore.upsert(mapConversationSummary(e.record))
-        }
-      }),
+          getChatStores().routeConversation(e.record.id, { generating: e.record.generating ?? false, activeBranches: e.record.activeBranches ?? {} })
+        },
+        { fields: CONVERSATION_REALTIME_FIELDS },
+      ),
     async () => {
       const userId = pbClient.authStore.record?.id
       if (!userId) return
       const rows = await pbClient.collection('conversations').getFullList({
         filter: pbClient.filter('user = {:u}', { u: userId }),
         sort: '-updatedAt',
+        fields: CONVERSATION_SUMMARY_FIELDS,
       })
       conversationsStore.hydrate(rows.map(mapConversationSummary))
     },
@@ -232,6 +246,8 @@ onMount(() => {
     },
   })
   return () => {
+    clearTimeout(prefetchTimer)
+    detachChatRealtime()
     deregister()
     sharedConversations.dispose()
     promptsSlot.cancel()

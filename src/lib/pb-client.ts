@@ -3,6 +3,9 @@ import PocketBase from 'pocketbase'
 import { env } from '$env/dynamic/public'
 
 export const pbClient = new PocketBase(env.PUBLIC_POCKETBASE_URL)
+// Auto cancellation keys on method and path only, so concurrent reads of one
+// collection with different filters would abort each other.
+pbClient.autoCancellation(false)
 
 if (browser) {
   pbClient.authStore.loadFromCookie(document.cookie)

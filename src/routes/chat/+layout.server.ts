@@ -4,6 +4,7 @@ import { requireUser } from '$lib/server/auth-guard'
 import { mapProviderModel, mapSystemPrompt, toChatBootstrap } from '$lib/server/db/records'
 import { pb } from '$lib/server/pb'
 import { listProviders } from '$lib/server/providers'
+import { CONVERSATION_SUMMARY_FIELDS } from '$lib/types/chat'
 import type { LayoutServerLoad } from './$types'
 
 const VALID_EFFORTS = new Set(['none', 'low', 'medium', 'high', 'max'])
@@ -20,7 +21,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
   const ttsSpeed = [1, 1.25, 1.5, 1.75, 2].includes(rawTtsSpeed) ? rawTtsSpeed : undefined
 
   const [convoRows, userKeys, prompts, modelRows] = await Promise.all([
-    pb.collection('conversations').getFullList({ filter: pb.filter('user = {:u}', { u: userId }), sort: '-updatedAt' }),
+    pb.collection('conversations').getFullList({ filter: pb.filter('user = {:u}', { u: userId }), sort: '-updatedAt', fields: CONVERSATION_SUMMARY_FIELDS }),
     pb.collection('api_keys').getFullList({ filter: pb.filter('user = {:u}', { u: userId }), fields: 'provider' }),
     pb
       .collection('system_prompts')

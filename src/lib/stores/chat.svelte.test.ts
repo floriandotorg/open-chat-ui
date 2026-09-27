@@ -664,4 +664,62 @@ describe('HTTP response reconciliation', () => {
     expect(fetches).toEqual([{ from: 2, to: null }])
     expect(chat.allMessages[0].content).toBe('hello world')
   })
+
+  it('asks the server to create the conversation until the first send succeeds', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const chat = new ChatStore({
+      request: fakeRequest((path, body) => {
+        if (path === '/api/chat') {
+          bodies.push(body)
+        }
+        return {}
+      }),
+    })
+    chat.seed('conv-new', [], {})
+    chat.pendingCreation = { systemPromptId: 'prompt-1' }
+
+    await chat.sendMessage('conv-new', 'first')
+    chat.upsertMessage(generatingAssistant({ conversationId: 'conv-new' }))
+    chat.upsertMessage(generatingAssistant({ conversationId: 'conv-new', generating: false }))
+    await chat.sendMessage('conv-new', 'second')
+
+    expect(bodies.map(b => b.createConversation)).toEqual([{ systemPromptId: 'prompt-1' }, undefined])
+  })
+
+  it('ignores a snapshot older than the one it already holds', async () => {
+    const chat = new ChatStore({}, { allMessages: [generatingAssistant({ content: 'hello world', eventSeq: 5 })], activeBranches: {} })
+
+    chat.upsertMessage(generatingAssistant({ content: 'hello', eventSeq: 3 }))
+
+    expect(chat.allMessages[0].content).toBe('hello world')
+  })
+
+  it('catches up every generating assistant message from its snapshot', async () => {
+    const fetches: { messageId: string; from: number }[] = []
+    const chat = new ChatStore(
+      {
+        fetchStreamEvents: async (messageId, from) => {
+          fetches.push({ messageId, from })
+          return [{ messageId, seq: from, ops: [{ t: 'text', v: '!' }] }]
+        },
+      },
+      { allMessages: [generatingAssistant({ content: 'hi', eventSeq: 2 })], activeBranches: {} },
+    )
+
+    await chat.catchUpStreams()
+
+    expect(fetches).toEqual([{ messageId: 'assist-1', from: 3 }])
+    expect(chat.allMessages[0].content).toBe('hi!')
+  })
+
+  it('persists the queue whenever it changes', async () => {
+    const persisted: unknown[][] = []
+    const chat = new ChatStore({ persistQueue: queue => persisted.push(queue) }, { allMessages: [generatingAssistant()], activeBranches: {} })
+
+    await chat.sendMessage('conv-1', 'queued')
+    await flush()
+
+    expect(persisted.at(-1)).toEqual([expect.objectContaining({ content: 'queued' })])
+    chat.dispose()
+  })
 })
