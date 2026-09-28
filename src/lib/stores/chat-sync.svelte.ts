@@ -1,11 +1,11 @@
 import { fetchConversationDetail } from '$lib/conversation-detail'
 import { mapChatMessage } from '$lib/db-mappers'
 import { pbClient } from '$lib/pb-client'
-import { createRealtimeSlot, registerRealtime } from '$lib/realtime-watchdog'
+import { createRealtimeSlot, isRealtimeLive, noteRealtimeActivity, registerRealtime } from '$lib/realtime-watchdog'
 import { ChatStore, type QueueEntry } from '$lib/stores/chat.svelte'
 import { ChatStores } from '$lib/stores/chat-stores.svelte'
 import { invalidatePayload } from '$lib/stores/payloads.svelte'
-import { fetchStreamEvents } from '$lib/stream-events-client'
+import { fetchMessage, fetchStreamEvents } from '$lib/stream-events-client'
 import { browser } from '$app/environment'
 import { page } from '$app/state'
 
@@ -25,12 +25,21 @@ const writeQueue = (conversationId: string, queue: QueueEntry[]) => {
 }
 
 const createPersistentStore = (conversationId: string) => {
-  const store = new ChatStore({ fetchStreamEvents, persistQueue: queue => writeQueue(conversationId, queue) })
+  const store = new ChatStore(conversationId, { fetchStreamEvents, fetchMessage, realtimeLive: isRealtimeLive, persistQueue: queue => writeQueue(conversationId, queue) })
   store.messageQueue = readQueue(conversationId)
   return store
 }
 
 let instance: ChatStores | null = null
+let chatMounted = false
+
+// False only while the first page hydrates, which must render exactly what
+// the server rendered.
+export const isChatMounted = () => chatMounted
+
+export const markChatMounted = () => {
+  chatMounted = true
+}
 
 export const getChatStores = (): ChatStores => {
   if (!browser) {
@@ -50,6 +59,7 @@ export const attachChatRealtime = (): (() => void) => {
   const stores = getChatStores()
   const messagesSlot = createRealtimeSlot(() =>
     pbClient.collection('messages').subscribe('*', e => {
+      noteRealtimeActivity()
       if (e.action === 'delete') {
         stores.removeMessage(e.record.conversation, e.record.id)
         return
@@ -64,6 +74,7 @@ export const attachChatRealtime = (): (() => void) => {
   )
   const eventsSlot = createRealtimeSlot(() =>
     pbClient.collection('stream_events').subscribe('*', e => {
+      noteRealtimeActivity()
       if (e.action === 'create') {
         stores.routeEvent(e.record.conversation, { messageId: e.record.message, seq: e.record.seq, ops: Array.isArray(e.record.ops) ? e.record.ops : [] })
       }

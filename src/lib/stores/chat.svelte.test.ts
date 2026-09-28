@@ -1,456 +1,409 @@
-import type { Message } from '$lib/types'
-import type { ConversationSummary } from '$lib/types/chat'
-import { ChatStore, type RequestFn } from './chat.svelte'
-import { conversationsStore } from './conversations.svelte'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { BranchMap } from '$lib/message-tree'
+import { SyncCollection } from '$lib/sync/collection.svelte'
+import { type ConversationStateRecord, ConversationsCollection } from '$lib/sync/conversations.svelte'
+import { onSyncError } from '$lib/sync/errors'
+import type { ChatMessage, ConversationSummary } from '$lib/types/chat'
+import { ChatStore, type ChatStoreDeps, type RequestFn } from './chat.svelte'
+import { afterEach, describe, expect, it } from 'vitest'
 
 const flush = () => new Promise(r => setTimeout(r, 0))
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
-const installFetch = (impl: (url: unknown, init?: RequestInit) => Promise<Response>) => {
-  const mock = vi.fn(impl)
-  globalThis.fetch = mock as unknown as typeof fetch
-  return mock
+const summary = (overrides: Partial<ConversationSummary> = {}): ConversationSummary => ({
+  id: 'conv-1',
+  title: 'New Chat',
+  favorite: false,
+  generating: false,
+  systemPromptId: null,
+  defaultModel: null,
+  updatedAt: new Date(0),
+  ...overrides,
+})
+
+const message = (overrides: Partial<ChatMessage> & { id: string }): ChatMessage => ({
+  conversationId: 'conv-1',
+  parentId: null,
+  role: 'user',
+  content: '',
+  createdAt: new Date(1),
+  ...overrides,
+})
+
+const assistant = (overrides: Partial<ChatMessage> = {}): ChatMessage => message({ id: 'assist-1', role: 'assistant', generating: true, eventSeq: 0, ...overrides })
+
+type Handler = (path: string, body: Record<string, unknown>) => unknown
+
+// Handlers own the response shape of the endpoint they fake.
+const fakeRequest = (handler: Handler): RequestFn => (async (path: string, body: Record<string, unknown>) => handler(path, body)) as RequestFn
+
+const deferred = () => {
+  let resolve: (value: unknown) => void = () => {}
+  let reject: (err: Error) => void = () => {}
+  const promise = new Promise<unknown>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
 }
 
-const okResponse = () => new Response(JSON.stringify({ ok: true }), { status: 200 })
+const created: ChatStore[] = []
 
-describe('ChatStore (PocketBase realtime data plane)', () => {
-  let originalFetch: typeof fetch
+afterEach(() => {
+  for (const store of created.splice(0)) {
+    store.dispose()
+  }
+})
 
-  beforeEach(() => {
-    originalFetch = globalThis.fetch
+interface Setup extends Omit<ChatStoreDeps, 'request'> {
+  messages?: ChatMessage[]
+  branches?: BranchMap
+  generating?: boolean
+  handler?: Handler
+  seeded?: boolean
+}
+
+const setup = ({ messages = [], branches = {}, generating = false, handler = () => ({}), seeded = true, ...deps }: Setup = {}) => {
+  const conversations = new ConversationsCollection()
+  const conversationStates = new SyncCollection<ConversationStateRecord>()
+  const calls: { path: string; body: Record<string, unknown> }[] = []
+  let n = 0
+  conversations.reset([summary()])
+  const chat = new ChatStore('conv-1', {
+    conversations,
+    conversationStates,
+    id: () => `id-${++n}`,
+    now: () => new Date(1000 + n),
+    fetchMessage: async () => null,
+    fetchStreamEvents: async () => [],
+    request: fakeRequest((path, body) => {
+      calls.push({ path, body })
+      return handler(path, body)
+    }),
+    ...deps,
+  })
+  if (seeded) {
+    chat.seed({ conversation: { id: 'conv-1', generating, activeBranches: branches }, messages })
+  }
+  chat.selectedModel = 'anthropic/claude-test'
+  created.push(chat)
+  const chatCalls = () => calls.filter(c => c.path === '/api/chat')
+  return { chat, conversations, conversationStates, calls, chatCalls }
+}
+
+describe('sending', () => {
+  it('renders the user message and the assistant placeholder before the request resolves', () => {
+    const pending = deferred()
+    const { chat, chatCalls } = setup({ handler: () => pending.promise })
+
+    void chat.sendMessage('hello', [{ id: 'img-1.png', mimeType: 'image/png' }])
+
+    const [user, placeholder] = chat.messages
+    expect(user).toMatchObject({ role: 'user', content: 'hello', images: [{ id: 'img-1.png', mimeType: 'image/png' }] })
+    expect(placeholder).toMatchObject({ role: 'assistant', parentId: user.id, generating: true, content: '' })
+    expect(chat.activeBranches).toEqual({ __root__: user.id, [user.id]: placeholder.id })
+    expect(chat.isStreaming).toBe(true)
+    expect(chatCalls()[0].body).toMatchObject({ userMsgId: user.id, assistantMsgId: placeholder.id, parentId: null, skipUserInsert: false })
   })
 
-  afterEach(() => {
-    globalThis.fetch = originalFetch
-    vi.restoreAllMocks()
+  it('moves the conversation to the top of the sidebar instantly', () => {
+    const { chat, conversations } = setup({ handler: () => new Promise(() => {}) })
+
+    void chat.sendMessage('hello')
+
+    expect(conversations.get('conv-1')?.updatedAt.getTime()).toBeGreaterThan(0)
   })
 
-  it('adds the user message optimistically and points the branch at it', async () => {
-    installFetch(async () => okResponse())
+  it('keeps the user message with its error and drops the placeholder when the send fails', async () => {
+    const { chat } = setup({
+      handler: () => {
+        throw new Error('Simulated network failure')
+      },
+    })
 
-    const chat = new ChatStore()
-    chat.selectedModel = 'anthropic/claude-test'
+    await chat.sendMessage('hello')
 
-    await chat.sendMessage('conv-1', 'hello', undefined, [{ id: 'img-1.png', mimeType: 'image/png' }])
-    await flush()
-
-    expect(chat.allMessages.length).toBe(1)
-    const userMsg = chat.allMessages[0]
-    expect(userMsg.role).toBe('user')
-    expect(userMsg.content).toBe('hello')
-    expect(userMsg.images).toEqual([{ id: 'img-1.png', mimeType: 'image/png' }])
-    expect(chat.activeBranches.__root__).toBe(userMsg.id)
-    expect(chat.messages.map(m => m.id)).toContain(userMsg.id)
-  })
-
-  it('keeps the user message and marks it with sendError when POST /api/chat fails', async () => {
-    installFetch(async () => new Response(JSON.stringify({ message: 'Simulated network failure' }), { status: 500 }))
-
-    const chat = new ChatStore()
-    chat.selectedModel = 'anthropic/claude-test'
-
-    await chat.sendMessage('conv-1', 'hello')
-    await flush()
-
-    expect(chat.allMessages.length).toBe(1)
-    expect(chat.allMessages[0].sendError).toBe('Simulated network failure')
+    expect(chat.allMessages.map(m => [m.role, m.sendError])).toEqual([['user', 'Simulated network failure']])
     expect(chat.isStreaming).toBe(false)
   })
 
-  it('falls back to a generic error message when the server returns no message body', async () => {
-    installFetch(async () => new Response('not-json', { status: 502 }))
+  it('does not duplicate the optimistic message when the realtime echo arrives', async () => {
+    const { chat } = setup()
 
-    const chat = new ChatStore()
-    chat.selectedModel = 'anthropic/claude-test'
+    await chat.sendMessage('hello')
+    const [user] = chat.allMessages
+    chat.upsertMessage({ ...user, content: 'hello' })
 
-    await chat.sendMessage('conv-1', 'hi')
-    await flush()
-
-    expect(chat.allMessages[0].sendError).toBe('Request failed')
-  })
-
-  it('keeps the user message when fetch itself rejects (e.g. network drop)', async () => {
-    installFetch(async () => {
-      throw new TypeError('Load failed')
-    })
-
-    const chat = new ChatStore()
-    chat.selectedModel = 'anthropic/claude-test'
-
-    await chat.sendMessage('conv-1', 'hi')
-    await flush()
-
-    expect(chat.allMessages.length).toBe(1)
-    expect(chat.allMessages[0].sendError).toBe('Load failed')
-  })
-
-  it('reconciles the optimistic message when the realtime create event arrives', async () => {
-    installFetch(async () => okResponse())
-
-    const chat = new ChatStore()
-    chat.selectedModel = 'anthropic/claude-test'
-
-    await chat.sendMessage('conv-1', 'hello')
-    const optimistic = chat.allMessages[0]
-
-    chat.upsertMessage({ ...optimistic, content: 'hello' })
-    await flush()
-
-    expect(chat.allMessages.length).toBe(1)
-    expect(chat.allMessages[0].id).toBe(optimistic.id)
+    expect(chat.allMessages.filter(m => m.role === 'user')).toHaveLength(1)
   })
 
   it('preserves sendError when a realtime upsert replaces the failed user message', async () => {
-    installFetch(async () => new Response(JSON.stringify({ message: 'Overloaded' }), { status: 500 }))
+    const { chat } = setup({
+      handler: () => {
+        throw new Error('Overloaded')
+      },
+    })
 
-    const chat = new ChatStore()
-    chat.selectedModel = 'anthropic/claude-test'
-
-    await chat.sendMessage('conv-1', 'hi')
-    const failed = chat.allMessages[0]
-    expect(failed.sendError).toBe('Overloaded')
-
+    await chat.sendMessage('hi')
+    const [failed] = chat.allMessages
     chat.upsertMessage({ ...failed, sendError: undefined })
 
     expect(chat.allMessages[0].sendError).toBe('Overloaded')
   })
 
-  it('exposes the generating assistant record as the streaming message while realtime flushes arrive', async () => {
-    installFetch(async () => okResponse())
+  it('streams server snapshots of the placeholder and settles on the final one', async () => {
+    const { chat, chatCalls } = setup()
 
-    const chat = new ChatStore()
-    chat.selectedModel = 'anthropic/claude-test'
+    await chat.sendMessage('hello')
+    const assistantId = String(chatCalls()[0].body.assistantMsgId)
+    const userId = String(chatCalls()[0].body.userMsgId)
 
-    await chat.sendMessage('conv-1', 'hello')
-    const userMsg = chat.allMessages[0]
-    expect(chat.isStreaming).toBe(true)
-
-    chat.upsertMessage({
-      id: 'srv-assist-1',
-      conversationId: 'conv-1',
-      parentId: userMsg.id,
-      role: 'assistant',
-      content: 'partial ',
-      generating: true,
-      createdAt: new Date(),
-    })
-    expect(chat.isStreaming).toBe(true)
+    chat.upsertMessage(assistant({ id: assistantId, parentId: userId, content: 'partial ', eventSeq: 1 }))
     expect(chat.streamingMessage?.content).toBe('partial ')
 
-    chat.upsertMessage({
-      id: 'srv-assist-1',
-      conversationId: 'conv-1',
-      parentId: userMsg.id,
-      role: 'assistant',
-      content: 'partial answer',
-      generating: true,
-      createdAt: new Date(),
-    })
-    expect(chat.streamingMessage?.content).toBe('partial answer')
-
-    chat.upsertMessage({
-      id: 'srv-assist-1',
-      conversationId: 'conv-1',
-      parentId: userMsg.id,
-      role: 'assistant',
-      content: 'partial answer',
-      generating: false,
-      createdAt: new Date(),
-    })
+    chat.upsertMessage(assistant({ id: assistantId, parentId: userId, content: 'partial answer', eventSeq: 2, generating: false }))
     expect(chat.isStreaming).toBe(false)
-    expect(chat.streamingMessage).toBeUndefined()
-    expect(chat.allMessages.length).toBe(2)
+    expect(chat.allMessages).toHaveLength(2)
   })
 
   it('queues messages while streaming and drains the queue once generation ends', async () => {
-    const bodies: unknown[] = []
-    installFetch(async (url, init) => {
-      if (String(url) === '/api/chat') {
-        bodies.push(init?.body ? JSON.parse(init.body as string) : null)
-      }
-      return okResponse()
-    })
+    const { chat, chatCalls } = setup()
 
-    const chat = new ChatStore()
-    chat.selectedModel = 'anthropic/claude-test'
+    await chat.sendMessage('first')
+    await chat.sendMessage('second')
+    expect(chat.messageQueue).toHaveLength(1)
+    expect(chatCalls()).toHaveLength(1)
 
-    await chat.sendMessage('conv-1', 'first')
-    expect(chat.isStreaming).toBe(true)
-
-    await chat.sendMessage('conv-1', 'second')
-    expect(chat.messageQueue.length).toBe(1)
-    expect(bodies.length).toBe(1)
-
-    const assistantBase = {
-      id: 'srv-assist-1',
-      conversationId: 'conv-1',
-      parentId: chat.allMessages[0].id,
-      role: 'assistant' as const,
-      content: 'answer',
-      createdAt: new Date(),
-    }
-    chat.upsertMessage({ ...assistantBase, generating: true })
-    chat.setConversationGenerating(true)
-    chat.upsertMessage({ ...assistantBase, generating: false })
-    chat.setConversationGenerating(false)
+    const { assistantMsgId, userMsgId } = chatCalls()[0].body
+    chat.upsertMessage(assistant({ id: String(assistantMsgId), parentId: String(userMsgId), content: 'answer', generating: false, eventSeq: 1 }))
     await flush()
     await flush()
 
-    expect(chat.messageQueue.length).toBe(0)
-    expect(bodies.length).toBe(2)
-    expect((bodies[1] as { message: string }).message).toBe('second')
+    expect(chat.messageQueue).toHaveLength(0)
+    expect(chatCalls().map(c => c.body.message)).toEqual(['first', 'second'])
+    expect(chatCalls()[1].body.parentId).toBe(assistantMsgId)
   })
 
-  it('keeps the optimistic branch selection when a stale conversation update arrives before the server confirms', async () => {
-    installFetch(async () => okResponse())
+  it('queues sends until the conversation finished loading', async () => {
+    const { chat, chatCalls } = setup({ seeded: false })
+    chat.status = 'loading'
 
-    const chat = new ChatStore(
-      {},
-      {
-        allMessages: [
-          { id: 'a1', conversationId: 'conv-1', parentId: null, role: 'assistant', content: 'one', createdAt: new Date(1) },
-          { id: 'a2', conversationId: 'conv-1', parentId: null, role: 'assistant', content: 'two', createdAt: new Date(2) },
-        ],
-        activeBranches: { __root__: 'a1' },
+    await chat.sendMessage('early')
+    expect(chatCalls()).toHaveLength(0)
+
+    chat.seed({ conversation: { id: 'conv-1', generating: false, activeBranches: { __root__: 'u1' } }, messages: [message({ id: 'u1' })] })
+    await flush()
+    await flush()
+
+    expect(chatCalls()[0].body).toMatchObject({ message: 'early', parentId: 'u1' })
+  })
+})
+
+describe('new conversations', () => {
+  it('shows the conversation in the sidebar instantly and asks the server to create it once', async () => {
+    const { chat, conversations, chatCalls } = setup()
+    const local = summary({ id: 'conv-1', systemPromptId: 'prompt-1' })
+    conversations.reset([])
+    chat.pendingCreation = local
+
+    const sending = chat.sendMessage('first')
+    expect(conversations.get('conv-1')).toEqual(local)
+    await sending
+
+    const { assistantMsgId, userMsgId } = chatCalls()[0].body
+    chat.upsertMessage(assistant({ id: String(assistantMsgId), parentId: String(userMsgId), generating: false, eventSeq: 1 }))
+    await chat.sendMessage('second')
+
+    expect(chatCalls().map(c => c.body.createConversation)).toEqual([{ systemPromptId: 'prompt-1' }, undefined])
+    expect(conversations.confirmed('conv-1')).toBeDefined()
+  })
+
+  it('applies the generated title after the first exchange only', async () => {
+    const { chat, conversations, calls } = setup({ handler: path => (path === '/api/chat/title' ? { title: 'Greeting' } : {}) })
+
+    await chat.sendMessage('hello')
+    await flush()
+
+    expect(calls.map(c => c.path)).toEqual(['/api/chat', '/api/chat/title'])
+    expect(conversations.get('conv-1')?.title).toBe('Greeting')
+  })
+
+  it('does not request a title for follow-up messages', async () => {
+    const { chat, calls } = setup({ messages: [message({ id: 'u1' }), message({ id: 'a1', role: 'assistant', parentId: 'u1' })], branches: { __root__: 'u1', u1: 'a1' } })
+
+    await chat.sendMessage('second')
+
+    expect(calls.map(c => c.path)).toEqual(['/api/chat'])
+  })
+
+  it('notifies when the title request fails', async () => {
+    const errors: string[] = []
+    const { chat } = setup({
+      notify: m => errors.push(m),
+      handler: path => {
+        if (path === '/api/chat/title') {
+          throw new Error('title boom')
+        }
+        return {}
       },
-    )
+    })
 
-    await chat.switchBranch('conv-1', '__root__', 'a2')
-    expect(chat.activeBranches.__root__).toBe('a2')
+    await chat.sendMessage('hello')
+    await flush()
 
-    chat.applyServerBranches({ __root__: 'a1' })
-    expect(chat.activeBranches.__root__).toBe('a2')
+    expect(errors).toEqual(['title boom'])
+  })
+})
 
-    chat.applyServerBranches({ __root__: 'a2' })
-    expect(chat.activeBranches.__root__).toBe('a2')
+describe('branches and recovery', () => {
+  it('keeps an optimistic branch switch on top of stale server state until acknowledged', async () => {
+    const pending = deferred()
+    const messages = [message({ id: 'a1', role: 'assistant', createdAt: new Date(1) }), message({ id: 'a2', role: 'assistant', createdAt: new Date(2) })]
+    const { chat, conversationStates } = setup({ messages, branches: { __root__: 'a1' }, handler: () => pending.promise })
 
-    chat.applyServerBranches({ __root__: 'a1' })
+    const switching = chat.switchBranch('__root__', 'a2')
+    conversationStates.receive({ id: 'conv-1', generating: false, activeBranches: { __root__: 'a1', other: 'x' } })
+    expect(chat.activeBranches).toEqual({ __root__: 'a2', other: 'x' })
+
+    pending.resolve({})
+    await switching
+    expect(conversationStates.confirmed('conv-1')?.activeBranches.__root__).toBe('a2')
+
+    conversationStates.receive({ id: 'conv-1', generating: false, activeBranches: { __root__: 'a1' } })
     expect(chat.activeBranches.__root__).toBe('a1')
   })
 
-  it('discardFailedMessage removes the failed message, clears its branch entry, and ignores late realtime upserts for it', async () => {
-    installFetch(async () => new Response(JSON.stringify({ message: 'boom' }), { status: 500 }))
+  it('discards a failed message with its branch entry and ignores late upserts for it', async () => {
+    const { chat } = setup({
+      handler: () => {
+        throw new Error('boom')
+      },
+    })
 
-    const chat = new ChatStore()
-    chat.selectedModel = 'anthropic/claude-test'
-
-    await chat.sendMessage('conv-1', 'hi')
+    await chat.sendMessage('hi')
     const failedId = chat.allMessages[0].id
-    expect(Object.values(chat.activeBranches)).toContain(failedId)
-
     chat.discardFailedMessage(failedId)
 
-    expect(chat.allMessages.length).toBe(0)
+    expect(chat.allMessages).toHaveLength(0)
     expect(Object.values(chat.activeBranches)).not.toContain(failedId)
 
-    chat.upsertMessage({ id: failedId, conversationId: 'conv-1', parentId: null, role: 'user', content: 'hi', createdAt: new Date() })
-    expect(chat.allMessages.length).toBe(0)
+    chat.upsertMessage(message({ id: failedId, content: 'hi' }))
+    expect(chat.allMessages).toHaveLength(0)
   })
 
-  it('retryFailedMessage re-posts a pending (never persisted) message without skipUserInsert', async () => {
-    const bodies: Record<string, unknown>[] = []
-    let calls = 0
-    installFetch(async (_url, init) => {
-      ++calls
-      bodies.push(init?.body ? JSON.parse(init.body as string) : null)
-      if (calls === 1) return new Response(JSON.stringify({ message: 'first failure' }), { status: 500 })
-      return okResponse()
+  it('retries a send that never reached the server with the same ids', async () => {
+    let attempt = 0
+    const { chat, chatCalls } = setup({
+      handler: () => {
+        if (++attempt === 1) {
+          throw new Error('first failure')
+        }
+        return {}
+      },
     })
 
-    const chat = new ChatStore()
-    chat.selectedModel = 'anthropic/claude-test'
-
-    await chat.sendMessage('conv-1', 'retry me', undefined, [{ id: 'img.png', mimeType: 'image/png' }], [{ id: 'f.csv', filename: 'f.csv', mimeType: 'text/csv' }])
+    await chat.sendMessage('retry me', [{ id: 'img.png', mimeType: 'image/png' }], [{ id: 'f.csv', filename: 'f.csv', mimeType: 'text/csv' }])
     const failedId = chat.allMessages[0].id
-    expect(chat.allMessages[0].sendError).toBe('first failure')
+    await chat.retryFailedMessage(failedId)
 
-    await chat.retryFailedMessage('conv-1', failedId)
-
-    expect(bodies.length).toBe(2)
-    const retryBody = bodies[1]
-    expect(retryBody.userMsgId).toBe(failedId)
-    expect(retryBody.skipUserInsert).toBe(false)
-    expect(retryBody.message).toBe('retry me')
+    expect(chatCalls()[1].body).toMatchObject({ userMsgId: failedId, skipUserInsert: false, message: 'retry me', images: [{ id: 'img.png', mimeType: 'image/png' }] })
     expect(chat.allMessages[0].sendError).toBeUndefined()
-  })
-
-  it('retryFailedMessage re-triggers generation with skipUserInsert for a persisted message', async () => {
-    const bodies: Record<string, unknown>[] = []
-    installFetch(async (_url, init) => {
-      bodies.push(init?.body ? JSON.parse(init.body as string) : null)
-      return okResponse()
-    })
-
-    const chat = new ChatStore(
-      {},
-      {
-        allMessages: [{ id: 'user-1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'hi', sendError: 'Overloaded', createdAt: new Date() }],
-        activeBranches: { __root__: 'user-1' },
-      },
-    )
-    chat.selectedModel = 'anthropic/claude-test'
-
-    await chat.retryFailedMessage('conv-1', 'user-1')
-
-    expect(bodies.length).toBe(1)
-    expect(bodies[0].userMsgId).toBe('user-1')
-    expect(bodies[0].skipUserInsert).toBe(true)
     expect(chat.isStreaming).toBe(true)
   })
 
-  it('editMessage creates an optimistic branched user message and triggers generation', async () => {
-    const urls: string[] = []
-    const bodies: Record<string, unknown>[] = []
-    installFetch(async (url, init) => {
-      urls.push(String(url))
-      bodies.push(init?.body ? JSON.parse(init.body as string) : null)
-      return okResponse()
-    })
+  it('retries a persisted message that failed on the server without inserting it again', async () => {
+    const { chat, chatCalls } = setup({ messages: [message({ id: 'user-1', content: 'hi', sendError: 'Overloaded' })], branches: { __root__: 'user-1' } })
 
-    const chat = new ChatStore(
-      {},
-      {
-        allMessages: [
-          { id: 'user-1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'original', createdAt: new Date(1) },
-          { id: 'asst-1', conversationId: 'conv-1', parentId: 'user-1', role: 'assistant', content: 'answer', createdAt: new Date(2) },
-        ],
-        activeBranches: { __root__: 'user-1', 'user-1': 'asst-1' },
-      },
-    )
-    chat.selectedModel = 'anthropic/claude-test'
+    const retrying = chat.retryFailedMessage('user-1')
+    expect(chat.allMessages[0].sendError).toBeUndefined()
+    await retrying
 
-    await chat.editMessage('conv-1', 'user-1', 'edited')
-
-    expect(urls).toEqual(['/api/chat/edit', '/api/chat'])
-    expect(chat.allMessages.length).toBe(3)
-    const newMsg = chat.allMessages.find(m => m.content === 'edited')
-    expect(newMsg?.parentId).toBeNull()
-    expect(chat.activeBranches.__root__).toBe(newMsg?.id)
-    expect(bodies[0].newMessageId).toBe(newMsg?.id)
-    expect(bodies[1].userMsgId).toBe(newMsg?.id)
-    expect(bodies[1].skipUserInsert).toBe(true)
-  })
-
-  it('regenerateMessage triggers generation and clears the busy flag on failure', async () => {
-    let calls = 0
-    installFetch(async () => {
-      ++calls
-      if (calls === 1) return okResponse()
-      return new Response(JSON.stringify({ message: 'regen failed' }), { status: 500 })
-    })
-
-    const chat = new ChatStore(
-      {},
-      {
-        allMessages: [
-          { id: 'user-1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'hi', createdAt: new Date(1) },
-          { id: 'asst-1', conversationId: 'conv-1', parentId: 'user-1', role: 'assistant', content: 'answer', createdAt: new Date(2) },
-        ],
-        activeBranches: { __root__: 'user-1', 'user-1': 'asst-1' },
-      },
-    )
-    chat.selectedModel = 'anthropic/claude-test'
-
-    await chat.regenerateMessage('conv-1', 'asst-1')
+    expect(chatCalls()[0].body).toMatchObject({ userMsgId: 'user-1', skipUserInsert: true })
     expect(chat.isStreaming).toBe(true)
-
-    chat.upsertMessage({ id: 'asst-2', conversationId: 'conv-1', parentId: 'user-1', role: 'assistant', content: '', generating: true, createdAt: new Date(3) })
-    chat.upsertMessage({ id: 'asst-2', conversationId: 'conv-1', parentId: 'user-1', role: 'assistant', content: 'new answer', generating: false, createdAt: new Date(3) })
-    chat.setConversationGenerating(false)
-    expect(chat.isStreaming).toBe(false)
-
-    await expect(chat.regenerateMessage('conv-1', 'asst-2')).rejects.toThrow()
-    expect(chat.isStreaming).toBe(false)
   })
 
-  it('stopStreaming posts a stop command and clears the queue', async () => {
-    const mock = installFetch(async () => okResponse())
+  it('edits with a single request that inserts the branched user message', async () => {
+    const messages = [message({ id: 'user-1', content: 'original' }), message({ id: 'asst-1', role: 'assistant', parentId: 'user-1', content: 'answer', createdAt: new Date(2) })]
+    const { chat, calls } = setup({ messages, branches: { __root__: 'user-1', 'user-1': 'asst-1' } })
 
-    const chat = new ChatStore()
-    chat.selectedModel = 'anthropic/claude-test'
+    await chat.editMessage('user-1', 'edited')
 
-    await chat.sendMessage('conv-1', 'hello')
+    const edited = chat.allMessages.find(m => m.content === 'edited')
+    expect(calls.map(c => c.path)).toEqual(['/api/chat'])
+    expect(calls[0].body).toMatchObject({ userMsgId: edited?.id, parentId: null, skipUserInsert: false, message: 'edited' })
+    expect(chat.activeBranches.__root__).toBe(edited?.id)
+    expect(chat.messages.map(m => m.content)).toEqual(['edited', ''])
+  })
+
+  it('regenerates with an instant placeholder and rolls it back when the request fails', async () => {
+    const errors: string[] = []
+    const stop = onSyncError(m => errors.push(m))
+    const messages = [message({ id: 'user-1', content: 'hi' }), message({ id: 'asst-1', role: 'assistant', parentId: 'user-1', content: 'answer', createdAt: new Date(2) })]
+    const { chat } = setup({
+      messages,
+      branches: { __root__: 'user-1', 'user-1': 'asst-1' },
+      handler: () => {
+        throw new Error('regen failed')
+      },
+    })
+
+    const regenerating = chat.regenerateMessage('asst-1')
+    expect(chat.messages.at(-1)).toMatchObject({ role: 'assistant', generating: true, content: '' })
+    await regenerating
+    stop()
+
+    expect(chat.isStreaming).toBe(false)
+    expect(chat.messages.at(-1)?.id).toBe('asst-1')
+    expect(errors).toEqual(['regen failed'])
+  })
+
+  it('stops instantly and reads the final snapshot once the server settled', async () => {
+    const final = assistant({ content: 'hello world', generating: false, eventSeq: 2 })
+    const { chat, calls } = setup({ messages: [assistant({ content: 'hello w', eventSeq: 1 })], generating: true, fetchMessage: async () => final })
+
     chat.stopStreaming()
-
-    const stopCall = mock.mock.calls.find(c => String(c[0]) === '/api/chat/stop')
-    expect(stopCall).toBeDefined()
     expect(chat.isStreaming).toBe(false)
+    await flush()
+    await flush()
+
+    expect(calls.map(c => c.path)).toEqual(['/api/chat/stop'])
+    expect(chat.allMessages[0].content).toBe('hello world')
   })
 
-  it('seed replaces confirmed messages on navigation but keeps pending sends of that conversation', async () => {
-    installFetch(async () => new Response(JSON.stringify({ message: 'boom' }), { status: 500 }))
-
-    const chat = new ChatStore(
-      {},
-      {
-        allMessages: [{ id: 'm1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'old', createdAt: new Date() }],
-        activeBranches: { __root__: 'm1' },
+  it('keeps pending sends when the conversation is reseeded', async () => {
+    const { chat } = setup({
+      messages: [message({ id: 'm1', content: 'old' })],
+      branches: { __root__: 'm1' },
+      handler: () => {
+        throw new Error('boom')
       },
-    )
-    chat.selectedModel = 'anthropic/claude-test'
+    })
 
-    await chat.sendMessage('conv-1', 'unsent')
-    expect(chat.allMessages.length).toBe(2)
+    await chat.sendMessage('unsent')
+    chat.seed({ conversation: { id: 'conv-1', generating: false, activeBranches: { __root__: 'm1' } }, messages: [message({ id: 'm1', content: 'old' })] })
 
-    chat.seed('conv-1', [{ id: 'm1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'old', createdAt: new Date() }], { __root__: 'm1' })
-    expect(chat.allMessages.length).toBe(2)
-
-    chat.seed('conv-2', [], {})
-    expect(chat.allMessages.length).toBe(0)
-  })
-
-  it('seed resets the busy flag when navigating to a different conversation mid-generation', async () => {
-    installFetch(async () => okResponse())
-
-    const chat = new ChatStore()
-    chat.selectedModel = 'anthropic/claude-test'
-
-    await chat.sendMessage('conv-1', 'hello')
-    expect(chat.isStreaming).toBe(true)
-
-    chat.seed('conv-2', [], {})
-    expect(chat.isStreaming).toBe(false)
+    expect(chat.allMessages.map(m => m.content)).toEqual(['old', 'unsent'])
   })
 })
 
 describe('stream events', () => {
-  const streamingAssistant = (overrides: Partial<Message> = {}): Message => ({
-    id: 'assist-1',
-    conversationId: 'conv-1',
-    parentId: null,
-    role: 'assistant',
-    content: '',
-    generating: true,
-    eventSeq: 0,
-    createdAt: new Date(),
-    ...overrides,
-  })
-
-  it('applies text ops on top of the confirmed snapshot', async () => {
-    installFetch(async () => okResponse())
-    const chat = new ChatStore({}, { allMessages: [streamingAssistant()], activeBranches: {} })
+  it('applies text ops on top of the snapshot', () => {
+    const { chat } = setup({ messages: [assistant()] })
 
     chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'he' }] })
     chat.ingestEvent({ messageId: 'assist-1', seq: 2, ops: [{ t: 'text', v: 'llo' }] })
-    await flush()
 
-    expect(chat.allMessages[0].content).toBe('hello')
     expect(chat.streamingMessage?.content).toBe('hello')
   })
 
   it('buffers out-of-order events, fetches the gap once, and applies after fill', async () => {
-    installFetch(async () => okResponse())
     const fetches: { from: number; to: number | null }[] = []
-    const chat = new ChatStore(
-      {
-        fetchStreamEvents: async (_messageId, from, to) => {
-          fetches.push({ from, to })
-          return [{ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'a' }] }]
-        },
+    const { chat } = setup({
+      messages: [assistant()],
+      fetchStreamEvents: async (_messageId, from, to) => {
+        fetches.push({ from, to })
+        return [{ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'a' }] }]
       },
-      { allMessages: [streamingAssistant()], activeBranches: {} },
-    )
+    })
 
     chat.ingestEvent({ messageId: 'assist-1', seq: 2, ops: [{ t: 'text', v: 'b' }] })
     chat.ingestEvent({ messageId: 'assist-1', seq: 3, ops: [{ t: 'text', v: 'c' }] })
@@ -461,251 +414,75 @@ describe('stream events', () => {
     expect(chat.allMessages[0].content).toBe('abc')
   })
 
-  it('drops ops folded into a snapshot via eventSeq', async () => {
-    installFetch(async () => okResponse())
-    const chat = new ChatStore({}, { allMessages: [streamingAssistant()], activeBranches: {} })
+  it('drops ops folded into a snapshot via eventSeq', () => {
+    const { chat } = setup({ messages: [assistant()] })
 
     chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'he' }] })
     chat.ingestEvent({ messageId: 'assist-1', seq: 2, ops: [{ t: 'text', v: 'llo' }] })
-    expect(chat.allMessages[0].content).toBe('hello')
-
-    chat.upsertMessage(streamingAssistant({ content: 'hello', eventSeq: 2 }))
+    chat.upsertMessage(assistant({ content: 'hello', eventSeq: 2 }))
     expect(chat.allMessages[0].content).toBe('hello')
 
     chat.ingestEvent({ messageId: 'assist-1', seq: 3, ops: [{ t: 'text', v: '!' }] })
     expect(chat.allMessages[0].content).toBe('hello!')
   })
 
-  it('ignores events already folded into the snapshot', async () => {
-    installFetch(async () => okResponse())
-    const chat = new ChatStore({}, { allMessages: [streamingAssistant({ content: 'hello', eventSeq: 2 })], activeBranches: {} })
+  it('ignores events already folded into the snapshot', () => {
+    const { chat } = setup({ messages: [assistant({ content: 'hello', eventSeq: 2 })] })
 
     chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'he' }] })
     chat.ingestEvent({ messageId: 'assist-1', seq: 2, ops: [{ t: 'text', v: 'llo' }] })
-    await flush()
 
     expect(chat.allMessages[0].content).toBe('hello')
   })
 
-  it('clears live state when the final snapshot arrives and ignores late events', async () => {
-    installFetch(async () => okResponse())
-    const chat = new ChatStore({}, { allMessages: [streamingAssistant()], activeBranches: {} })
+  it('clears live state when the final snapshot arrives and ignores late events', () => {
+    const { chat } = setup({ messages: [assistant()] })
 
     chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'hi' }] })
-    expect(chat.allMessages[0].content).toBe('hi')
-
-    chat.upsertMessage(streamingAssistant({ content: 'hi', generating: false, eventSeq: 1 }))
-    expect(chat.isStreaming).toBe(false)
-    expect(chat.allMessages[0].content).toBe('hi')
-
+    chat.upsertMessage(assistant({ content: 'hi', generating: false, eventSeq: 1 }))
     chat.ingestEvent({ messageId: 'assist-1', seq: 2, ops: [{ t: 'text', v: 'stale' }] })
+
+    expect(chat.isStreaming).toBe(false)
     expect(chat.allMessages[0].content).toBe('hi')
   })
 
-  it('buffers events for an unknown message and applies them when the placeholder arrives', async () => {
-    installFetch(async () => okResponse())
-    const chat = new ChatStore({}, { allMessages: [], activeBranches: {} })
+  it('buffers events for an unknown message and applies them when the placeholder arrives', () => {
+    const { chat } = setup()
 
     chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'early' }] })
-    expect(chat.allMessages.length).toBe(0)
+    expect(chat.allMessages).toHaveLength(0)
 
-    chat.upsertMessage(streamingAssistant())
+    chat.upsertMessage(assistant())
     expect(chat.allMessages[0].content).toBe('early')
   })
 
-  it('clears live state on seed', async () => {
-    installFetch(async () => okResponse())
-    const chat = new ChatStore({}, { allMessages: [streamingAssistant()], activeBranches: {} })
+  it('streams into the optimistic placeholder before the server acknowledged it', async () => {
+    const { chat, chatCalls } = setup({ handler: () => new Promise(() => {}) })
 
-    chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'hi' }] })
-    expect(chat.allMessages[0].content).toBe('hi')
+    void chat.sendMessage('hello')
+    const assistantId = String(chatCalls()[0].body.assistantMsgId)
+    chat.ingestEvent({ messageId: assistantId, seq: 1, ops: [{ t: 'text', v: 'fast' }] })
 
-    chat.seed('conv-1', [streamingAssistant({ content: 'hi', eventSeq: 1 })], {})
-    expect(chat.allMessages[0].content).toBe('hi')
+    expect(chat.streamingMessage?.content).toBe('fast')
   })
 
-  it('clears awaitingGeneration when the first event arrives', async () => {
-    installFetch(async () => okResponse())
-    const chat = new ChatStore()
-    chat.selectedModel = 'anthropic/claude-test'
-    await chat.sendMessage('conv-1', 'hello')
-    expect(chat.awaitingGeneration).toBe(true)
+  it('ignores a snapshot older than the one it already holds', () => {
+    const { chat } = setup({ messages: [assistant({ content: 'hello world', eventSeq: 5 })] })
 
-    chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'hi' }] })
-    expect(chat.awaitingGeneration).toBe(false)
-  })
-})
-
-describe('HTTP response reconciliation', () => {
-  let originalFetch: typeof fetch
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch
-  })
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch
-    vi.restoreAllMocks()
-  })
-
-  const fakeRequest = (handler: (path: string, body: Record<string, unknown>) => unknown): RequestFn => (async (path: string, body: Record<string, unknown>) => handler(path, body)) as RequestFn
-
-  const summary = (overrides: Partial<ConversationSummary> = {}): ConversationSummary => ({
-    id: 'conv-1',
-    title: 'New Chat',
-    favorite: false,
-    generating: false,
-    systemPromptId: null,
-    defaultModel: null,
-    updatedAt: new Date(),
-    ...overrides,
-  })
-
-  const generatingAssistant = (overrides: Partial<Message> = {}): Message => ({
-    id: 'assist-1',
-    conversationId: 'conv-1',
-    parentId: null,
-    role: 'assistant',
-    content: '',
-    generating: true,
-    eventSeq: 0,
-    createdAt: new Date(),
-    ...overrides,
-  })
-
-  it('upserts the user message returned by POST /api/chat', async () => {
-    let n = 0
-    const chat = new ChatStore({
-      id: () => `local-${++n}`,
-      now: () => new Date(1000),
-      request: fakeRequest(path => (path === '/api/chat' ? { userMessage: { id: 'local-1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'hello', createdAt: new Date(1000).toISOString() } } : {})),
-    })
-
-    await chat.sendMessage('conv-1', 'hello')
-
-    expect(chat.allMessages.length).toBe(1)
-    expect(chat.allMessages[0].id).toBe('local-1')
-    expect(chat.allMessages[0].createdAt).toBeInstanceOf(Date)
-    expect(chat.allMessages[0].sendError).toBeUndefined()
-  })
-
-  it('applies the title returned by POST /api/chat/title to conversationsStore after the first exchange', async () => {
-    conversationsStore.hydrate([summary()])
-    const requested: string[] = []
-    const chat = new ChatStore({
-      request: fakeRequest(path => {
-        requested.push(path)
-        return path === '/api/chat/title' ? { title: 'Greeting' } : {}
-      }),
-    })
-
-    await chat.sendMessage('conv-1', 'hello')
-    await flush()
-
-    expect(requested).toEqual(['/api/chat', '/api/chat/title'])
-    expect(conversationsStore.conversations.find(c => c.id === 'conv-1')?.title).toBe('Greeting')
-  })
-
-  it('does not request a title for follow-up messages', async () => {
-    const requested: string[] = []
-    const chat = new ChatStore(
-      {
-        request: fakeRequest(path => {
-          requested.push(path)
-          return {}
-        }),
-      },
-      { allMessages: [{ id: 'user-1', conversationId: 'conv-1', parentId: null, role: 'user', content: 'hi', createdAt: new Date() }], activeBranches: {} },
-    )
-
-    await chat.sendMessage('conv-1', 'second')
-
-    expect(requested).toEqual(['/api/chat'])
-  })
-
-  it('notifies when the title request fails', async () => {
-    const errors: string[] = []
-    const chat = new ChatStore({
-      notify: m => errors.push(m),
-      request: fakeRequest(path => {
-        if (path === '/api/chat/title') {
-          throw new Error('title boom')
-        }
-        return {}
-      }),
-    })
-
-    await chat.sendMessage('conv-1', 'hello')
-    await flush()
-
-    expect(errors).toEqual(['title boom'])
-  })
-
-  it('stopStreaming fills missing events for the settled assistant message', async () => {
-    const fetches: { from: number; to: number | null }[] = []
-    const requested: string[] = []
-    const chat = new ChatStore(
-      {
-        request: fakeRequest(path => {
-          requested.push(path)
-          return {}
-        }),
-        fetchStreamEvents: async (_messageId, from, to) => {
-          fetches.push({ from, to })
-          return [{ messageId: 'assist-1', seq: 2, ops: [{ t: 'text', v: 'orld' }] }]
-        },
-      },
-      { allMessages: [generatingAssistant({ eventSeq: 1, content: 'hello w' })], activeBranches: {} },
-    )
-
-    chat.stopStreaming()
-    await flush()
-
-    expect(requested).toEqual(['/api/chat/stop'])
-    expect(fetches).toEqual([{ from: 2, to: null }])
-    expect(chat.allMessages[0].content).toBe('hello world')
-  })
-
-  it('asks the server to create the conversation until the first send succeeds', async () => {
-    const bodies: Record<string, unknown>[] = []
-    const chat = new ChatStore({
-      request: fakeRequest((path, body) => {
-        if (path === '/api/chat') {
-          bodies.push(body)
-        }
-        return {}
-      }),
-    })
-    chat.seed('conv-new', [], {})
-    chat.pendingCreation = { systemPromptId: 'prompt-1' }
-
-    await chat.sendMessage('conv-new', 'first')
-    chat.upsertMessage(generatingAssistant({ conversationId: 'conv-new' }))
-    chat.upsertMessage(generatingAssistant({ conversationId: 'conv-new', generating: false }))
-    await chat.sendMessage('conv-new', 'second')
-
-    expect(bodies.map(b => b.createConversation)).toEqual([{ systemPromptId: 'prompt-1' }, undefined])
-  })
-
-  it('ignores a snapshot older than the one it already holds', async () => {
-    const chat = new ChatStore({}, { allMessages: [generatingAssistant({ content: 'hello world', eventSeq: 5 })], activeBranches: {} })
-
-    chat.upsertMessage(generatingAssistant({ content: 'hello', eventSeq: 3 }))
+    chat.upsertMessage(assistant({ content: 'hello', eventSeq: 3 }))
 
     expect(chat.allMessages[0].content).toBe('hello world')
   })
 
   it('catches up every generating assistant message from its snapshot', async () => {
     const fetches: { messageId: string; from: number }[] = []
-    const chat = new ChatStore(
-      {
-        fetchStreamEvents: async (messageId, from) => {
-          fetches.push({ messageId, from })
-          return [{ messageId, seq: from, ops: [{ t: 'text', v: '!' }] }]
-        },
+    const { chat } = setup({
+      messages: [assistant({ content: 'hi', eventSeq: 2 })],
+      fetchStreamEvents: async (messageId, from) => {
+        fetches.push({ messageId, from })
+        return [{ messageId, seq: from, ops: [{ t: 'text', v: '!' }] }]
       },
-      { allMessages: [generatingAssistant({ content: 'hi', eventSeq: 2 })], activeBranches: {} },
-    )
+    })
 
     await chat.catchUpStreams()
 
@@ -715,12 +492,40 @@ describe('HTTP response reconciliation', () => {
 
   it('persists the queue whenever it changes', async () => {
     const persisted: unknown[][] = []
-    const chat = new ChatStore({ persistQueue: queue => persisted.push(queue) }, { allMessages: [generatingAssistant()], activeBranches: {} })
+    const { chat } = setup({ messages: [assistant()], persistQueue: queue => persisted.push(queue) })
 
-    await chat.sendMessage('conv-1', 'queued')
+    await chat.sendMessage('queued')
     await flush()
 
     expect(persisted.at(-1)).toEqual([expect.objectContaining({ content: 'queued' })])
-    chat.dispose()
+  })
+})
+
+describe('silent realtime', () => {
+  it('follows a generating message over HTTP when realtime delivers nothing', async () => {
+    const snapshots = [assistant({ content: 'hel', eventSeq: 1 }), assistant({ content: 'hello', eventSeq: 2, generating: false })]
+    const { chat } = setup({ messages: [assistant()], generating: true, realtimeLive: () => false, fetchMessage: async () => snapshots.shift() ?? null })
+
+    await sleep(1_300)
+
+    expect(chat.allMessages[0]).toMatchObject({ content: 'hello', generating: false })
+  })
+
+  it('removes a placeholder the server deleted and surfaces the error on the user message', async () => {
+    const records: Record<string, ChatMessage | null> = { 'assist-1': null, 'user-1': message({ id: 'user-1', content: 'hi', sendError: 'No API key configured for anthropic' }) }
+    const { chat, conversationStates } = setup({
+      messages: [message({ id: 'user-1', content: 'hi' }), assistant({ parentId: 'user-1' })],
+      branches: { __root__: 'user-1', 'user-1': 'assist-1' },
+      generating: true,
+      realtimeLive: () => false,
+      fetchMessage: async id => records[id] ?? null,
+    })
+
+    await sleep(500)
+
+    expect(chat.allMessages.map(m => m.id)).toEqual(['user-1'])
+    expect(chat.allMessages[0].sendError).toBe('No API key configured for anthropic')
+    expect(conversationStates.get('conv-1')?.generating).toBe(false)
+    expect(chat.isStreaming).toBe(false)
   })
 })

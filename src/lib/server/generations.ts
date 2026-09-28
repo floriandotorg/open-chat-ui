@@ -3,21 +3,27 @@ export interface ActiveGeneration {
   userId: string
   abort: AbortController
   startedAt: number
+  finished: Promise<void>
 }
 
-const active = new Map<string, ActiveGeneration>()
+const active = new Map<string, ActiveGeneration & { resolveFinished: () => void }>()
 
 export const getGeneration = (conversationId: string): ActiveGeneration | undefined => active.get(conversationId)
 
 export const registerGeneration = (conversationId: string, userId: string): ActiveGeneration => {
   const existing = active.get(conversationId)
   if (existing) return existing
-  const generation: ActiveGeneration = { conversationId, userId, abort: new AbortController(), startedAt: Date.now() }
+  let resolveFinished = () => {}
+  const finished = new Promise<void>(resolve => {
+    resolveFinished = resolve
+  })
+  const generation = { conversationId, userId, abort: new AbortController(), startedAt: Date.now(), finished, resolveFinished }
   active.set(conversationId, generation)
   return generation
 }
 
 export const finishGeneration = (conversationId: string) => {
+  active.get(conversationId)?.resolveFinished()
   active.delete(conversationId)
 }
 

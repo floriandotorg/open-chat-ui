@@ -6,6 +6,7 @@ import { mapConversation, mapMessage, now, toChatMessage } from '$lib/server/db/
 import { startGeneration } from '$lib/server/generate'
 import { getGeneration } from '$lib/server/generations'
 import { getFirstOrNull, pb } from '$lib/server/pb'
+import { clientRecordId } from '$lib/server/record-id'
 import type { FileAttachment, ImageAttachment, ThinkingEffort } from '$lib/types'
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
@@ -22,6 +23,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     thinkingEffort,
     parentId: requestParentId,
     userMsgId: requestUserMsgId,
+    assistantMsgId: requestAssistantMsgId,
     skipUserInsert,
     createConversation: newConversation,
   } = body as {
@@ -33,6 +35,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     thinkingEffort?: ThinkingEffort
     parentId?: string | null
     userMsgId?: string
+    assistantMsgId?: string
     skipUserInsert?: boolean
     createConversation?: { systemPromptId: string | null }
   }
@@ -62,7 +65,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     throw error(409, 'Generation already in progress')
   }
 
-  const userMsgId = requestUserMsgId ?? crypto.randomUUID()
+  const userMsgId = clientRecordId(requestUserMsgId)
   const effectiveParentId = skipUserInsert ? (requestParentId ?? null) : resolveEffectiveParentId(requestParentId, priorMsgs)
   if (!skipUserInsert) {
     await pb.collection('messages').create({
@@ -114,8 +117,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     cur = cur.parentId ? byId.get(cur.parentId) : undefined
   }
 
-  const assistantMsgId = crypto.randomUUID()
-  startGeneration({
+  const assistantMsgId = clientRecordId(requestAssistantMsgId)
+  await startGeneration({
     userId,
     conversationId,
     modelRef,

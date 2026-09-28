@@ -1,6 +1,7 @@
 import type { ChatStore } from '$lib/stores/chat.svelte'
 import type { StreamEvent } from '$lib/types'
-import type { ChatMessage, ConversationDetail, ConversationState } from '$lib/types/chat'
+import type { ChatMessage, ConversationDetail, ConversationSummary } from '$lib/types/chat'
+import { isHttpError } from '@sveltejs/kit'
 import { untrack } from 'svelte'
 
 export type { ConversationDetail } from '$lib/types/chat'
@@ -22,10 +23,12 @@ interface Entry {
 type Replay = (store: ChatStore) => void
 
 // One ChatStore per visited conversation, kept alive across navigation and
-// fed by app-wide realtime routing, so revisiting a chat renders from memory.
+// fed by app-wide realtime routing. Stores are handed out synchronously, so
+// navigation never waits for the network: a store that is still loading
+// renders its skeleton and fills in when the detail arrives.
 export class ChatStores {
   private entries = new Map<string, Entry>()
-  private inflight = new Map<string, Promise<ChatStore>>()
+  private inflight = new Map<string, Promise<void>>()
   private replays = new Map<string, Replay[]>()
   private deps: Required<ChatStoresDeps>
 
@@ -43,39 +46,42 @@ export class ChatStores {
     return store
   }
 
-  acquire = (id: string, fetchFn?: typeof fetch): Promise<ChatStore> => {
-    const entry = this.entries.get(id)
-    if (entry) {
-      this.touch(id, entry)
-      if (entry.stale) {
-        void this.revalidate(id)
+  ensure = (id: string, fetchFn?: typeof fetch): ChatStore =>
+    untrack(() => {
+      const entry = this.entries.get(id)
+      if (entry) {
+        this.touch(id, entry)
+        if (entry.stale || entry.store.status === 'error') {
+          void this.load(id, fetchFn)
+        }
+        return entry.store
       }
-      return Promise.resolve(entry.store)
-    }
-    return this.load(id, fetchFn)
-  }
+      const store = this.createStore(id)
+      store.status = 'loading'
+      this.touch(id, { store, stale: false })
+      this.evict(id)
+      void this.load(id, fetchFn)
+      return store
+    })
+
+  whenLoaded = (id: string): Promise<void> => this.inflight.get(id) ?? Promise.resolve()
 
   prefetch = (ids: string[]) => {
     for (const id of ids) {
       if (!this.entries.has(id)) {
-        this.acquire(id).catch(() => {})
+        this.ensure(id)
       }
     }
   }
 
-  revalidate = async (id: string) => {
-    if (this.entries.has(id)) {
-      await this.load(id).catch(() => {})
-    }
-  }
+  revalidate = (id: string): Promise<void> => (this.entries.has(id) ? this.load(id) : Promise.resolve())
 
-  createEmpty = (id: string, systemPromptId: string | null): ChatStore =>
+  createEmpty = (conversation: ConversationSummary): ChatStore =>
     untrack(() => {
-      const store = this.createStore(id)
-      store.seed(id, [], {})
-      store.pendingCreation = { systemPromptId }
-      this.touch(id, { store, stale: false })
-      this.evict(id)
+      const store = this.createStore(conversation.id)
+      store.pendingCreation = conversation
+      this.touch(conversation.id, { store, stale: false })
+      this.evict(conversation.id)
       return store
     })
 
@@ -95,14 +101,6 @@ export class ChatStores {
 
   routeEvent = (conversationId: string, event: StreamEvent) => this.route(conversationId, store => store.ingestEvent(event))
 
-  routeConversation = (id: string, state: ConversationState) => {
-    const store = this.peek(id)
-    if (store) {
-      store.applyServerBranches(state.activeBranches)
-      store.setConversationGenerating(state.generating)
-    }
-  }
-
   // Updates that race an in-flight fetch are replayed on top of its snapshot;
   // eventSeq and seq checks in ChatStore drop whatever the snapshot covers.
   private route = (conversationId: string, apply: Replay) => {
@@ -113,7 +111,7 @@ export class ChatStores {
     }
   }
 
-  private load = (id: string, fetchFn?: typeof fetch): Promise<ChatStore> => {
+  private load = (id: string, fetchFn?: typeof fetch): Promise<void> => {
     const existing = this.inflight.get(id)
     if (existing) {
       return existing
@@ -123,6 +121,7 @@ export class ChatStores {
     const promise = this.deps
       .fetchDetail(id, fetchFn)
       .then(detail => this.seed(id, detail, replays))
+      .catch(err => this.fail(id, err))
       .finally(() => {
         this.inflight.delete(id)
         this.replays.delete(id)
@@ -131,18 +130,29 @@ export class ChatStores {
     return promise
   }
 
-  private seed = (id: string, detail: ConversationDetail, replays: Replay[]): ChatStore => {
-    const entry = this.entries.get(id) ?? { store: this.createStore(id), stale: false }
-    entry.store.seed(id, detail.messages, detail.conversation.activeBranches)
-    entry.store.setConversationGenerating(detail.conversation.generating)
+  private seed = (id: string, detail: ConversationDetail, replays: Replay[]) => {
+    const entry = this.entries.get(id)
+    if (!entry) {
+      return
+    }
+    entry.store.seed(detail)
     entry.stale = false
     for (const replay of replays) {
       replay(entry.store)
     }
-    this.touch(id, entry)
-    this.evict(id)
     void entry.store.catchUpStreams()
-    return entry.store
+  }
+
+  private fail = (id: string, err: unknown) => {
+    const store = this.peek(id)
+    if (!store) {
+      return
+    }
+    if (isHttpError(err, 404)) {
+      store.status = 'missing'
+    } else if (store.status === 'loading') {
+      store.status = 'error'
+    }
   }
 
   // Stores outlive whatever component triggered their creation; deriveds

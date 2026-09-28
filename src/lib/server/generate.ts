@@ -56,25 +56,59 @@ export interface GenerationParams {
   preloaded: { conversation: Conversation; messages: Message[] }
 }
 
-export const startGeneration = (params: GenerationParams): ActiveGeneration => {
-  const existing = getGeneration(params.conversationId)
-  if (existing) return existing
-  const generation = registerGeneration(params.conversationId, params.userId)
-  ;(async () => {
-    try {
-      await runGeneration(generation, params)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Generation error'
-      try {
-        await pb.collection('messages').update(params.parentId, { error: message })
-      } catch {}
-      try {
-        await pb.collection('conversations').update(params.conversationId, { generating: false })
-      } catch {}
-      finishGeneration(params.conversationId)
+const createPlaceholder = async ({ conversationId, assistantMsgId, parentId, modelRef, branchParentKey, preloaded }: GenerationParams): Promise<boolean> => {
+  const { provider } = parseModelRef(modelRef)
+  try {
+    await pb.collection('messages').create({ id: assistantMsgId, conversation: conversationId, parentId, role: 'assistant', content: '', provider, model: modelRef, generating: true, createdAt: now() })
+    const branchEntries: Record<string, string> = { [parentId]: assistantMsgId }
+    if (branchParentKey) {
+      branchEntries[branchParentKey] = parentId
     }
-  })()
-  return generation
+    // One write for generation start + branch pointers, computed from the
+    // preloaded conversation (the generation lock excludes concurrent writers).
+    await pb.collection('conversations').update(conversationId, { generating: true, activeBranches: { ...(preloaded.conversation.activeBranches ?? {}), ...branchEntries } })
+    return true
+  } catch {
+    return false
+  }
+}
+
+// A generation that died before producing output leaves an empty placeholder
+// behind; one that died mid-way keeps what it streamed.
+const settleOrphanedPlaceholder = async ({ conversationId, assistantMsgId, parentId }: GenerationParams) => {
+  const row = await getFirstOrNull(pb.collection('messages').getOne(assistantMsgId, { fields: 'content,toolCalls,generating' }))
+  if (!row?.generating) {
+    return
+  }
+  if (row.content || row.toolCalls) {
+    await pb.collection('messages').update(assistantMsgId, { generating: false, settledAt: now() })
+    return
+  }
+  await pb.collection('messages').delete(assistantMsgId)
+  await mergeBranchPointers(conversationId, { [parentId]: null })
+}
+
+// Resolves once the assistant placeholder is persisted, so the request can
+// answer with the record the client already renders optimistically.
+export const startGeneration = async (params: GenerationParams): Promise<void> => {
+  if (getGeneration(params.conversationId)) {
+    return
+  }
+  const generation = registerGeneration(params.conversationId, params.userId)
+  const placeholderCreated = await createPlaceholder(params)
+  runGeneration(generation, params, placeholderCreated).catch(async err => {
+    const message = err instanceof Error ? err.message : 'Generation error'
+    await settleOrphanedPlaceholder(params).catch(() => {})
+    await pb
+      .collection('messages')
+      .update(params.parentId, { error: message })
+      .catch(() => {})
+    await pb
+      .collection('conversations')
+      .update(params.conversationId, { generating: false })
+      .catch(() => {})
+    finishGeneration(params.conversationId)
+  })
 }
 
 const mergeBranchPointers = async (conversationId: string, entries: Record<string, string | null>) => {
@@ -87,7 +121,7 @@ const mergeBranchPointers = async (conversationId: string, entries: Record<strin
   await pb.collection('conversations').update(conversationId, { activeBranches: branches })
 }
 
-const runGeneration = async (generation: ActiveGeneration, params: GenerationParams) => {
+const runGeneration = async (generation: ActiveGeneration, params: GenerationParams, placeholderCreated: boolean) => {
   const { userId, conversationId, modelRef, thinkingEffort, assistantMsgId, parentId, historyMessageIds, branchParentKey, titleOnFirst } = params
   const { provider, model } = parseModelRef(modelRef)
   const signal = generation.abort.signal
@@ -220,29 +254,6 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
   const liveToolCalls: LiveEntry[] = []
   let citationCounter = 0
   let container: string | undefined = conversation.container ?? undefined
-
-  let placeholderCreated = false
-  try {
-    await pb.collection('messages').create({
-      id: assistantMsgId,
-      conversation: conversationId,
-      parentId,
-      role: 'assistant',
-      content: '',
-      provider,
-      model: modelRef,
-      generating: true,
-      createdAt: now(),
-    })
-    placeholderCreated = true
-    const branchEntries: Record<string, string> = { [parentId]: assistantMsgId }
-    if (branchParentKey) {
-      branchEntries[branchParentKey] = parentId
-    }
-    // One write for generation start + branch pointers, computed from the
-    // preloaded conversation (the generation lock excludes concurrent writers).
-    await pb.collection('conversations').update(conversationId, { generating: true, activeBranches: { ...(conversation.activeBranches ?? {}), ...branchEntries } })
-  } catch {}
 
   // Retry of a failed send reuses the parent message; clear its stored
   // error so the banner clears immediately on all attached clients.

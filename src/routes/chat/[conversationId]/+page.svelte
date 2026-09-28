@@ -1,8 +1,6 @@
 <script lang="ts">
 import ChatInput from '$lib/components/ChatInput.svelte'
 import ChatMessage from '$lib/components/ChatMessage.svelte'
-import { mapChatMessage } from '$lib/db-mappers'
-import { pbClient } from '$lib/pb-client'
 import { selectionIntersects } from '$lib/selection'
 import { ChatStore } from '$lib/stores/chat.svelte'
 import { chatContext } from '$lib/stores/chat-context.svelte'
@@ -10,6 +8,7 @@ import { getChatStores } from '$lib/stores/chat-sync.svelte'
 import type { FileAttachment, ImageAttachment, Message } from '$lib/types'
 import type { ConversationDetail } from '$lib/types/chat'
 import { browser } from '$app/environment'
+import { resolve } from '$app/paths'
 import type { PageData } from './$types'
 import { tick, untrack } from 'svelte'
 
@@ -21,8 +20,8 @@ const createServerStore = (initial: ConversationDetail | null) => {
   if (!initial) {
     throw new Error('Server render requires the conversation detail')
   }
-  const store = new ChatStore({}, { allMessages: initial.messages, activeBranches: initial.conversation.activeBranches })
-  store.setConversationGenerating(initial.conversation.generating)
+  const store = new ChatStore(initial.conversation.id)
+  store.seed(initial)
   return store
 }
 
@@ -96,25 +95,6 @@ $effect(() => {
   chat.thinkingEffort = ctx.thinkingEffort
 })
 
-// Mid-stream recovery: while a message is generating but neither events nor
-// snapshots arrived for 8 s, fill the event gap and refetch that one record.
-$effect(() => {
-  const store = chat
-  const interval = setInterval(() => {
-    if (document.visibilityState !== 'visible') return
-    const streaming = store.streamingMessage
-    if (!streaming?.generating) return
-    if (Date.now() - store.lastStreamActivity < 8_000) return
-    void store.fillMissingEvents(streaming.id)
-    pbClient
-      .collection('messages')
-      .getOne(streaming.id)
-      .then(row => store.upsertMessage(mapChatMessage(row)))
-      .catch(() => {})
-  }, 4_000)
-  return () => clearInterval(interval)
-})
-
 $effect(() => {
   const convId = data.conversationId
   ctx.generatingConversationId = chat.isStreaming ? convId : null
@@ -125,22 +105,22 @@ $effect(() => {
 
 const handleSubmit = (content: string, images?: ImageAttachment[], files?: FileAttachment[]) => {
   stickToBottom = true
-  chat.sendMessage(data.conversationId, content, undefined, images, files)
+  void chat.sendMessage(content, images, files)
 }
 
 const handleRegenerate = (messageId: string) => {
   stickToBottom = true
-  chat.regenerateMessage(data.conversationId, messageId)
+  void chat.regenerateMessage(messageId)
 }
 
 const handleEdit = (messageId: string, content: string) => {
   stickToBottom = true
-  chat.editMessage(data.conversationId, messageId, content)
+  void chat.editMessage(messageId, content)
 }
 
 const handleRetry = (messageId: string) => {
   stickToBottom = true
-  chat.retryFailedMessage(data.conversationId, messageId)
+  void chat.retryFailedMessage(messageId)
 }
 
 const handleDiscard = (messageId: string) => {
@@ -158,7 +138,7 @@ const handleSwitchBranch = (messageId: string, direction: 'prev' | 'next') => {
   const newIdx = direction === 'prev' ? currentIdx - 1 : currentIdx + 1
   if (newIdx < 0 || newIdx >= siblings.length) return
 
-  chat.switchBranch(data.conversationId, parentKey, siblings[newIdx].id)
+  void chat.switchBranch(parentKey, siblings[newIdx].id)
 }
 
 const startEdit = (entry: { id: string; content: string }) => {
@@ -236,8 +216,23 @@ const isEmptyGeneration = (message: Message) => message.generating && !message.c
           />
         {/if}
       {/each}
-      {#if chat.awaitingGeneration && !chat.streamingMessage}
-        {@render typingDots()}
+      {#if chat.status === 'loading'}
+        <div class="loading-skeleton space-y-6" aria-label="Loading conversation">
+          <div class="ml-auto h-10 w-1/3 rounded-2xl bg-gray-100 dark:bg-neutral-700/60"></div>
+          <div class="space-y-2">
+            <div class="h-3 w-5/6 rounded-full bg-gray-100 dark:bg-neutral-700/60"></div>
+            <div class="h-3 w-4/6 rounded-full bg-gray-100 dark:bg-neutral-700/60"></div>
+            <div class="h-3 w-3/6 rounded-full bg-gray-100 dark:bg-neutral-700/60"></div>
+          </div>
+        </div>
+      {:else if chat.status === 'missing'}
+        <div class="py-16 text-center text-sm text-gray-500 dark:text-neutral-400">
+          This conversation no longer exists. <a href={resolve('/chat')} class="font-medium text-blue-500 hover:underline">Start a new chat</a>
+        </div>
+      {:else if chat.status === 'error'}
+        <div class="py-16 text-center text-sm text-gray-500 dark:text-neutral-400">
+          Couldn't load this conversation. <button onclick={() => getChatStores().revalidate(data.conversationId)} class="cursor-pointer font-medium text-blue-500 hover:underline">Try again</button>
+        </div>
       {/if}
       {#each chat.messageQueue as entry (entry.id)}
         <div class="flex justify-end">

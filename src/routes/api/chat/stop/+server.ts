@@ -5,6 +5,8 @@ import { clearGeneratingFlag } from '$lib/server/reaper'
 import type { RequestHandler } from './$types'
 import { error } from '@sveltejs/kit'
 
+const STOP_SETTLE_TIMEOUT_MS = 5_000
+
 export const POST: RequestHandler = async ({ request, locals }) => {
   const userId = requireUser(locals.user).id
   const { conversationId } = (await request.json()) as { conversationId: string }
@@ -20,6 +22,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       throw error(403, 'Forbidden')
     }
     abortGeneration(conversationId)
+    // Answer once the final snapshot is persisted, so the client's follow up
+    // read is authoritative even without realtime.
+    await Promise.race([generation.finished, new Promise(resolve => setTimeout(resolve, STOP_SETTLE_TIMEOUT_MS))])
   } else {
     // No live generation: the flag is stale (server restart), clear it so
     // the client stops showing the conversation as generating.

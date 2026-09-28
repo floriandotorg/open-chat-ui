@@ -4,6 +4,7 @@ import { mapConversation, mapMessage } from '$lib/server/db/records'
 import { startGeneration } from '$lib/server/generate'
 import { getGeneration } from '$lib/server/generations'
 import { getFirstOrNull, pb } from '$lib/server/pb'
+import { clientRecordId } from '$lib/server/record-id'
 import type { ThinkingEffort } from '$lib/types'
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
@@ -14,11 +15,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const {
     conversationId,
     messageId,
+    assistantMsgId: requestAssistantMsgId,
     model: modelRef,
     thinkingEffort,
   } = body as {
     conversationId: string
     messageId: string
+    assistantMsgId?: string
     model: string
     thinkingEffort?: ThinkingEffort
   }
@@ -59,8 +62,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const ancestorPath = getAncestorPath(userParentId, allMsgs)
   const historyIds = ancestorPath.map(m => m.id)
 
-  const assistantMsgId = crypto.randomUUID()
-  startGeneration({
+  const assistantMsgId = clientRecordId(requestAssistantMsgId)
+  await startGeneration({
     userId,
     conversationId,
     modelRef,

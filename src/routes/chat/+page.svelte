@@ -2,7 +2,6 @@
 import ChatInput from '$lib/components/ChatInput.svelte'
 import { chatContext } from '$lib/stores/chat-context.svelte'
 import { getChatStores } from '$lib/stores/chat-sync.svelte'
-import { conversationsStore } from '$lib/stores/conversations.svelte'
 import type { FileAttachment, ImageAttachment } from '$lib/types'
 import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
@@ -22,12 +21,10 @@ $effect(() => {
 // on the server, so starting a chat costs a single request.
 const startConversation = (content: string, images?: ImageAttachment[], files?: FileAttachment[], replaceState = false) => {
   const id = crypto.randomUUID()
-  const systemPromptId = ctx.currentSystemPromptId
-  conversationsStore.upsert({ id, title: 'New Chat', favorite: false, generating: false, systemPromptId, defaultModel: ctx.selectedModel || null, updatedAt: new Date() })
-  const store = getChatStores().createEmpty(id, systemPromptId)
+  const store = getChatStores().createEmpty({ id, title: 'New Chat', favorite: false, generating: false, systemPromptId: ctx.currentSystemPromptId, defaultModel: ctx.selectedModel || null, updatedAt: new Date() })
   store.selectedModel = ctx.selectedModel
   store.thinkingEffort = ctx.thinkingEffort
-  void store.sendMessage(id, content, undefined, images, files)
+  void store.sendMessage(content, images, files)
   void goto(resolve(`/chat/${id}`), { replaceState })
 }
 

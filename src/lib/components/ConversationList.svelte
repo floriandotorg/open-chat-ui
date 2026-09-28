@@ -1,5 +1,6 @@
 <script lang="ts">
 import { splitByTerms } from '$lib/highlight'
+import { deleteConversation, conversations as liveConversations, setFavorite } from '$lib/sync/conversations.svelte'
 import type { ConversationSummary } from '$lib/types/chat'
 import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
@@ -11,16 +12,12 @@ let {
   generatingConversationId,
   searchQuery = $bindable(''),
   showFavoritesOnly = false,
-  onpatch,
-  onremove,
 }: {
   conversations: ConversationSummary[]
   currentId?: string
   generatingConversationId?: string | null
   searchQuery?: string
   showFavoritesOnly?: boolean
-  onpatch?: (id: string, partial: Partial<ConversationSummary>) => void
-  onremove?: (id: string) => void
 } = $props()
 
 interface SearchHit {
@@ -46,7 +43,9 @@ const isSearching = $derived(trimmedQuery.length >= 2)
 
 const filteredConversations = $derived(showFavoritesOnly ? conversations.filter(c => c.favorite) : conversations)
 
-const filteredSearchResults = $derived(showFavoritesOnly && searchResults ? searchResults.filter(r => r.favorite) : searchResults)
+const liveSearchResults = $derived(searchResults?.filter(hit => liveConversations.has(hit.id)).map(hit => ({ ...hit, favorite: liveConversations.get(hit.id)?.favorite ?? hit.favorite })) ?? null)
+
+const filteredSearchResults = $derived(showFavoritesOnly && liveSearchResults ? liveSearchResults.filter(r => r.favorite) : liveSearchResults)
 
 const groupedConversations = $derived.by(() => {
   const now = new Date()
@@ -120,27 +119,20 @@ const promptDelete = (e: Event, id: string, title: string) => {
   showDeleteDialog = true
 }
 
-const confirmDelete = async () => {
+const confirmDelete = () => {
   if (!deleteTarget) return
   const id = deleteTarget.id
   deleteTarget = null
-  onremove?.(id)
-  await fetch(`/api/conversations/${id}`, { method: 'DELETE' })
+  void deleteConversation(id)
   if (currentId === id) {
-    await goto(resolve('/chat'))
+    void goto(resolve('/chat'))
   }
 }
 
-const toggleFavorite = async (e: Event, convId: string, currentFavorite: boolean) => {
+const toggleFavorite = (e: Event, convId: string, currentFavorite: boolean) => {
   e.stopPropagation()
   e.preventDefault()
-  const newFavorite = !currentFavorite
-  onpatch?.(convId, { favorite: newFavorite })
-  await fetch(`/api/conversations/${convId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ favorite: newFavorite }),
-  })
+  void setFavorite(convId, !currentFavorite)
 }
 </script>
 

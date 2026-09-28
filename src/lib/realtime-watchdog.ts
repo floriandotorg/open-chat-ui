@@ -12,6 +12,9 @@ const RESUME_STALE_MS = 25_000
 // the connection is assumed dead and recovered on return to foreground.
 const RESUME_HIDDEN_MS = 5_000
 const CHECK_INTERVAL_MS = 10_000
+// Server beats every 15 s: a channel silent for longer is buffered or dead
+// (e.g. a compressing reverse proxy holding back small SSE frames).
+const LIVE_WINDOW_MS = 20_000
 
 export interface RealtimeRegistration {
   subscribe: () => void | Promise<void>
@@ -28,6 +31,12 @@ let recovering = false
 let recoverIncomplete = false
 let started = false
 
+export const noteRealtimeActivity = () => {
+  lastEventAt = Date.now()
+}
+
+export const isRealtimeLive = () => !!heartbeatUnsub && Date.now() - lastEventAt < LIVE_WINDOW_MS
+
 export const registerRealtime = (...entries: RealtimeRegistration[]): (() => void) => {
   for (const entry of entries) registrations.add(entry)
   return () => {
@@ -41,9 +50,7 @@ const ensureHeartbeat = () => {
   if (heartbeatUnsub) return Promise.resolve()
   heartbeatPromise ??= (async () => {
     try {
-      heartbeatUnsub = await pbClient.collection(HEARTBEAT_COLLECTION).subscribe('*', () => {
-        lastEventAt = Date.now()
-      })
+      heartbeatUnsub = await pbClient.collection(HEARTBEAT_COLLECTION).subscribe('*', noteRealtimeActivity)
     } catch {
       heartbeatUnsub = null
     } finally {

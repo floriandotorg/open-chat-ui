@@ -1,20 +1,21 @@
 <script lang="ts">
 import ConversationList from '$lib/components/ConversationList.svelte'
 import ModelPicker from '$lib/components/ModelPicker.svelte'
+import SyncErrorToast from '$lib/components/SyncErrorToast.svelte'
 import SystemPromptPicker from '$lib/components/SystemPromptPicker.svelte'
 import ThinkingEffortPicker from '$lib/components/ThinkingEffortPicker.svelte'
 import TtsPlayer from '$lib/components/TtsPlayer.svelte'
-import { mapConversationSummary, mapSystemPrompt } from '$lib/db-mappers'
+import { mapSystemPrompt } from '$lib/db-mappers'
 import { pbClient } from '$lib/pb-client'
-import { createRealtimeSlot, registerRealtime, startRealtimeWatchdog, subscribeShared } from '$lib/realtime-watchdog'
+import { createRealtimeSlot, registerRealtime, startRealtimeWatchdog } from '$lib/realtime-watchdog'
 import { chatContext } from '$lib/stores/chat-context.svelte'
-import { attachChatRealtime, getChatStores } from '$lib/stores/chat-sync.svelte'
-import { conversationsStore } from '$lib/stores/conversations.svelte'
+import { attachChatRealtime, getChatStores, markChatMounted } from '$lib/stores/chat-sync.svelte'
 import { createModelsStore } from '$lib/stores/models.svelte'
 import { createTtsPlayer } from '$lib/stores/tts-player.svelte'
+import { conversations, setDefaultModel, setFavorite, setSystemPrompt } from '$lib/sync/conversations.svelte'
+import { attachConversationsRealtime } from '$lib/sync/conversations-live'
 import type { SystemPrompt, ThinkingEffort } from '$lib/types'
-import { CONVERSATION_REALTIME_FIELDS, CONVERSATION_SUMMARY_FIELDS, type ConversationSummary } from '$lib/types/chat'
-import { afterNavigate, goto } from '$app/navigation'
+import { afterNavigate, goto, preloadCode } from '$app/navigation'
 import { resolve } from '$app/paths'
 import { page } from '$app/state'
 import type { LayoutData } from './$types'
@@ -25,7 +26,7 @@ import { fade } from 'svelte/transition'
 let { data, children }: { data: LayoutData; children: Snippet } = $props()
 
 // svelte-ignore state_referenced_locally
-conversationsStore.hydrate(data.conversations)
+conversations.reset(data.conversations)
 // svelte-ignore state_referenced_locally
 const modelsStore = createModelsStore(data.models, data.providers)
 chatContext.modelsStore = modelsStore
@@ -98,7 +99,7 @@ const startResize = (e: MouseEvent) => {
 }
 
 const currentConversationId = $derived(page.params.conversationId)
-const currentConversation = $derived(conversationsStore.conversations.find(c => c.id === currentConversationId))
+const currentConversation = $derived(currentConversationId ? conversations.get(currentConversationId) : undefined)
 
 $effect(() => {
   modelsStore.seed(data.models)
@@ -120,25 +121,9 @@ $effect(() => {
   chatContext.selectedModel = currentConversation?.defaultModel ?? fallbackModel
 })
 
-const patchConversation = (id: string, patch: Partial<ConversationSummary>, revert: Partial<ConversationSummary>, body: Record<string, unknown>) => {
-  conversationsStore.applyPatch(id, patch)
-  fetch(`/api/conversations/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-    .then(res => {
-      if (!res.ok) {
-        throw new Error(`PATCH failed with ${res.status}`)
-      }
-    })
-    .catch(() => conversationsStore.applyPatch(id, revert))
-}
-
 const changeSystemPrompt = (promptId: string | null) => {
   if (!currentConversation) return
-  const prompt = systemPrompts.find(p => p.id === promptId)
-  patchConversation(currentConversation.id, { systemPromptId: promptId }, { systemPromptId: currentConversation.systemPromptId }, { systemPromptId: promptId, systemPrompt: prompt?.content ?? null })
+  void setSystemPrompt(currentConversation.id, promptId, systemPrompts.find(p => p.id === promptId)?.content ?? null)
 }
 
 afterNavigate(() => {
@@ -154,8 +139,7 @@ let showFavoritesOnly = $state(false)
 
 const toggleCurrentConversationFavorite = () => {
   if (!currentConversation) return
-  const favorite = !currentConversation.favorite
-  patchConversation(currentConversation.id, { favorite }, { favorite: !favorite }, { favorite })
+  void setFavorite(currentConversation.id, !currentConversation.favorite)
 }
 
 const clearSidebarSearch = () => {
@@ -173,7 +157,7 @@ const handleModelChange = (id: string) => {
   if (!currentConversation) return
   const defaultModel = id || null
   if (currentConversation.defaultModel === defaultModel) return
-  patchConversation(currentConversation.id, { defaultModel }, { defaultModel: currentConversation.defaultModel }, { defaultModel })
+  void setDefaultModel(currentConversation.id, defaultModel)
 }
 
 const userName = $derived(data.user?.name ?? data.user?.email ?? 'User')
@@ -185,18 +169,23 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
     goToNewChat()
   }
 }
-const PREFETCH_COUNT = 5
+const PREFETCH_COUNT = 10
 const PREFETCH_DELAY_MS = 1_000
 
 const prefetchRecentConversations = () => {
   const connection: { saveData?: boolean } | undefined = Reflect.get(navigator, 'connection')
   if (connection?.saveData) return
-  getChatStores().prefetch(conversationsStore.conversations.slice(0, PREFETCH_COUNT).map(c => c.id))
+  getChatStores().prefetch(conversations.sorted.slice(0, PREFETCH_COUNT).map(c => c.id))
 }
 
 onMount(() => {
+  markChatMounted()
   startRealtimeWatchdog()
+  // Route chunks load ahead of time so the first navigation to a chat or a
+  // freshly started conversation never waits on a script download.
+  void preloadCode(resolve('/chat/[conversationId]', { conversationId: 'preload' }))
   const detachChatRealtime = attachChatRealtime()
+  const conversationsRealtime = attachConversationsRealtime()
   const prefetchTimer = setTimeout(prefetchRecentConversations, PREFETCH_DELAY_MS)
   const promptsSlot = createRealtimeSlot(() =>
     pbClient.collection('system_prompts').subscribe('*', e => {
@@ -207,32 +196,6 @@ onMount(() => {
         systemPrompts = systemPrompts.some(p => p.id === mapped.id) ? systemPrompts.map(p => (p.id === mapped.id ? mapped : p)) : [...systemPrompts, mapped]
       }
     }),
-  )
-  const sharedConversations = subscribeShared(
-    'conversations',
-    () =>
-      pbClient.collection('conversations').subscribe(
-        '*',
-        e => {
-          if (e.action === 'delete') {
-            conversationsStore.remove(e.record.id)
-            return
-          }
-          conversationsStore.upsert(mapConversationSummary(e.record))
-          getChatStores().routeConversation(e.record.id, { generating: e.record.generating ?? false, activeBranches: e.record.activeBranches ?? {} })
-        },
-        { fields: CONVERSATION_REALTIME_FIELDS },
-      ),
-    async () => {
-      const userId = pbClient.authStore.record?.id
-      if (!userId) return
-      const rows = await pbClient.collection('conversations').getFullList({
-        filter: pbClient.filter('user = {:u}', { u: userId }),
-        sort: '-updatedAt',
-        fields: CONVERSATION_SUMMARY_FIELDS,
-      })
-      conversationsStore.hydrate(rows.map(mapConversationSummary))
-    },
   )
   void promptsSlot.subscribe()
   modelsStore.subscribe()
@@ -261,7 +224,7 @@ onMount(() => {
     clearTimeout(prefetchTimer)
     detachChatRealtime()
     deregister()
-    sharedConversations.dispose()
+    conversationsRealtime.dispose()
     promptsSlot.cancel()
     modelsStore.unsubscribe()
   }
@@ -270,6 +233,7 @@ onMount(() => {
 
 <svelte:window onkeydown={handleGlobalKeydown} />
 <TtsPlayer />
+<SyncErrorToast />
 <div class="flex h-dvh bg-white text-gray-900 dark:bg-neutral-800 dark:text-gray-100" class:select-none={isResizing}>
   {#if mobileSidebarOpen}
     <button class="fixed inset-0 z-40 bg-black/40 md:hidden" onclick={() => (mobileSidebarOpen = false)} aria-label="Close sidebar" tabindex="-1" transition:fade={{ duration: 200 }}></button>
@@ -345,7 +309,7 @@ onMount(() => {
         </div>
       </div>
 
-      <ConversationList conversations={conversationsStore.conversations} currentId={currentConversationId} generatingConversationId={chatContext.generatingConversationId} bind:searchQuery={sidebarSearchQuery} showFavoritesOnly={showFavoritesOnly} onpatch={conversationsStore.applyPatch} onremove={conversationsStore.remove} />
+      <ConversationList conversations={conversations.sorted} currentId={currentConversationId} generatingConversationId={chatContext.generatingConversationId} bind:searchQuery={sidebarSearchQuery} showFavoritesOnly={showFavoritesOnly} />
 
       <div class="liquid-glass-bar-bottom absolute inset-x-0 bottom-0 z-10 p-2" style="padding-bottom: max(0.5rem, env(safe-area-inset-bottom))">
         <a href={resolve('/settings')} class="group flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-black/5 dark:hover:bg-white/10">
