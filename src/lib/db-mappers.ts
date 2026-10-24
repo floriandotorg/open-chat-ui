@@ -1,6 +1,6 @@
-import { normalizeModelRef } from '$lib/model-ref'
-import type { Message as ClientMessage, CodeExecutionSummary, FileAttachment, ImageAttachment, MessagePayload, ModelInfo, ToolCallSummary } from '$lib/types'
-import type { ChatMessage, ConversationDetail, ConversationSummary } from '$lib/types/chat'
+import { normalizeModelRef } from '#lib/model-ref.ts'
+import type { ChatMessage, ConversationDetail, ConversationSummary } from '#lib/types/chat.ts'
+import type { Message as ClientMessage, CodeExecutionSummary, FileAttachment, ImageAttachment, MessagePayload, ModelInfo, ToolCallSummary } from '#lib/types.ts'
 import type { RecordModel } from 'pocketbase'
 
 export interface ApiKey {

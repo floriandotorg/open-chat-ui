@@ -1,4 +1,4 @@
-import type { ModelInfo } from '$lib/types'
+import type { ModelInfo } from '#lib/types.ts'
 
 export const formatModelRef = (provider: string, model: string): string => `${provider}/${model}`
 

@@ -110,7 +110,7 @@ export const load: PageLoad = async ({ params, fetch }) => {
       void chatStores.revalidate(id)
       return { conversationId: id, initial: null }
     }
-    await chatStores.acquire(id)          // one PocketBase round trip, browser to PB
+    await chatStores.acquire(id) // one PocketBase round trip, browser to PB
     return { conversationId: id, initial: null }
   }
   const res = await fetch(`/api/conversations/${id}/detail`)
@@ -140,7 +140,6 @@ Optional warm up: after layout mount, in `requestIdleCallback`, `acquire` the 5 
 ### 6. `/chat` without a server load
 
 Delete `chat/+page.server.ts`. In `chat/+page.svelte`:
-
 - `onMount`: if `page.url.searchParams.get('q')` is non-empty, call `handleSubmit(q)` and `replaceState` without `q` (same pattern the conversation page already uses in `consumeQueryMessage`).
 - `goToNewChat` in the layout: `goto` now completes without network. Keep the focus token but do not await `goto` before focusing; `afterNavigate` in `chat/+page.svelte` already exists for the textarea (`ctx.newChatFocusToken` effect).
 
@@ -149,19 +148,18 @@ Delete `chat/+page.server.ts`. In `chat/+page.svelte`:
 `chat/+page.svelte` `handleSubmit`:
 
 ```ts
-const id = crypto.randomUUID()                            // the id field allows 15 to 36 chars of [a-zA-Z0-9-], messages already use UUIDs
+const id = crypto.randomUUID() // the id field allows 15 to 36 chars of [a-zA-Z0-9-], messages already use UUIDs
 const now = new Date()
 ctx.conversationsStore.addPending({ id, title: 'New Chat', favorite: false, generating: false, systemPromptId: ctx.currentSystemPromptId, createdAt: now, updatedAt: now })
 chatStores.createEmpty(id, ctx.currentSystemPromptId)
 setPendingMessage(content, images, files)
-setPendingConversation({ systemPromptId: ctx.currentSystemPromptId })   // small addition to pending-message.ts
-await goto(resolve(`/chat/${id}`))                        // universal load hits the cache: no network
+setPendingConversation({ systemPromptId: ctx.currentSystemPromptId }) // small addition to pending-message.ts
+await goto(resolve(`/chat/${id}`)) // universal load hits the cache: no network
 ```
 
 The conversation page's `attachToConversation` consumes the pending message and calls `chat.sendMessage`, which posts `/api/chat` with a new optional field `createConversation: { systemPromptId }` (read from `consumePendingConversation()` and passed through `sendMessage`'s existing `systemPrompt` slot or a new parameter).
 
 `POST /api/chat`:
-
 - After the conversation lookup returns null and `body.createConversation` is present: resolve the prompt exactly as `POST /api/conversations` does today (one query: `id = {:id} && user = {:u}` when an id is given, else `isDefault = true`), then `createOrRecover('conversations', { id: conversationId, user, title: 'New Chat', systemPrompt, systemPromptRef, createdAt, updatedAt }, filter id = {:id}, {})`. Continue as today. Without `createConversation`, a missing conversation stays a 404.
 - Realtime `create` event on `conversations` reaches the sidebar store, `upsert` confirms the pending entry.
 

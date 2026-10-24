@@ -1,5 +1,5 @@
-import { getDecryptedKey } from '$lib/server/api-key'
-import { requireUser } from '$lib/server/auth-guard'
+import { getDecryptedKey } from '#lib/server/api-key.ts'
+import { requireUser } from '#lib/server/auth-guard.ts'
 import type { RequestHandler } from './$types'
 import { error } from '@sveltejs/kit'
 

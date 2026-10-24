@@ -1,11 +1,11 @@
 <script lang="ts">
-import ChatInput from '$lib/components/ChatInput.svelte'
-import { chatContext } from '$lib/stores/chat-context.svelte'
-import { getChatStores } from '$lib/stores/chat-sync.svelte'
-import type { FileAttachment, ImageAttachment } from '$lib/types'
 import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
 import { page } from '$app/state'
+import ChatInput from '#lib/components/ChatInput.svelte'
+import { chatContext } from '#lib/stores/chat-context.svelte.ts'
+import { getChatStores } from '#lib/stores/chat-sync.svelte.ts'
+import type { FileAttachment, ImageAttachment } from '#lib/types.ts'
 import { onMount, tick } from 'svelte'
 
 const ctx = chatContext
@@ -19,13 +19,13 @@ $effect(() => {
 
 // The conversation exists locally first; the first POST /api/chat creates it
 // on the server, so starting a chat costs a single request.
-const startConversation = (content: string, images?: ImageAttachment[], files?: FileAttachment[], replaceState = false) => {
+const startConversation = (content: string, images?: ImageAttachment[], files?: FileAttachment[], replace = false) => {
   const id = crypto.randomUUID()
   const store = getChatStores().createEmpty({ id, title: 'New Chat', favorite: false, generating: false, systemPromptId: ctx.currentSystemPromptId, defaultModel: ctx.selectedModel || null, updatedAt: new Date() })
   store.selectedModel = ctx.selectedModel
   store.thinkingEffort = ctx.thinkingEffort
   void store.sendMessage(content, images, files)
-  void goto(resolve(`/chat/${id}`), { replaceState })
+  void goto(resolve('/chat/[conversationId]', { conversationId: id }), { replace })
 }
 
 const handleSubmit = (content: string, images?: ImageAttachment[], files?: FileAttachment[]) => startConversation(content, images, files)

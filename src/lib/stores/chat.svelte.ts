@@ -1,20 +1,20 @@
-import type { BranchMap } from '$lib/message-tree'
-import { createStableAnnotator, resolveAndAnnotate } from '$lib/message-tree'
-import { applyStreamOps } from '$lib/stream-ops'
-import { api } from '$lib/sync/api'
-import { Mutation, mutate, SyncCollection, type Write } from '$lib/sync/collection.svelte'
-import { type ConversationStateRecord, type ConversationsCollection, conversationStates, conversations } from '$lib/sync/conversations.svelte'
-import { errorMessage } from '$lib/sync/errors'
-import type { FileAttachment, ImageAttachment, StreamEvent, StreamOp, ThinkingEffort } from '$lib/types'
-import type { ChatMessage, ConversationDetail, ConversationSummary } from '$lib/types/chat'
+import type { BranchMap } from '#lib/message-tree.ts'
+import { createStableAnnotator, resolveAndAnnotate } from '#lib/message-tree.ts'
+import { applyStreamOps } from '#lib/stream-ops.ts'
+import { api } from '#lib/sync/api.ts'
+import { Mutation, mutate, SyncCollection, type Write } from '#lib/sync/collection.svelte.ts'
+import { type ConversationStateRecord, type ConversationsCollection, conversationStates, conversations } from '#lib/sync/conversations.svelte.ts'
+import { errorMessage } from '#lib/sync/errors.ts'
+import type { ChatMessage, ConversationDetail, ConversationSummary } from '#lib/types/chat.ts'
+import type { FileAttachment, ImageAttachment, StreamEvent, StreamOp, ThinkingEffort } from '#lib/types.ts'
 
 export type FetchStreamEvents = (messageId: string, from: number, to: number | null) => Promise<StreamEvent[]>
 export type FetchMessage = (messageId: string) => Promise<ChatMessage | null>
 export type RequestFn = <T = unknown>(path: string, body: Record<string, unknown>) => Promise<T>
 
 // Lazy so the store module stays importable without a PocketBase client env.
-const defaultFetchStreamEvents: FetchStreamEvents = (messageId, from, to) => import('$lib/stream-events-client').then(m => m.fetchStreamEvents(messageId, from, to))
-const defaultFetchMessage: FetchMessage = messageId => import('$lib/stream-events-client').then(m => m.fetchMessage(messageId))
+const defaultFetchStreamEvents: FetchStreamEvents = (messageId, from, to) => import('#lib/stream-events-client.ts').then(m => m.fetchStreamEvents(messageId, from, to))
+const defaultFetchMessage: FetchMessage = messageId => import('#lib/stream-events-client.ts').then(m => m.fetchMessage(messageId))
 
 export interface ChatStoreDeps {
   request?: RequestFn

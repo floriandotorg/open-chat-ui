@@ -1,5 +1,5 @@
 <script lang="ts">
-import { loadPayload } from '$lib/stores/payloads.svelte'
+import { loadPayload } from '#lib/stores/payloads.svelte.ts'
 
 let {
   messageId,

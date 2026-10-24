@@ -1,5 +1,5 @@
-import { mapSystemPrompt, now } from '$lib/server/db/records'
-import { getFirstOrNull, pb } from '$lib/server/pb'
+import { mapSystemPrompt, now } from '#lib/server/db/records.ts'
+import { getFirstOrNull, pb } from '#lib/server/pb.ts'
 
 const findSystemPrompt = (userId: string, systemPromptId: string | null) => {
   const filter = systemPromptId ? pb.filter('id = {:id} && user = {:u}', { id: systemPromptId, u: userId }) : pb.filter('user = {:u} && isDefault = true', { u: userId })

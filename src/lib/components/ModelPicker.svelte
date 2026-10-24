@@ -1,6 +1,6 @@
 <script lang="ts">
-import { createPopover, portal } from '$lib/popover.svelte'
-import type { ModelInfo } from '$lib/types'
+import { createPopover, portal } from '#lib/popover.svelte.ts'
+import type { ModelInfo } from '#lib/types.ts'
 
 let {
   models,

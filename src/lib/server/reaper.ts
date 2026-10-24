@@ -1,5 +1,5 @@
-import { isNotFound, pb } from '$lib/server/pb'
-import { deleteStreamEventIds, listStreamEventIds, purgeStreamEventsOlderThan } from '$lib/server/stream-events'
+import { isNotFound, pb } from '#lib/server/pb.ts'
+import { deleteStreamEventIds, listStreamEventIds, purgeStreamEventsOlderThan } from '#lib/server/stream-events.ts'
 import type { RecordModel } from 'pocketbase'
 
 const STREAM_EVENT_MAX_AGE_MS = 60 * 60 * 1000

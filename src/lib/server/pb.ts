@@ -1,5 +1,5 @@
+import * as env from '$app/env/private'
 import PocketBase, { ClientResponseError } from 'pocketbase'
-import { env } from '$env/dynamic/private'
 
 if (!env.POCKETBASE_URL) throw new Error('POCKETBASE_URL is not set')
 

@@ -1,5 +1,5 @@
-import { now } from '$lib/server/db/records'
-import { pb } from '$lib/server/pb'
+import { now } from '#lib/server/db/records.ts'
+import { pb } from '#lib/server/pb.ts'
 
 const HEARTBEAT_ID = 'globalheartbeat'
 const HEARTBEAT_INTERVAL_MS = 15_000

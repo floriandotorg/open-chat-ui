@@ -1,7 +1,7 @@
-import { normalizeModelRef } from '$lib/model-ref'
-import { requireUser } from '$lib/server/auth-guard'
-import { mapMessage } from '$lib/server/db/records'
-import { getFirstOrNull, pb } from '$lib/server/pb'
+import { normalizeModelRef } from '#lib/model-ref.ts'
+import { requireUser } from '#lib/server/auth-guard.ts'
+import { mapMessage } from '#lib/server/db/records.ts'
+import { getFirstOrNull, pb } from '#lib/server/pb.ts'
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
 

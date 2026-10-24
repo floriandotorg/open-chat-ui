@@ -1,4 +1,4 @@
-import type { ModelPricing } from '$lib/server/pricing'
+import type { ModelPricing } from '#lib/server/pricing.ts'
 
 export interface MessageUsageRow {
   inputTokens: number

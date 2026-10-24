@@ -1,5 +1,5 @@
-import { CITATION_TOOL_NAMES, type Citation, extractCitations, filterReferencedCitations, processCitations, renumberCitations } from '$lib/citations'
-import { renderMarkdown } from '$lib/markdown'
+import { CITATION_TOOL_NAMES, type Citation, extractCitations, filterReferencedCitations, processCitations, renumberCitations } from '#lib/citations.ts'
+import { renderMarkdown } from '#lib/markdown.ts'
 import { describe, expect, it, vi } from 'vitest'
 
 const citations: Citation[] = [{ index: 1, url: 'https://example.com/source', title: 'Source', hostname: 'example.com' }]

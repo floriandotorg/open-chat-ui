@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { createTtsPlayer } from '$lib/stores/tts-player.svelte'
+import type { createTtsPlayer } from '#lib/stores/tts-player.svelte.ts'
 import { getContext } from 'svelte'
 
 const tts: ReturnType<typeof createTtsPlayer> = getContext('tts-player')

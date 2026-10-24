@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { ApiKeySummary, ProviderInfo } from '$lib/types'
+import type { ApiKeySummary, ProviderInfo } from '#lib/types.ts'
 
 let { provider }: { provider: ProviderInfo } = $props()
 

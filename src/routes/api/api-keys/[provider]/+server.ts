@@ -1,5 +1,5 @@
-import { requireUser } from '$lib/server/auth-guard'
-import { pb } from '$lib/server/pb'
+import { requireUser } from '#lib/server/auth-guard.ts'
+import { pb } from '#lib/server/pb.ts'
 import type { RequestHandler } from './$types'
 import { error } from '@sveltejs/kit'
 

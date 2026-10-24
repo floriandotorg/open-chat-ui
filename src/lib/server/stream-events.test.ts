@@ -1,7 +1,7 @@
 import { purgeStreamEventsOlderThan, type StreamEventClient } from './stream-events'
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('$lib/server/pb', () => ({
+vi.mock('#lib/server/pb.ts', () => ({
   pb: {},
   isNotFound: () => false,
   getFirstOrNull: async () => null,

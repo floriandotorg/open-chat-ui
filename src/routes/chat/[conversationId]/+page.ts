@@ -1,6 +1,6 @@
-import { fetchConversationDetail } from '$lib/conversation-detail'
-import { getChatStores, isChatMounted } from '$lib/stores/chat-sync.svelte'
-import { browser } from '$app/environment'
+import { browser } from '$app/env'
+import { fetchConversationDetail } from '#lib/conversation-detail.ts'
+import { getChatStores, isChatMounted } from '#lib/stores/chat-sync.svelte.ts'
 import type { PageLoad } from './$types'
 
 export const load: PageLoad = async ({ params, fetch }) => {

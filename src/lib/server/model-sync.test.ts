@@ -1,4 +1,4 @@
-import type { ModelInfo } from '$lib/types'
+import type { ModelInfo } from '#lib/types.ts'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   supportsCustomModels: false,
 }))
 
-vi.mock('$lib/server/pb', () => ({
+vi.mock('#lib/server/pb.ts', () => ({
   pb: {
     filter: (expr: string, params?: Record<string, unknown>) => JSON.stringify({ expr, params: params ?? {} }),
     collection: (name: string) => ({
@@ -43,9 +43,9 @@ vi.mock('$lib/server/pb', () => ({
   },
 }))
 
-vi.mock('$lib/server/crypto', () => ({ decrypt: async () => 'sk-test' }))
+vi.mock('#lib/server/crypto.ts', () => ({ decrypt: async () => 'sk-test' }))
 
-vi.mock('$lib/server/providers', () => ({
+vi.mock('#lib/server/providers/index.ts', () => ({
   getProviderFactory: () => () => ({
     id: 'test',
     name: 'Test',

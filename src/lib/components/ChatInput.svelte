@@ -1,6 +1,6 @@
 <script lang="ts">
-import type { FileAttachment, ImageAttachment } from '$lib/types'
 import { afterNavigate } from '$app/navigation'
+import type { FileAttachment, ImageAttachment } from '#lib/types.ts'
 import { tick } from 'svelte'
 
 let {

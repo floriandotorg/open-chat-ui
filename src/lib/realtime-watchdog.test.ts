@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const realtimeUnsubscribe = vi.fn()
 const heartbeatSubscribe = vi.fn()
 
-vi.mock('$lib/pb-client', () => ({
+vi.mock('#lib/pb-client.ts', () => ({
   pbClient: {
     collection: vi.fn((name: string) => {
       if (name !== 'heartbeat') throw new Error(`unexpected collection ${name}`)
@@ -13,7 +13,7 @@ vi.mock('$lib/pb-client', () => ({
   },
 }))
 
-vi.mock('$app/environment', () => ({ browser: true }))
+vi.mock('$app/env', () => ({ browser: true }))
 
 const loadWatchdog = async () => {
   vi.resetModules()
@@ -172,7 +172,7 @@ describe('realtime watchdog', () => {
   it('recovers immediately when the realtime connection drops', async () => {
     heartbeatSubscribe.mockResolvedValue(vi.fn())
     const watchdog = await loadWatchdog()
-    const { pbClient } = await import('$lib/pb-client')
+    const { pbClient } = await import('#lib/pb-client.ts')
     watchdog.startRealtimeWatchdog()
     await vi.advanceTimersByTimeAsync(0)
 
@@ -212,7 +212,7 @@ describe('realtime watchdog', () => {
   it('retries recovery until a failed resync succeeds', async () => {
     heartbeatSubscribe.mockResolvedValue(vi.fn())
     const watchdog = await loadWatchdog()
-    const { pbClient } = await import('$lib/pb-client')
+    const { pbClient } = await import('#lib/pb-client.ts')
     watchdog.startRealtimeWatchdog()
     await vi.advanceTimersByTimeAsync(0)
 
@@ -281,7 +281,7 @@ describe('subscribeShared', () => {
   it('runs the resync handler when the watchdog recovers the connection', async () => {
     heartbeatSubscribe.mockResolvedValue(vi.fn())
     const watchdog = await loadWatchdog()
-    const { pbClient } = await import('$lib/pb-client')
+    const { pbClient } = await import('#lib/pb-client.ts')
     watchdog.startRealtimeWatchdog()
     await vi.advanceTimersByTimeAsync(0)
 

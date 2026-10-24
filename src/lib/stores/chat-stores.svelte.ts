@@ -1,10 +1,10 @@
-import type { ChatStore } from '$lib/stores/chat.svelte'
-import type { StreamEvent } from '$lib/types'
-import type { ChatMessage, ConversationDetail, ConversationSummary } from '$lib/types/chat'
+import type { ChatStore } from '#lib/stores/chat.svelte.ts'
+import type { ChatMessage, ConversationDetail, ConversationSummary } from '#lib/types/chat.ts'
+import type { StreamEvent } from '#lib/types.ts'
 import { isHttpError } from '@sveltejs/kit'
 import { untrack } from 'svelte'
 
-export type { ConversationDetail } from '$lib/types/chat'
+export type { ConversationDetail } from '#lib/types/chat.ts'
 
 export type FetchDetail = (id: string, fetchFn?: typeof fetch) => Promise<ConversationDetail>
 

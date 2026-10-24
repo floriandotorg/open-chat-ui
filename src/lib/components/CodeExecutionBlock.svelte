@@ -1,6 +1,6 @@
 <script lang="ts">
-import { loadPayload } from '$lib/stores/payloads.svelte'
-import type { CodeExecutionSummary, MessagePayload } from '$lib/types'
+import { loadPayload } from '#lib/stores/payloads.svelte.ts'
+import type { CodeExecutionSummary, MessagePayload } from '#lib/types.ts'
 
 let { messageId, codeExecution }: { messageId: string; codeExecution: CodeExecutionSummary } = $props()
 

@@ -1,5 +1,5 @@
-import type { createModelsStore } from '$lib/stores/models.svelte'
-import type { ThinkingEffort } from '$lib/types'
+import type { createModelsStore } from '#lib/stores/models.svelte.ts'
+import type { ThinkingEffort } from '#lib/types.ts'
 
 let selectedModel = $state('')
 let thinkingEffort = $state<ThinkingEffort>('none')

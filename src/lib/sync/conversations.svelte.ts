@@ -1,6 +1,6 @@
-import { api } from '$lib/sync/api'
-import { mutate, SyncCollection } from '$lib/sync/collection.svelte'
-import type { ConversationState, ConversationSummary } from '$lib/types/chat'
+import { api } from '#lib/sync/api.ts'
+import { mutate, SyncCollection } from '#lib/sync/collection.svelte.ts'
+import type { ConversationState, ConversationSummary } from '#lib/types/chat.ts'
 
 export type ConversationStateRecord = ConversationState & { id: string }
 

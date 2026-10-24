@@ -1,10 +1,26 @@
+import { relative, sep } from 'node:path'
+import adapter from '@sveltejs/adapter-bun'
 import { sveltekit } from '@sveltejs/kit/vite'
 import tailwindcss from '@tailwindcss/vite'
 import { playwright } from '@vitest/browser-playwright'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
-  plugins: [tailwindcss(), sveltekit()],
+  plugins: [
+    tailwindcss(),
+    sveltekit({
+      adapter: adapter(),
+      compilerOptions: {
+        runes: ({ filename }) => {
+          const relativePath = relative(import.meta.dirname, filename)
+          const pathSegments = relativePath.toLowerCase().split(sep)
+          const isExternalLibrary = pathSegments.includes('node_modules')
+
+          return isExternalLibrary ? undefined : true
+        },
+      },
+    }),
+  ],
   server: {
     port: 5179,
   },

@@ -26,15 +26,15 @@ Self-hosted, multi-provider LLM chat application. Bring your own API keys, manag
 
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Framework | SvelteKit (Svelte 5 runes) |
-| Runtime | Bun (via `svelte-adapter-bun`) |
-| Styling | Tailwind CSS 4 |
-| Database | PocketBase (collections in `pocketbase/pb_schema.json`) |
-| Auth | PocketBase (email/password, proxied through SvelteKit) |
-| Linting | Biome |
-| Testing | Vitest (browser tests via Playwright, server tests via Node) |
+| Layer     | Technology                                                   |
+| --------- | ------------------------------------------------------------ |
+| Framework | SvelteKit (Svelte 5 runes)                                   |
+| Runtime   | Bun (via `@sveltejs/adapter-bun`)                            |
+| Styling   | Tailwind CSS 4                                               |
+| Database  | PocketBase (collections in `pocketbase/pb_schema.json`)      |
+| Auth      | PocketBase (email/password, proxied through SvelteKit)       |
+| Linting   | Biome                                                        |
+| Testing   | Vitest (browser tests via Playwright, server tests via Node) |
 
 ## Getting Started
 
@@ -58,14 +58,14 @@ Copy the example environment file and fill in the values:
 cp .env.example .env
 ```
 
-| Variable | Description |
-|---|---|
-| `POCKETBASE_URL` | PocketBase server URL — server-side (e.g. `http://127.0.0.1:8090`) |
-| `PUBLIC_POCKETBASE_URL` | Browser-reachable PocketBase URL for client-side reads + realtime (same as `POCKETBASE_URL` in dev; reverse-proxy in prod) |
-| `POCKETBASE_ADMIN_EMAIL` | PocketBase superuser email (used by the app + scripts) |
-| `POCKETBASE_ADMIN_PASSWORD` | PocketBase superuser password |
-| `ORIGIN` | Application URL (e.g. `http://localhost:5179` for dev, `http://localhost:3000` for production) |
-| `ENCRYPTION_SECRET` | AES-256-GCM key for API key encryption (32+ random characters) |
+| Variable                    | Description                                                                                                                |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `POCKETBASE_URL`            | PocketBase server URL — server-side (e.g. `http://127.0.0.1:8090`)                                                         |
+| `PUBLIC_POCKETBASE_URL`     | Browser-reachable PocketBase URL for client-side reads + realtime (same as `POCKETBASE_URL` in dev; reverse-proxy in prod) |
+| `POCKETBASE_ADMIN_EMAIL`    | PocketBase superuser email (used by the app + scripts)                                                                     |
+| `POCKETBASE_ADMIN_PASSWORD` | PocketBase superuser password                                                                                              |
+| `ORIGIN`                    | Application URL (e.g. `http://localhost:5179` for dev, `http://localhost:3000` for production)                             |
+| `ENCRYPTION_SECRET`         | AES-256-GCM key for API key encryption (32+ random characters)                                                             |
 
 ### PocketBase Setup
 
@@ -144,7 +144,6 @@ docker compose exec open-chat-ui bun scripts/add-user.ts user@example.com mypass
 ## Configuration
 
 After logging in, go to **Settings** to configure:
-
 - **API Keys** — Add your Anthropic and/or Mistral API keys.
 - **Models** — Enable/disable specific models and set a title-generation model.
 - **System Prompt** — Create and manage reusable system prompts.
@@ -178,7 +177,6 @@ scripts/
 2. Register it in `src/lib/server/providers/index.ts`
 
 The `LLMProvider` interface requires:
-
 - `id` / `name` — Provider identifier and display name
 - `capabilities` — Supported features (`streaming`, `vision`, `tool_use`, `code_interpreter`, `system_prompt`)
 - `listModels()` — Fetch available models from the provider's API
@@ -186,19 +184,19 @@ The `LLMProvider` interface requires:
 
 ## Scripts
 
-| Command | Description |
-|---|---|
-| `bun start` | Start dev server |
-| `bun run build` | Production build |
-| `bun run check` | Type checking |
-| `bun run lint` | Lint with Biome |
-| `bun run lint -- --fix` | Lint and auto-fix |
-| `bun run test` | Run tests |
-| `bun run pb:setup` | Download PocketBase binary + create superuser |
-| `bun run pb:serve` | Run PocketBase locally |
-| `bun run pb:schema` | Apply collection schema to PocketBase |
+| Command                   | Description                                   |
+| ------------------------- | --------------------------------------------- |
+| `bun start`               | Start dev server                              |
+| `bun run build`           | Production build                              |
+| `bun run check`           | Type checking                                 |
+| `bun run lint`            | Lint with Biome                               |
+| `bun run lint -- --fix`   | Lint and auto-fix                             |
+| `bun run test`            | Run tests                                     |
+| `bun run pb:setup`        | Download PocketBase binary + create superuser |
+| `bun run pb:serve`        | Run PocketBase locally                        |
+| `bun run pb:schema`       | Apply collection schema to PocketBase         |
 | `bun run pb:migrate-data` | Migrate old SQLite `local.db` into PocketBase |
-| `bun run user:add` | Create a new user |
+| `bun run user:add`        | Create a new user                             |
 
 ## License
 

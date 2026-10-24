@@ -1,6 +1,6 @@
-import { mapMessagePayload } from '$lib/db-mappers'
-import { pbClient } from '$lib/pb-client'
-import type { MessagePayload } from '$lib/types'
+import { mapMessagePayload } from '#lib/db-mappers.ts'
+import { pbClient } from '#lib/pb-client.ts'
+import type { MessagePayload } from '#lib/types.ts'
 
 const cache = new Map<string, Promise<MessagePayload>>()
 

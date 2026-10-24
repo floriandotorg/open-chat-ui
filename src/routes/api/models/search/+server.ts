@@ -1,5 +1,5 @@
-import { requireUser } from '$lib/server/auth-guard'
-import { getProviderFactory } from '$lib/server/providers'
+import { requireUser } from '#lib/server/auth-guard.ts'
+import { getProviderFactory } from '#lib/server/providers/index.ts'
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { SystemPrompt } from '$lib/types'
+import type { SystemPrompt } from '#lib/types.ts'
 
 let {
   prompts,

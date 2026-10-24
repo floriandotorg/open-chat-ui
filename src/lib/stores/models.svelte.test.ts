@@ -1,9 +1,9 @@
-import type { ProviderModel } from '$lib/db-mappers'
-import type { ModelInfo, ProviderInfo } from '$lib/types'
+import type { ProviderModel } from '#lib/db-mappers.ts'
+import type { ModelInfo, ProviderInfo } from '#lib/types.ts'
 import { createModelsStore } from './models.svelte'
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('$lib/pb-client', () => ({ pbClient: {} }))
+vi.mock('#lib/pb-client.ts', () => ({ pbClient: {} }))
 
 const info = (id: string, name: string): ModelInfo => ({ id, name, contextWindow: 0, maxOutputTokens: 0, capabilities: ['streaming'] })
 

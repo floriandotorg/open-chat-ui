@@ -1,6 +1,6 @@
 <script lang="ts">
-import { createPopover, portal } from '$lib/popover.svelte'
-import { THINKING_EFFORT_LABELS, type ThinkingEffort } from '$lib/types'
+import { createPopover, portal } from '#lib/popover.svelte.ts'
+import { THINKING_EFFORT_LABELS, type ThinkingEffort } from '#lib/types.ts'
 
 let {
   thinkingEffort = $bindable('none'),

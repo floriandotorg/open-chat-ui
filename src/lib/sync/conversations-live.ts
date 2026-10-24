@@ -1,8 +1,8 @@
-import { mapConversationSummary } from '$lib/db-mappers'
-import { pbClient } from '$lib/pb-client'
-import { noteRealtimeActivity, subscribeShared } from '$lib/realtime-watchdog'
-import { conversationStates, conversations } from '$lib/sync/conversations.svelte'
-import { CONVERSATION_REALTIME_FIELDS, CONVERSATION_SUMMARY_FIELDS } from '$lib/types/chat'
+import { mapConversationSummary } from '#lib/db-mappers.ts'
+import { pbClient } from '#lib/pb-client.ts'
+import { noteRealtimeActivity, subscribeShared } from '#lib/realtime-watchdog.ts'
+import { conversationStates, conversations } from '#lib/sync/conversations.svelte.ts'
+import { CONVERSATION_REALTIME_FIELDS, CONVERSATION_SUMMARY_FIELDS } from '#lib/types/chat.ts'
 
 const resync = async () => {
   const userId = pbClient.authStore.record?.id

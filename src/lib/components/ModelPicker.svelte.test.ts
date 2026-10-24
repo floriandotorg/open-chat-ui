@@ -1,7 +1,7 @@
 import { mount, unmount } from 'svelte'
 import { afterEach, expect, test, vi } from 'vitest'
 import '../../routes/layout.css'
-import type { ModelInfo } from '$lib/types'
+import type { ModelInfo } from '#lib/types.ts'
 import ModelPicker from './ModelPicker.svelte'
 
 let instance: Record<string, unknown> | undefined

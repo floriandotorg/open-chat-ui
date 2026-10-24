@@ -1,4 +1,4 @@
-import { stripMarkdown } from '$lib/strip-markdown'
+import { stripMarkdown } from '#lib/strip-markdown.ts'
 import { describe, expect, it } from 'vitest'
 
 describe('stripMarkdown', () => {

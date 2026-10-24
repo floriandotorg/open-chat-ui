@@ -1,4 +1,4 @@
-import { formatModelRef } from '$lib/model-ref'
+import { formatModelRef } from '#lib/model-ref.ts'
 import type { ChatMessage, ChatRequest, ChatStreamEvent, LLMProvider, ModelInfo, ProviderCapability, ProviderFactory, ToolCallInfo } from './types'
 import { Mistral } from '@mistralai/mistralai'
 

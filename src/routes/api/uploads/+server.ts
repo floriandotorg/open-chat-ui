@@ -1,5 +1,5 @@
-import { requireUser } from '$lib/server/auth-guard'
-import { ALLOWED_MIME_TYPES, extForMime, getUploadPath } from '$lib/server/uploads'
+import { requireUser } from '#lib/server/auth-guard.ts'
+import { ALLOWED_MIME_TYPES, extForMime, getUploadPath } from '#lib/server/uploads.ts'
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
 

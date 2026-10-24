@@ -1,8 +1,8 @@
-import type { BranchMap } from '$lib/message-tree'
-import { SyncCollection } from '$lib/sync/collection.svelte'
-import { type ConversationStateRecord, ConversationsCollection } from '$lib/sync/conversations.svelte'
-import { onSyncError } from '$lib/sync/errors'
-import type { ChatMessage, ConversationSummary } from '$lib/types/chat'
+import type { BranchMap } from '#lib/message-tree.ts'
+import { SyncCollection } from '#lib/sync/collection.svelte.ts'
+import { type ConversationStateRecord, ConversationsCollection } from '#lib/sync/conversations.svelte.ts'
+import { onSyncError } from '#lib/sync/errors.ts'
+import type { ChatMessage, ConversationSummary } from '#lib/types/chat.ts'
 import { ChatStore, type ChatStoreDeps, type RequestFn } from './chat.svelte'
 import { afterEach, describe, expect, it } from 'vitest'
 

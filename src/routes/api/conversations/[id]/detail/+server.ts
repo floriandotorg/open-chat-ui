@@ -1,5 +1,5 @@
-import { requireUser } from '$lib/server/auth-guard'
-import { getFirstOrNull, pb } from '$lib/server/pb'
+import { requireUser } from '#lib/server/auth-guard.ts'
+import { getFirstOrNull, pb } from '#lib/server/pb.ts'
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
 

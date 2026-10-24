@@ -1,4 +1,4 @@
-import type { ConversationSummary } from '$lib/types/chat'
+import type { ConversationSummary } from '#lib/types/chat.ts'
 import { conversations, deleteConversation, setFavorite } from './conversations.svelte'
 import { onSyncError } from './errors'
 import { afterEach, describe, expect, it, vi } from 'vitest'

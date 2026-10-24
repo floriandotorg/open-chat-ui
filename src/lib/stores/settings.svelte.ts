@@ -1,7 +1,7 @@
-import { mapSystemPrompt, mapUserSettings, type UserSettings } from '$lib/db-mappers'
-import { pbClient } from '$lib/pb-client'
-import type { SystemPrompt } from '$lib/types'
-import { browser } from '$app/environment'
+import { browser } from '$app/env'
+import { mapSystemPrompt, mapUserSettings, type UserSettings } from '#lib/db-mappers.ts'
+import { pbClient } from '#lib/pb-client.ts'
+import type { SystemPrompt } from '#lib/types.ts'
 
 export const createSettingsStore = (initial: { settings: UserSettings | null; systemPrompts: SystemPrompt[] }) => {
   // svelte-ignore state_referenced_locally

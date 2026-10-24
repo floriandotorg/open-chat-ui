@@ -1,6 +1,6 @@
-import { now } from '$lib/db-mappers'
-import { mergeOps } from '$lib/stream-ops'
-import type { StreamOp } from '$lib/types'
+import { now } from '#lib/db-mappers.ts'
+import { mergeOps } from '#lib/stream-ops.ts'
+import type { StreamOp } from '#lib/types.ts'
 
 export interface StreamSnapshotState {
   content: string

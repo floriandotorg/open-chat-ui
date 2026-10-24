@@ -1,10 +1,10 @@
-import { byProviderThenName } from '$lib/model-ref'
-import { storedModelInfo } from '$lib/provider-models'
-import { requireUser } from '$lib/server/auth-guard'
-import { mapProviderModel, mapSystemPrompt, toChatBootstrap } from '$lib/server/db/records'
-import { pb } from '$lib/server/pb'
-import { listProviders } from '$lib/server/providers'
-import { CONVERSATION_SUMMARY_FIELDS } from '$lib/types/chat'
+import { byProviderThenName } from '#lib/model-ref.ts'
+import { storedModelInfo } from '#lib/provider-models.ts'
+import { requireUser } from '#lib/server/auth-guard.ts'
+import { mapProviderModel, mapSystemPrompt, toChatBootstrap } from '#lib/server/db/records.ts'
+import { pb } from '#lib/server/pb.ts'
+import { listProviders } from '#lib/server/providers/index.ts'
+import { CONVERSATION_SUMMARY_FIELDS } from '#lib/types/chat.ts'
 import type { LayoutServerLoad } from './$types'
 
 const VALID_EFFORTS = new Set(['none', 'low', 'medium', 'high', 'max'])

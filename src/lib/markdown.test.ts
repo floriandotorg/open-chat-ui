@@ -1,5 +1,5 @@
-import { renderMarkdown, renderMarkdownBlocks, whenKatexReady } from '$lib/markdown'
-import { stripMarkdown } from '$lib/strip-markdown'
+import { renderMarkdown, renderMarkdownBlocks, whenKatexReady } from '#lib/markdown.ts'
+import { stripMarkdown } from '#lib/strip-markdown.ts'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 
 beforeAll(async () => {
@@ -154,7 +154,7 @@ describe('renderMarkdown', () => {
 describe('lazy katex', () => {
   it('renders a placeholder before katex loads, real html after, and caches the loaded block', async () => {
     vi.resetModules()
-    const fresh = await import('$lib/markdown')
+    const fresh = await import('#lib/markdown.ts')
     const pending = fresh.renderMarkdownBlocks('$$x^2$$')
     expect(pending.join('')).toContain('math-pending')
     const ready = fresh.whenKatexReady()
@@ -168,7 +168,7 @@ describe('lazy katex', () => {
 
   it('never loads katex for math-free content', async () => {
     vi.resetModules()
-    const fresh = await import('$lib/markdown')
+    const fresh = await import('#lib/markdown.ts')
     const blocks = fresh.renderMarkdownBlocks('# Title\n\n```js\nconst x = 1\n```')
     expect(blocks.join('')).toContain('<h1')
     expect(blocks.join('')).toContain('hljs')

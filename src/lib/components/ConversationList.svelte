@@ -1,9 +1,9 @@
 <script lang="ts">
-import { splitByTerms } from '$lib/highlight'
-import { deleteConversation, conversations as liveConversations, setFavorite } from '$lib/sync/conversations.svelte'
-import type { ConversationSummary } from '$lib/types/chat'
 import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
+import { splitByTerms } from '#lib/highlight.ts'
+import { deleteConversation, conversations as liveConversations, setFavorite } from '#lib/sync/conversations.svelte.ts'
+import type { ConversationSummary } from '#lib/types/chat.ts'
 import ConfirmDialog from './ConfirmDialog.svelte'
 
 let {
@@ -146,7 +146,7 @@ const toggleFavorite = (e: Event, convId: string, currentFavorite: boolean) => {
       </div>
       {#each filteredSearchResults as hit (hit.id)}
         <a
-          href={resolve(`/chat/${hit.id}`)}
+          href={resolve('/chat/[conversationId]', { conversationId: hit.id })}
           data-sveltekit-preload-data="hover"
           class="convo-item group block rounded-xl px-3 py-2 text-sm {hit.id === currentId ? 'convo-item-active' : ''}"
         >
@@ -215,7 +215,7 @@ const toggleFavorite = (e: Event, convId: string, currentFavorite: boolean) => {
         <div class="convo-section-label">{label}</div>
         {#each items as conv (conv.id)}
           <a
-            href={resolve(`/chat/${conv.id}`)}
+            href={resolve('/chat/[conversationId]', { conversationId: conv.id })}
             data-sveltekit-preload-data="hover"
             class="convo-item group flex items-center justify-between rounded-xl px-3 py-2 text-sm {conv.id === currentId ? 'convo-item-active' : ''}"
           >

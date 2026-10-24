@@ -1,7 +1,7 @@
-import { mapChatMessage } from '$lib/db-mappers'
-import { pbClient } from '$lib/pb-client'
-import type { StreamEvent, StreamOp } from '$lib/types'
-import type { ChatMessage } from '$lib/types/chat'
+import { mapChatMessage } from '#lib/db-mappers.ts'
+import { pbClient } from '#lib/pb-client.ts'
+import type { ChatMessage } from '#lib/types/chat.ts'
+import type { StreamEvent, StreamOp } from '#lib/types.ts'
 import { ClientResponseError } from 'pocketbase'
 
 export const fetchStreamEvents = async (messageId: string, from: number, to: number | null): Promise<StreamEvent[]> => {

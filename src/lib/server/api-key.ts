@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
-import { decrypt } from '$lib/server/crypto'
-import { mapApiKey } from '$lib/server/db/records'
-import { getFirstOrNull, pb } from '$lib/server/pb'
+import { decrypt } from '#lib/server/crypto.ts'
+import { mapApiKey } from '#lib/server/db/records.ts'
+import { getFirstOrNull, pb } from '#lib/server/pb.ts'
 
 export const normalizeKeyList = (keys: string[]) => [...new Set(keys.map(key => key.trim()).filter(Boolean))]
 

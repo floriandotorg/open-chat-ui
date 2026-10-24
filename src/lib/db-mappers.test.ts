@@ -1,4 +1,4 @@
-import { mapConversationSummary } from '$lib/db-mappers'
+import { mapConversationSummary } from '#lib/db-mappers.ts'
 import { describe, expect, it } from 'vitest'
 
 const row = (overrides: Record<string, unknown> = {}) => ({

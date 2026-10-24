@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onSyncError } from '$lib/sync/errors'
+import { onSyncError } from '#lib/sync/errors.ts'
 import { onMount } from 'svelte'
 import { fly } from 'svelte/transition'
 

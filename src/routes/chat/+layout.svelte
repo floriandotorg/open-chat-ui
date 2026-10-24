@@ -1,23 +1,23 @@
 <script lang="ts">
-import ConversationList from '$lib/components/ConversationList.svelte'
-import ModelPicker from '$lib/components/ModelPicker.svelte'
-import SyncErrorToast from '$lib/components/SyncErrorToast.svelte'
-import SystemPromptPicker from '$lib/components/SystemPromptPicker.svelte'
-import ThinkingEffortPicker from '$lib/components/ThinkingEffortPicker.svelte'
-import TtsPlayer from '$lib/components/TtsPlayer.svelte'
-import { mapSystemPrompt } from '$lib/db-mappers'
-import { pbClient } from '$lib/pb-client'
-import { createRealtimeSlot, registerRealtime, startRealtimeWatchdog } from '$lib/realtime-watchdog'
-import { chatContext } from '$lib/stores/chat-context.svelte'
-import { attachChatRealtime, getChatStores, markChatMounted } from '$lib/stores/chat-sync.svelte'
-import { createModelsStore } from '$lib/stores/models.svelte'
-import { createTtsPlayer } from '$lib/stores/tts-player.svelte'
-import { conversations, setDefaultModel, setFavorite, setSystemPrompt } from '$lib/sync/conversations.svelte'
-import { attachConversationsRealtime } from '$lib/sync/conversations-live'
-import type { SystemPrompt, ThinkingEffort } from '$lib/types'
 import { afterNavigate, goto, preloadCode } from '$app/navigation'
 import { resolve } from '$app/paths'
 import { page } from '$app/state'
+import ConversationList from '#lib/components/ConversationList.svelte'
+import ModelPicker from '#lib/components/ModelPicker.svelte'
+import SyncErrorToast from '#lib/components/SyncErrorToast.svelte'
+import SystemPromptPicker from '#lib/components/SystemPromptPicker.svelte'
+import ThinkingEffortPicker from '#lib/components/ThinkingEffortPicker.svelte'
+import TtsPlayer from '#lib/components/TtsPlayer.svelte'
+import { mapSystemPrompt } from '#lib/db-mappers.ts'
+import { pbClient } from '#lib/pb-client.ts'
+import { createRealtimeSlot, registerRealtime, startRealtimeWatchdog } from '#lib/realtime-watchdog.ts'
+import { chatContext } from '#lib/stores/chat-context.svelte.ts'
+import { attachChatRealtime, getChatStores, markChatMounted } from '#lib/stores/chat-sync.svelte.ts'
+import { createModelsStore } from '#lib/stores/models.svelte.ts'
+import { createTtsPlayer } from '#lib/stores/tts-player.svelte.ts'
+import { conversations, setDefaultModel, setFavorite, setSystemPrompt } from '#lib/sync/conversations.svelte.ts'
+import { attachConversationsRealtime } from '#lib/sync/conversations-live.ts'
+import type { SystemPrompt, ThinkingEffort } from '#lib/types.ts'
 import type { LayoutData } from './$types'
 import type { Snippet } from 'svelte'
 import { onMount, setContext } from 'svelte'
@@ -183,7 +183,7 @@ onMount(() => {
   startRealtimeWatchdog()
   // Route chunks load ahead of time so the first navigation to a chat or a
   // freshly started conversation never waits on a script download.
-  void preloadCode(resolve('/chat/[conversationId]', { conversationId: 'preload' }))
+  void preloadCode('/chat/[conversationId]')
   const detachChatRealtime = attachChatRealtime()
   const conversationsRealtime = attachConversationsRealtime()
   const prefetchTimer = setTimeout(prefetchRecentConversations, PREFETCH_DELAY_MS)

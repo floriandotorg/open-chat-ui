@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { env } from '$env/dynamic/private'
+import * as env from '$app/env/private'
 
 const getUploadDir = () => {
   const dir = env.UPLOAD_DIR ?? './uploads'

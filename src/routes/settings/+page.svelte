@@ -1,14 +1,14 @@
 <script lang="ts">
-import ApiKeyForm from '$lib/components/ApiKeyForm.svelte'
-import ModelManager from '$lib/components/ModelManager.svelte'
-import SystemPromptManager from '$lib/components/SystemPromptManager.svelte'
-import UsagePanel from '$lib/components/UsagePanel.svelte'
-import { registerRealtime, startRealtimeWatchdog } from '$lib/realtime-watchdog'
-import { createSettingsStore } from '$lib/stores/settings.svelte'
 import { enhance } from '$app/forms'
 import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
 import { page } from '$app/state'
+import ApiKeyForm from '#lib/components/ApiKeyForm.svelte'
+import ModelManager from '#lib/components/ModelManager.svelte'
+import SystemPromptManager from '#lib/components/SystemPromptManager.svelte'
+import UsagePanel from '#lib/components/UsagePanel.svelte'
+import { registerRealtime, startRealtimeWatchdog } from '#lib/realtime-watchdog.ts'
+import { createSettingsStore } from '#lib/stores/settings.svelte.ts'
 import type { ActionData, PageData } from './$types'
 import { onMount } from 'svelte'
 
@@ -108,9 +108,9 @@ const activeTab = $derived.by<Tab>(() => {
 })
 
 const setTab = (tab: Tab) => {
-  const url = new URL(page.url)
+  const url = new URL(page.url.href)
   url.searchParams.set('tab', tab)
-  goto(url.toString(), { replaceState: true, keepFocus: true, noScroll: true })
+  goto(url.toString(), { replace: true, reset: false })
 }
 </script>
 

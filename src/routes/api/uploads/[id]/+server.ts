@@ -1,5 +1,5 @@
-import { requireUser } from '$lib/server/auth-guard'
-import { getUploadPath, mimeForExt } from '$lib/server/uploads'
+import { requireUser } from '#lib/server/auth-guard.ts'
+import { getUploadPath, mimeForExt } from '#lib/server/uploads.ts'
 import type { RequestHandler } from './$types'
 import { error } from '@sveltejs/kit'
 import { existsSync } from 'node:fs'

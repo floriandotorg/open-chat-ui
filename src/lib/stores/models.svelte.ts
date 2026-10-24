@@ -1,10 +1,10 @@
-import type { ProviderModel } from '$lib/db-mappers'
-import { mapProviderModel } from '$lib/db-mappers'
-import { byProviderThenName, formatModelRef, parseModelRef } from '$lib/model-ref'
-import { pbClient } from '$lib/pb-client'
-import { storedModelInfo } from '$lib/provider-models'
-import type { ModelInfo, ProviderInfo } from '$lib/types'
-import { browser } from '$app/environment'
+import { browser } from '$app/env'
+import type { ProviderModel } from '#lib/db-mappers.ts'
+import { mapProviderModel } from '#lib/db-mappers.ts'
+import { byProviderThenName, formatModelRef, parseModelRef } from '#lib/model-ref.ts'
+import { pbClient } from '#lib/pb-client.ts'
+import { storedModelInfo } from '#lib/provider-models.ts'
+import type { ModelInfo, ProviderInfo } from '#lib/types.ts'
 
 const toModelInfo = (s: ProviderModel): ModelInfo => ({ ...storedModelInfo(s), id: formatModelRef(s.provider, s.modelId) })
 

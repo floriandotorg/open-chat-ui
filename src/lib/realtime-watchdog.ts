@@ -1,5 +1,5 @@
-import { pbClient } from '$lib/pb-client'
-import { browser } from '$app/environment'
+import { browser } from '$app/env'
+import { pbClient } from '#lib/pb-client.ts'
 
 const HEARTBEAT_COLLECTION = 'heartbeat'
 const STALL_MS = 45_000

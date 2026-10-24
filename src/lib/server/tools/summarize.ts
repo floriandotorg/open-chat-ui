@@ -1,8 +1,8 @@
-import { parseModelRef } from '$lib/model-ref'
-import { getDecryptedKey } from '$lib/server/api-key'
-import { mapUserSettings } from '$lib/server/db/records'
-import { getFirstOrNull, pb } from '$lib/server/pb'
-import { getProviderFactory } from '$lib/server/providers'
+import { parseModelRef } from '#lib/model-ref.ts'
+import { getDecryptedKey } from '#lib/server/api-key.ts'
+import { mapUserSettings } from '#lib/server/db/records.ts'
+import { getFirstOrNull, pb } from '#lib/server/pb.ts'
+import { getProviderFactory } from '#lib/server/providers/index.ts'
 import type { ToolContext, ToolDefinition } from './types'
 
 const MIN_CHARS = 2000

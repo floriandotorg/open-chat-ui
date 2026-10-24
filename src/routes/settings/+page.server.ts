@@ -1,7 +1,7 @@
-import { requireUser } from '$lib/server/auth-guard'
-import { mapSystemPrompt, mapUserSettings } from '$lib/server/db/records'
-import { getFirstOrNull, pb } from '$lib/server/pb'
-import { listProviders } from '$lib/server/providers'
+import { requireUser } from '#lib/server/auth-guard.ts'
+import { mapSystemPrompt, mapUserSettings } from '#lib/server/db/records.ts'
+import { getFirstOrNull, pb } from '#lib/server/pb.ts'
+import { listProviders } from '#lib/server/providers/index.ts'
 import type { Actions, PageServerLoad } from './$types'
 import { fail } from '@sveltejs/kit'
 

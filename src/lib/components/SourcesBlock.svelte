@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { Citation } from '$lib/citations'
+import type { Citation } from '#lib/citations.ts'
 
 let { citations }: { citations: Citation[] } = $props()
 

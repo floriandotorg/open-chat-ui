@@ -1,7 +1,7 @@
-import { normalizeModelRef } from '$lib/model-ref'
-import { requireUser } from '$lib/server/auth-guard'
-import { mapUserSettings, now, type UserSettings } from '$lib/server/db/records'
-import { createOrRecover, getFirstOrNull, pb } from '$lib/server/pb'
+import { normalizeModelRef } from '#lib/model-ref.ts'
+import { requireUser } from '#lib/server/auth-guard.ts'
+import { mapUserSettings, now, type UserSettings } from '#lib/server/db/records.ts'
+import { createOrRecover, getFirstOrNull, pb } from '#lib/server/pb.ts'
 import type { RequestHandler } from './$types'
 import { json } from '@sveltejs/kit'
 

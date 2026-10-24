@@ -1,4 +1,4 @@
-import { buildHistoryMessages, hydrateEntries, slimEntry } from '$lib/server/history'
+import { buildHistoryMessages, hydrateEntries, slimEntry } from '#lib/server/history.ts'
 import { describe, expect, it } from 'vitest'
 
 const codeExecEntry = (overrides = {}) => ({ type: 'code_execution' as const, id: 'srvtoolu_1', name: 'bash_code_execution', input: {}, textOffset: 5, stdout: '', ...overrides })

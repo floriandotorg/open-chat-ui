@@ -1,6 +1,6 @@
-import { extractCitations } from '$lib/citations'
-import type { ChatMessage } from '$lib/server/providers/types'
-import type { CodeExecutionSummary, MessagePayload, ToolCallSummary } from '$lib/types'
+import { extractCitations } from '#lib/citations.ts'
+import type { ChatMessage } from '#lib/server/providers/types.ts'
+import type { CodeExecutionSummary, MessagePayload, ToolCallSummary } from '#lib/types.ts'
 
 export interface PersistedToolCall {
   id: string

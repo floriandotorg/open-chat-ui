@@ -1,8 +1,8 @@
 <script lang="ts">
-import { pbClient } from '$lib/pb-client'
-import { createRealtimeSlot, registerRealtime } from '$lib/realtime-watchdog'
-import type { ModelInfo, ProviderInfo } from '$lib/types'
-import { browser } from '$app/environment'
+import { browser } from '$app/env'
+import { pbClient } from '#lib/pb-client.ts'
+import { createRealtimeSlot, registerRealtime } from '#lib/realtime-watchdog.ts'
+import type { ModelInfo, ProviderInfo } from '#lib/types.ts'
 import { onMount } from 'svelte'
 
 let {

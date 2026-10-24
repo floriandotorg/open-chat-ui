@@ -1,5 +1,5 @@
-import { mapConversationDetail } from '$lib/db-mappers'
-import type { ConversationDetail } from '$lib/types/chat'
+import { mapConversationDetail } from '#lib/db-mappers.ts'
+import type { ConversationDetail } from '#lib/types/chat.ts'
 import { error } from '@sveltejs/kit'
 
 export const fetchConversationDetail = async (id: string, fetchFn: typeof fetch = fetch): Promise<ConversationDetail> => {

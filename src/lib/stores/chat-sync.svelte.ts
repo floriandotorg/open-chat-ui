@@ -1,13 +1,13 @@
-import { fetchConversationDetail } from '$lib/conversation-detail'
-import { mapChatMessage } from '$lib/db-mappers'
-import { pbClient } from '$lib/pb-client'
-import { createRealtimeSlot, isRealtimeLive, noteRealtimeActivity, registerRealtime } from '$lib/realtime-watchdog'
-import { ChatStore, type QueueEntry } from '$lib/stores/chat.svelte'
-import { ChatStores } from '$lib/stores/chat-stores.svelte'
-import { invalidatePayload } from '$lib/stores/payloads.svelte'
-import { fetchMessage, fetchStreamEvents } from '$lib/stream-events-client'
-import { browser } from '$app/environment'
+import { browser } from '$app/env'
 import { page } from '$app/state'
+import { fetchConversationDetail } from '#lib/conversation-detail.ts'
+import { mapChatMessage } from '#lib/db-mappers.ts'
+import { pbClient } from '#lib/pb-client.ts'
+import { createRealtimeSlot, isRealtimeLive, noteRealtimeActivity, registerRealtime } from '#lib/realtime-watchdog.ts'
+import { ChatStore, type QueueEntry } from '#lib/stores/chat.svelte.ts'
+import { ChatStores } from '#lib/stores/chat-stores.svelte.ts'
+import { invalidatePayload } from '#lib/stores/payloads.svelte.ts'
+import { fetchMessage, fetchStreamEvents } from '#lib/stream-events-client.ts'
 
 const queueKey = (conversationId: string) => `chat-queue-${conversationId}`
 

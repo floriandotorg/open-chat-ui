@@ -1,8 +1,8 @@
-import { parseModelRef } from '$lib/model-ref'
-import { getDecryptedKey } from '$lib/server/api-key'
-import { mapMessage, mapUserSettings, now } from '$lib/server/db/records'
-import { getFirstOrNull, pb } from '$lib/server/pb'
-import { getProviderFactory } from '$lib/server/providers'
+import { parseModelRef } from '#lib/model-ref.ts'
+import { getDecryptedKey } from '#lib/server/api-key.ts'
+import { mapMessage, mapUserSettings, now } from '#lib/server/db/records.ts'
+import { getFirstOrNull, pb } from '#lib/server/pb.ts'
+import { getProviderFactory } from '#lib/server/providers/index.ts'
 
 export const generateConversationTitle = async (userId: string, conversationId: string): Promise<string | null> => {
   const settings = await getFirstOrNull(

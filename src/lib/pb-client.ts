@@ -1,6 +1,6 @@
-import { browser } from '$app/environment'
+import { browser } from '$app/env'
+import * as env from '$app/env/public'
 import PocketBase from 'pocketbase'
-import { env } from '$env/dynamic/public'
 
 export const pbClient = new PocketBase(env.PUBLIC_POCKETBASE_URL)
 // Auto cancellation keys on method and path only, so concurrent reads of one

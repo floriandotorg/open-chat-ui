@@ -1,5 +1,5 @@
-import type { BranchMap } from '$lib/message-tree'
-import type { Message } from '$lib/types'
+import type { BranchMap } from '#lib/message-tree.ts'
+import type { Message } from '#lib/types.ts'
 
 export interface ChatMessage extends Message {
   settledAt?: Date

@@ -1,11 +1,11 @@
-import { startServerHeartbeat } from '$lib/server/heartbeat'
-import { syncAllProviders } from '$lib/server/model-sync'
-import { reapStaleGenerations } from '$lib/server/reaper'
-import { building, dev } from '$app/environment'
-import type { Handle, HandleServerError } from '@sveltejs/kit'
+import { building, dev } from '$app/env'
+import * as env from '$app/env/private'
+import { startServerHeartbeat } from '#lib/server/heartbeat.ts'
+import { syncAllProviders } from '#lib/server/model-sync.ts'
+import { reapStaleGenerations } from '#lib/server/reaper.ts'
 import { redirect } from '@sveltejs/kit'
+import type { Handle, HandleServerError } from '@sveltejs/kit/hooks'
 import PocketBase, { isTokenExpired } from 'pocketbase'
-import { env } from '$env/dynamic/private'
 
 if (!building) {
   reapStaleGenerations().catch(err => {
@@ -16,14 +16,14 @@ if (!building) {
   setInterval(() => void syncAllProviders(), 6 * 60 * 60 * 1000)
 }
 
-export const handleError: HandleServerError = ({ error, event, status, message }) => {
+export const handleError: HandleServerError = ({ error, event, kind }) => {
+  const status = kind === 'unknown' ? 500 : error.status
   if (status >= 500) {
     const stack = error instanceof Error ? error.stack : undefined
     const detail = stack ?? (error instanceof Error ? error.message : JSON.stringify(error))
     console.error(`[${status}] ${event.request.method} ${event.url.pathname}`)
     console.error(detail)
   }
-  return { message }
 }
 
 const protectedPrefixes = ['/chat', '/settings', '/api/']

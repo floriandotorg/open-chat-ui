@@ -58,15 +58,15 @@ describe('withSearchSummarization', () => {
   })
 
   it('returns the summary with the raw result attached when the summarizer succeeds', async () => {
-    vi.doMock('$lib/server/pb', () => ({
+    vi.doMock('#lib/server/pb.ts', () => ({
       pb: {
         collection: () => ({ getFirstListItem: () => Promise.resolve({ toolSummarizerModel: 'openai/test-model', updatedAt: '' }) }),
         filter: () => '',
       },
       getFirstOrNull: (p: Promise<unknown>) => p.catch(() => null),
     }))
-    vi.doMock('$lib/server/api-key', () => ({ getDecryptedKey: async () => 'key' }))
-    vi.doMock('$lib/server/providers', () => ({
+    vi.doMock('#lib/server/api-key.ts', () => ({ getDecryptedKey: async () => 'key' }))
+    vi.doMock('#lib/server/providers/index.ts', () => ({
       getProviderFactory: () => () => ({
         async *chat() {
           yield { type: 'text_delta', text: 'summarized briefing' }
@@ -78,8 +78,8 @@ describe('withSearchSummarization', () => {
     const wrapped = withSearchSummarization(makeTool(raw))
     const out = await wrapped.execute({ query: 'q', research_question: 'What is y?' }, ctx)
     expect(out).toEqual({ result: 'summarized briefing', rawResult: raw })
-    vi.doUnmock('$lib/server/pb')
-    vi.doUnmock('$lib/server/api-key')
-    vi.doUnmock('$lib/server/providers')
+    vi.doUnmock('#lib/server/pb.ts')
+    vi.doUnmock('#lib/server/api-key.ts')
+    vi.doUnmock('#lib/server/providers/index.ts')
   })
 })

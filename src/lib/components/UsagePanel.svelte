@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { UsageResponse } from '$lib/types'
+import type { UsageResponse } from '#lib/types.ts'
 import { onMount } from 'svelte'
 
 let data = $state<UsageResponse | null>(null)

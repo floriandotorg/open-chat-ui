@@ -1,6 +1,6 @@
 <script lang="ts">
-import { createPopover, portal } from '$lib/popover.svelte'
-import type { SystemPrompt } from '$lib/types'
+import { createPopover, portal } from '#lib/popover.svelte.ts'
+import type { SystemPrompt } from '#lib/types.ts'
 
 let {
   prompts,

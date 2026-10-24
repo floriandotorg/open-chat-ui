@@ -1,8 +1,8 @@
-import { normalizeModelRef } from '$lib/model-ref'
-import { requireUser } from '$lib/server/auth-guard'
-import { createConversation } from '$lib/server/conversations'
-import { type Conversation, mapConversation, toConversationSummary } from '$lib/server/db/records'
-import { pb } from '$lib/server/pb'
+import { normalizeModelRef } from '#lib/model-ref.ts'
+import { requireUser } from '#lib/server/auth-guard.ts'
+import { createConversation } from '#lib/server/conversations.ts'
+import { type Conversation, mapConversation, toConversationSummary } from '#lib/server/db/records.ts'
+import { pb } from '#lib/server/pb.ts'
 import type { RequestHandler } from './$types'
 import { json } from '@sveltejs/kit'
 

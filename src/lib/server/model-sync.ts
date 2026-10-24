@@ -1,8 +1,8 @@
-import { parseModelRef } from '$lib/model-ref'
-import { decrypt } from '$lib/server/crypto'
-import { mapApiKey, mapProviderModel, now } from '$lib/server/db/records'
-import { createOrRecover, getFirstOrNull, pb } from '$lib/server/pb'
-import { getProviderFactory, listProviders } from '$lib/server/providers'
+import { parseModelRef } from '#lib/model-ref.ts'
+import { decrypt } from '#lib/server/crypto.ts'
+import { mapApiKey, mapProviderModel, now } from '#lib/server/db/records.ts'
+import { createOrRecover, getFirstOrNull, pb } from '#lib/server/pb.ts'
+import { getProviderFactory, listProviders } from '#lib/server/providers/index.ts'
 
 export const STALE_AFTER_MS = 6 * 60 * 60 * 1000
 

@@ -1,7 +1,7 @@
-import { requireUser } from '$lib/server/auth-guard'
-import { pb } from '$lib/server/pb'
-import { getPricing, type ModelPricing } from '$lib/server/pricing'
-import { type MessageUsageRow, resolveMessageCost } from '$lib/server/usage-cost'
+import { requireUser } from '#lib/server/auth-guard.ts'
+import { pb } from '#lib/server/pb.ts'
+import { getPricing, type ModelPricing } from '#lib/server/pricing.ts'
+import { type MessageUsageRow, resolveMessageCost } from '#lib/server/usage-cost.ts'
 import type { RequestHandler } from './$types'
 import { json } from '@sveltejs/kit'
 

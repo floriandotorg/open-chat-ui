@@ -1,7 +1,7 @@
 <script lang="ts">
-import { renderMarkdown } from '$lib/markdown'
-import { loadPayload } from '$lib/stores/payloads.svelte'
-import type { MessagePayload, ToolCallSummary } from '$lib/types'
+import { renderMarkdown } from '#lib/markdown.ts'
+import { loadPayload } from '#lib/stores/payloads.svelte.ts'
+import type { MessagePayload, ToolCallSummary } from '#lib/types.ts'
 
 let { messageId, toolCall }: { messageId: string; toolCall: ToolCallSummary } = $props()
 

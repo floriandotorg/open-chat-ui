@@ -1,7 +1,7 @@
-import { requireUser } from '$lib/server/auth-guard'
-import { abortGeneration, getGeneration } from '$lib/server/generations'
-import { getFirstOrNull, pb } from '$lib/server/pb'
-import { clearGeneratingFlag } from '$lib/server/reaper'
+import { requireUser } from '#lib/server/auth-guard.ts'
+import { abortGeneration, getGeneration } from '#lib/server/generations.ts'
+import { getFirstOrNull, pb } from '#lib/server/pb.ts'
+import { clearGeneratingFlag } from '#lib/server/reaper.ts'
 import type { RequestHandler } from './$types'
 import { error } from '@sveltejs/kit'
 
