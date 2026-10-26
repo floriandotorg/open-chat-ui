@@ -54,19 +54,29 @@ export const isSpeakerGender = (value: unknown): value is SpeakerGender => SPEAK
 
 export interface ContextNote {
   phrase: string
-  source: string
-  target: string
+  note: string
 }
+
+export interface TranslationNotes {
+  sender: ContextNote[]
+  recipient: ContextNote[]
+}
+
+export const MAX_NOTES_PER_SIDE = 3
 
 export const isContextNote = (value: unknown): value is ContextNote => {
-  if (typeof value !== 'object' || value === null || !('phrase' in value) || !('source' in value) || !('target' in value)) {
+  if (typeof value !== 'object' || value === null || !('phrase' in value) || !('note' in value)) {
     return false
   }
-  return typeof value.phrase === 'string' && Boolean(value.phrase.trim()) && value.phrase.length <= 100 && typeof value.source === 'string' && Boolean(value.source.trim()) && value.source.length <= 320 && typeof value.target === 'string' && Boolean(value.target.trim()) && value.target.length <= 320
+  return typeof value.phrase === 'string' && Boolean(value.phrase.trim()) && value.phrase.length <= 100 && typeof value.note === 'string' && Boolean(value.note.trim()) && value.note.length <= 400
 }
 
-export type TranslationStage = 'translation' | 'back' | 'note'
-export type TranslationEvent = { type: 'translation' | 'back'; text: string } | { type: 'note'; notes: ContextNote[] } | { type: 'error'; stage: TranslationStage; text: string } | { type: 'done' }
+const isNoteList = (value: unknown): value is ContextNote[] => Array.isArray(value) && value.length <= MAX_NOTES_PER_SIDE && value.every(isContextNote)
+
+export const isTranslationNotes = (value: unknown): value is TranslationNotes => typeof value === 'object' && value !== null && 'sender' in value && 'recipient' in value && isNoteList(value.sender) && isNoteList(value.recipient)
+
+export type TranslationStage = 'translation' | 'back' | 'notes'
+export type TranslationEvent = { type: 'translation' | 'back'; text: string } | { type: 'notes'; notes: TranslationNotes } | { type: 'error'; stage: TranslationStage; text: string } | { type: 'done' }
 
 export const isTranslationEvent = (value: unknown): value is TranslationEvent => {
   if (typeof value !== 'object' || value === null || !('type' in value)) {
@@ -75,11 +85,11 @@ export const isTranslationEvent = (value: unknown): value is TranslationEvent =>
   if (value.type === 'done') {
     return true
   }
-  if (value.type === 'note') {
-    return 'notes' in value && Array.isArray(value.notes) && value.notes.length <= 3 && value.notes.every(isContextNote)
+  if (value.type === 'notes') {
+    return 'notes' in value && isTranslationNotes(value.notes)
   }
   if (!('text' in value) || typeof value.text !== 'string') {
     return false
   }
-  return value.type === 'translation' || value.type === 'back' || (value.type === 'error' && 'stage' in value && (value.stage === 'translation' || value.stage === 'back' || value.stage === 'note'))
+  return value.type === 'translation' || value.type === 'back' || (value.type === 'error' && 'stage' in value && (value.stage === 'translation' || value.stage === 'back' || value.stage === 'notes'))
 }

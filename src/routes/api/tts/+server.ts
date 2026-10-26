@@ -19,7 +19,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     throw error(400, 'Speech supports up to 10,000 characters. Shorten the text and translate again.')
   }
 
-  const [apiKey, voiceId] = await Promise.all([getDecryptedKey(userId, 'elevenlabs'), getDecryptedKey(userId, 'elevenlabs-voice-id')])
+  const [apiKey, voiceId] = await Promise.all([getDecryptedKey(userId, 'elevenlabs'), language === 'pt-PT' ? 'ID3DiXGPB7uwug5tZ3FB' : getDecryptedKey(userId, 'elevenlabs-voice-id')])
 
   if (!apiKey) {
     throw error(400, 'No ElevenLabs API key configured. Add one in Settings → Tools.')

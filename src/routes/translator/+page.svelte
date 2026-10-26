@@ -1,7 +1,7 @@
 <script lang="ts">
 import { resolve } from '$app/paths'
 import { createTtsPlayer } from '#lib/stores/tts-player.svelte.ts'
-import { type ContextNote, isSpeakerGender, isTranslationEvent, LANGUAGES, SPEAKER_GENDERS, type SpeakerGender } from '#lib/translator.ts'
+import { type ContextNote, isSpeakerGender, isTranslationEvent, LANGUAGES, SPEAKER_GENDERS, type SpeakerGender, type TranslationNotes } from '#lib/translator.ts'
 import { getTranslatorCopy } from '#lib/translator-copy.ts'
 import { createTranslatorSpeech, type SpeechState } from '#lib/translator-speech.ts'
 import type { PageData } from './$types'
@@ -17,7 +17,7 @@ let text = $state('')
 let additionalContext = $state('')
 let translation = $state('')
 let back = $state('')
-let notes = $state<ContextNote[]>([])
+let notes = $state<TranslationNotes>({ sender: [], recipient: [] })
 let error = $state('')
 let checkError = $state('')
 let noteError = $state('')
@@ -37,6 +37,7 @@ const sourceCopy = $derived(getTranslatorCopy(source))
 const targetCopy = $derived(getTranslatorCopy(target))
 const tts = createTtsPlayer(1)
 const playbackActive = $derived(tts.loading || tts.playing)
+const hasNotes = $derived(notes.sender.length > 0 || notes.recipient.length > 0)
 let speechPrefix = ''
 const speech = createTranslatorSpeech({
   text: value => {
@@ -105,7 +106,7 @@ $effect(() => {
   busy = false
   translation = ''
   back = ''
-  notes = []
+  notes = { sender: [], recipient: [] }
   error = ''
   checkError = ''
   noteError = ''
@@ -125,7 +126,7 @@ const startTranslation = () => {
   activeTranslation = controller
   translation = ''
   back = ''
-  notes = []
+  notes = { sender: [], recipient: [] }
   error = ''
   checkError = ''
   noteError = ''
@@ -173,7 +174,7 @@ const run = async (input: { text: string; source: string; target: string; contex
           } else if (event.type === 'back') {
             back = event.text
             backComplete = true
-          } else if (event.type === 'note') {
+          } else if (event.type === 'notes') {
             notes = event.notes
             noteComplete = true
           } else if (event.type === 'error') {
@@ -268,7 +269,31 @@ const copy = async () => {
 }
 </script>
 
+{#snippet noteList(title: string, entries: ContextNote[], language: string)}
+  <section lang={language} class="min-w-0 rounded-3xl border border-amber-600/15 bg-amber-500/[0.03] p-5 dark:border-amber-300/15">
+    <div class="mb-3 flex items-center gap-2.5">
+      <svg aria-hidden="true" class="h-5 w-5 shrink-0 text-amber-700 dark:text-amber-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3a7 7 0 0 0-4 12.75V19h8v-3.25A7 7 0 0 0 12 3Zm-3 19h6m-5-3v-6m4 6v-6m-4 0h4" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      <h2 class="text-sm font-semibold text-amber-900 dark:text-amber-100">{title}</h2>
+    </div>
+    <ul class="space-y-3">
+      {#each entries as entry}
+        <li class="min-w-0 rounded-2xl border border-amber-600/10 bg-white/60 p-4 dark:border-amber-300/10 dark:bg-white/[0.03]">
+          <p class="mb-1.5 break-words text-sm font-semibold text-amber-900 dark:text-amber-100">“{entry.phrase}”</p>
+          <p class="break-words text-sm leading-relaxed text-gray-700 dark:text-gray-200">{entry.note}</p>
+        </li>
+      {/each}
+    </ul>
+  </section>
+{/snippet}
+
 <svelte:head><title>{sourceCopy.translator}</title><meta name="description" content="Natural translation with live speech and an independent meaning check." /></svelte:head>
+
+<svelte:window onkeydown={event => {
+  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !event.isComposing && !event.repeat) {
+    event.preventDefault()
+    startTranslation()
+  }
+}} />
 
 <div lang={source} class="h-full overflow-y-auto">
   <header class="mx-auto grid max-w-5xl grid-cols-2 items-center gap-2 px-5 pb-2 pt-4 sm:flex sm:gap-3" style="padding-top: max(1rem, env(safe-area-inset-top))">
@@ -329,7 +354,7 @@ const copy = async () => {
             </button>
             <button type="button" onclick={() => { speech.dispose(); text = ''; additionalContext = ''; speechError = '' }} disabled={!text && !additionalContext && speechState === 'idle'} class="rounded-full px-3 py-2 text-sm text-gray-400 hover:text-gray-700 disabled:invisible dark:hover:text-gray-200">{sourceCopy.clear}</button>
           </div>
-          <button type="button" onclick={startTranslation} disabled={busy || !text.trim() || !data.model || source === target || speechState !== 'idle'} class="ml-auto w-full rounded-full bg-emerald-700 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"><span aria-live="polite">{busy ? (checking ? sourceCopy.checking : sourceCopy.translating) : sourceCopy.translate}</span></button>
+          <button type="button" onclick={startTranslation} aria-keyshortcuts="Meta+Enter Control+Enter" disabled={busy || !text.trim() || !data.model || source === target || speechState !== 'idle'} class="ml-auto w-full rounded-full bg-emerald-700 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"><span aria-live="polite">{busy ? (checking ? sourceCopy.checking : sourceCopy.translating) : sourceCopy.translate}</span></button>
         </div>
       </section>
 
@@ -338,7 +363,7 @@ const copy = async () => {
           <p class="mb-3 text-xs font-medium text-emerald-800/60 dark:text-emerald-200/60">{targetLanguage.label}</p>
           <div lang={target} class="whitespace-pre-wrap break-words text-xl leading-relaxed sm:text-2xl {translation ? '' : 'min-h-24'}">{#if translation}{translation}{:else}<span class="text-gray-400">{busy ? targetCopy.findingWords : targetCopy.outputPlaceholder}</span>{/if}</div>
           <div class="mt-5 flex items-center justify-between gap-3">
-            <button type="button" onclick={() => { if (playbackActive) { tts.close() } else { void tts.play(translation, target) } }} disabled={!translation || busy || speechState !== 'idle'} aria-label={playbackActive ? targetCopy.stopPlayback : targetCopy.listenTranslation} title={playbackActive ? targetCopy.stopPlayback : targetCopy.listenTranslation} aria-pressed={playbackActive} class="flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-full bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-500/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300">
+            <button type="button" onclick={() => { if (playbackActive) { tts.close() } else { void tts.play(translation, target) } }} disabled={!translation || speechState !== 'idle'} aria-label={playbackActive ? targetCopy.stopPlayback : targetCopy.listenTranslation} title={playbackActive ? targetCopy.stopPlayback : targetCopy.listenTranslation} aria-pressed={playbackActive} class="flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-full bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-500/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300">
               {#if playbackActive}
                 <svg aria-hidden="true" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
               {:else}
@@ -378,42 +403,27 @@ const copy = async () => {
     {#if speechError}<p role="alert" class="mt-4 text-sm text-red-500">{speechError}</p>{/if}
     {#if error}<div role="alert" class="mt-4 flex items-center gap-3 text-sm text-red-500"><span>{error}</span><button type="button" onclick={startTranslation} disabled={busy || speechState !== 'idle'} class="shrink-0 underline underline-offset-4">{sourceCopy.retry}</button></div>{/if}
 
-    {#if translation && (notes.length > 0 || noteError || busy && !noteComplete)}
-      <section aria-labelledby="context-notes-title" aria-busy={busy && !noteComplete} class="mt-4 rounded-3xl border border-amber-600/15 bg-amber-500/[0.03] p-5 sm:p-6 dark:border-amber-300/15">
-        <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div class="flex items-center gap-2.5">
-            <svg aria-hidden="true" class="h-5 w-5 shrink-0 text-amber-700 dark:text-amber-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3a7 7 0 0 0-4 12.75V19h8v-3.25A7 7 0 0 0 12 3Zm-3 19h6m-5-3v-6m4 6v-6m-4 0h4" stroke-linecap="round" stroke-linejoin="round" /></svg>
-            <h2 id="context-notes-title" class="text-sm font-semibold text-amber-900 dark:text-amber-100">{sourceCopy.culturalBridge}</h2>
-          </div>
-        </div>
-        {#if notes.length > 0}
-          <div class="space-y-3">
-            {#each notes as explanation}
-              <article class="min-w-0 rounded-2xl border border-amber-600/10 bg-white/60 p-4 dark:border-amber-300/10 dark:bg-white/[0.03]">
-                <h3 lang={source} class="mb-3 break-words text-sm font-semibold text-amber-900 dark:text-amber-100">“{explanation.phrase}”</h3>
-                <div class="grid gap-4 md:grid-cols-2">
-                  <div lang={source} class="min-w-0">
-                    <p class="mb-1.5 text-xs text-gray-400">{sourceLanguage.label}</p>
-                    <p class="break-words text-sm leading-relaxed text-gray-700 dark:text-gray-200">{explanation.source}</p>
-                  </div>
-                  <div lang={target} class="min-w-0">
-                    <p class="mb-1.5 text-xs text-gray-400">{targetLanguage.label}</p>
-                    <p class="break-words text-sm leading-relaxed text-gray-700 dark:text-gray-200">{explanation.target}</p>
-                  </div>
-                </div>
-              </article>
-            {/each}
-          </div>
-        {:else if busy && !noteComplete}
-          <p role="status" class="text-sm text-gray-500 dark:text-gray-400">{sourceCopy.notesPending}</p>
+    {#if translation && (hasNotes || noteError || busy && !noteComplete)}
+      <div aria-busy={busy && !noteComplete} class="mt-4 grid items-start gap-4 md:grid-cols-2">
+        {#if notes.sender.length > 0}
+          {@render noteList(sourceCopy.senderNotes, notes.sender, source)}
+        {/if}
+        {#if notes.recipient.length > 0}
+          <div class="min-w-0 md:col-start-2">{@render noteList(targetCopy.recipientNotes, notes.recipient, target)}</div>
+        {/if}
+        {#if busy && !noteComplete}
+          <p role="status" class="text-sm text-gray-500 md:col-span-2 dark:text-gray-400">{sourceCopy.notesPending}</p>
         {/if}
         {#if noteError}
-          <div class="flex flex-wrap items-center gap-3 text-sm">
-            <p role="status" class="text-gray-500 dark:text-gray-400">{sourceCopy.notesFailed}</p>
+          <div class="flex flex-wrap items-center gap-3 text-sm md:col-span-2">
+            <details class="min-w-0 text-gray-500 dark:text-gray-400">
+              <summary class="cursor-pointer">{sourceCopy.notesFailed}</summary>
+              <p class="mt-2 max-w-prose break-words text-xs leading-relaxed">{noteError}</p>
+            </details>
             <button type="button" onclick={startTranslation} disabled={busy} class="font-medium text-amber-800 underline underline-offset-4 disabled:opacity-50 dark:text-amber-200">{sourceCopy.retry}</button>
           </div>
         {/if}
-      </section>
+      </div>
     {/if}
   </main>
 </div>
