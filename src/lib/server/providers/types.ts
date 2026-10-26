@@ -44,6 +44,7 @@ export interface ChatRequest {
   systemPrompt?: string
   maxTokens?: number
   temperature?: number
+  outputSchema?: { name: string; schema: Record<string, unknown> }
   thinkingEffort?: 'none' | 'low' | 'medium' | 'high' | 'max'
   signal?: AbortSignal
   tools?: ToolSchema[]

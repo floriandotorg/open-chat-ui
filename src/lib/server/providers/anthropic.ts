@@ -219,6 +219,10 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
       params.output_config = { effort: request.thinkingEffort }
     }
 
+    if (request.outputSchema) {
+      params.output_config = { ...(useThinking ? { effort: request.thinkingEffort } : {}), format: { type: 'json_schema', schema: request.outputSchema.schema } }
+    }
+
     const tools: Record<string, unknown>[] = []
 
     if (request.codeExecution) {

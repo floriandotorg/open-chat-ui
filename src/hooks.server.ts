@@ -26,7 +26,7 @@ export const handleError: HandleServerError = ({ error, event, kind }) => {
   }
 }
 
-const protectedPrefixes = ['/chat', '/settings', '/api/']
+const protectedPrefixes = ['/chat', '/translator', '/settings', '/api/']
 const secure = env.ORIGIN.startsWith('https://')
 
 const handleAuth: Handle = async ({ event, resolve }) => {

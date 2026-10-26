@@ -6,13 +6,14 @@ import { page } from '$app/state'
 import ApiKeyForm from '#lib/components/ApiKeyForm.svelte'
 import ModelManager from '#lib/components/ModelManager.svelte'
 import SystemPromptManager from '#lib/components/SystemPromptManager.svelte'
+import TranslatorSettings from '#lib/components/TranslatorSettings.svelte'
 import UsagePanel from '#lib/components/UsagePanel.svelte'
 import { registerRealtime, startRealtimeWatchdog } from '#lib/realtime-watchdog.ts'
 import { createSettingsStore } from '#lib/stores/settings.svelte.ts'
 import type { ActionData, PageData } from './$types'
 import { onMount } from 'svelte'
 
-const TABS = ['keys', 'models', 'prompt', 'tools', 'usage', 'account'] as const
+const TABS = ['keys', 'models', 'prompt', 'translator', 'tools', 'usage', 'account'] as const
 type Tab = (typeof TABS)[number]
 
 type DictationProvider = 'mistral' | 'elevenlabs'
@@ -122,8 +123,8 @@ const setTab = (tab: Tab) => {
     </a>
   </div>
 
-  <div class="liquid-glass mb-6 flex gap-1 rounded-xl p-1">
-    {#each [['keys', 'API Keys'], ['models', 'Models'], ['prompt', 'System Prompt'], ['tools', 'Tools'], ['usage', 'Usage'], ['account', 'Account']] as [id, label] (id)}
+  <div class="liquid-glass mb-6 flex flex-wrap gap-1 rounded-xl p-1">
+    {#each [['keys', 'API Keys'], ['models', 'Models'], ['prompt', 'System Prompt'], ['translator', 'Translator'], ['tools', 'Tools'], ['usage', 'Usage'], ['account', 'Account']] as [id, label] (id)}
       <button
         onclick={() => setTab(id as Tab)}
         class="flex-1 rounded-lg px-3 py-2 text-sm font-medium transition {activeTab === id
@@ -143,6 +144,8 @@ const setTab = (tab: Tab) => {
     </div>
   {:else if activeTab === 'models'}
     <ModelManager providers={data.providers} {titleModel} {savingTitleModel} onSaveTitleModel={saveTitleModel} {summarizerModel} {savingSummarizerModel} onSaveSummarizerModel={saveSummarizerModel} />
+  {:else if activeTab === 'translator'}
+    <TranslatorSettings settings={settingsStore.settings} providers={data.providers} />
   {:else if activeTab === 'tools'}
     <div class="space-y-3">
       <p class="text-sm text-gray-500 dark:text-gray-400">

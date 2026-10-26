@@ -352,6 +352,10 @@ onMount(() => {
         <ModelPicker models={modelsStore.models} bind:selectedModel={chatContext.selectedModel} onmodelchange={handleModelChange} />
       </div>
       <div class="flex items-center gap-1">
+        <a href={resolve('/translator')} aria-label="Open translator" title="Translator" class="flex shrink-0 items-center gap-1.5 rounded-lg p-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-500/10 sm:px-3 dark:text-emerald-300">
+          <svg aria-hidden="true" class="h-5 w-5 sm:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 5h12M9 3v2m4 0c-1 6-4 10-9 12m2-9c1 4 4 7 7 9m1 4 4-11 4 11m-6-4h4" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          <span class="hidden sm:inline">Translate</span>
+        </a>
         {#if currentConversation}
           <button
             onclick={toggleCurrentConversationFavorite}

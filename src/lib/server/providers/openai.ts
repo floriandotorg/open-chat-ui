@@ -115,6 +115,10 @@ const createOpenAIAdapter = (apiKey: string): LLMProvider => ({
       stream: true,
     }
 
+    if (request.outputSchema) {
+      params.text = { format: { type: 'json_schema', ...request.outputSchema, strict: true } }
+    }
+
     if (!reasoning) {
       params.temperature = request.temperature ?? undefined
     }

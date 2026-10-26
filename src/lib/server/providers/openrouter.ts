@@ -246,8 +246,14 @@ const createOpenRouterAdapter = (apiKey: string): LLMProvider => ({
       provider: routingForModel(request.model),
     }
 
-    if (request.thinkingEffort && request.thinkingEffort !== 'none') {
+    if (request.thinkingEffort === 'none') {
+      params.reasoning = { enabled: false, exclude: true }
+    } else if (request.thinkingEffort) {
       params.reasoning = { effort: mapEffort(request.thinkingEffort) }
+    }
+
+    if (request.outputSchema) {
+      params.response_format = { type: 'json_schema', json_schema: { ...request.outputSchema, strict: true } }
     }
 
     if (request.tools?.length) {

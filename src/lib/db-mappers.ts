@@ -1,4 +1,5 @@
 import { normalizeModelRef } from '#lib/model-ref.ts'
+import { parseContexts } from '#lib/translator.ts'
 import type { ChatMessage, ConversationDetail, ConversationSummary } from '#lib/types/chat.ts'
 import type { Message as ClientMessage, CodeExecutionSummary, FileAttachment, ImageAttachment, MessagePayload, ModelInfo, ToolCallSummary } from '#lib/types.ts'
 import type { RecordModel } from 'pocketbase'
@@ -73,6 +74,8 @@ export interface UserSettings {
   titleModel: string | null
   toolSummarizerModel: string | null
   dictationProvider: string | null
+  translationModel?: string | null
+  translationContexts?: import('#lib/translator.ts').TranslationContext[] | null
   updatedAt: Date
 }
 
@@ -260,6 +263,8 @@ export const mapUserSettings = (r: RecordModel): UserSettings => ({
   titleModel: orNull(r.titleModel),
   toolSummarizerModel: orNull(r.toolSummarizerModel),
   dictationProvider: orNull(r.dictationProvider),
+  translationModel: orNull(r.translationModel),
+  translationContexts: parseContexts(r.translationContexts),
   updatedAt: toDate(r.updatedAt),
 })
 

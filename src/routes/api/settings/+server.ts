@@ -2,8 +2,9 @@ import { normalizeModelRef } from '#lib/model-ref.ts'
 import { requireUser } from '#lib/server/auth-guard.ts'
 import { mapUserSettings, now, type UserSettings } from '#lib/server/db/records.ts'
 import { createOrRecover, getFirstOrNull, pb } from '#lib/server/pb.ts'
+import { DEFAULT_CONTEXTS, parseContexts } from '#lib/translator.ts'
 import type { RequestHandler } from './$types'
-import { json } from '@sveltejs/kit'
+import { error, json } from '@sveltejs/kit'
 
 const toSettings = (row: UserSettings) => ({
   defaultSystemPrompt: row.defaultSystemPrompt,
@@ -11,6 +12,8 @@ const toSettings = (row: UserSettings) => ({
   titleModel: row.titleModel,
   toolSummarizerModel: row.toolSummarizerModel,
   dictationProvider: row.dictationProvider ?? 'mistral',
+  translationModel: row.translationModel ?? null,
+  translationContexts: row.translationContexts ?? DEFAULT_CONTEXTS,
 })
 
 export const GET: RequestHandler = async ({ locals }) => {
@@ -32,6 +35,8 @@ export const GET: RequestHandler = async ({ locals }) => {
           titleModel: null,
           toolSummarizerModel: null,
           dictationProvider: 'mistral',
+          translationModel: null,
+          translationContexts: DEFAULT_CONTEXTS,
         },
   )
 }
@@ -39,6 +44,16 @@ export const GET: RequestHandler = async ({ locals }) => {
 export const PUT: RequestHandler = async ({ request, locals }) => {
   const userId = requireUser(locals.user).id
   const body = await request.json()
+  if (body.translationModel !== undefined && body.translationModel !== null && (typeof body.translationModel !== 'string' || body.translationModel.length > 500 || !/^[^/]+\/.+$/.test(body.translationModel))) {
+    throw error(400, 'Invalid translation model')
+  }
+  if (body.translationContexts !== undefined && !parseContexts(body.translationContexts)) {
+    throw error(400, 'Invalid translation contexts')
+  }
+  const translationFields = {
+    ...(body.translationModel !== undefined && { translationModel: body.translationModel }),
+    ...(body.translationContexts !== undefined && { translationContexts: body.translationContexts }),
+  }
 
   const existing = await getFirstOrNull(
     pb
@@ -49,6 +64,7 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
 
   if (existing) {
     const updated = await pb.collection('user_settings').update(existing.id, {
+      ...translationFields,
       ...(body.defaultSystemPrompt !== undefined && { defaultSystemPrompt: body.defaultSystemPrompt }),
       ...(body.defaultModel !== undefined && { defaultModel: body.defaultModel }),
       ...(body.titleModel !== undefined && { titleModel: body.titleModel }),
@@ -63,6 +79,7 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
     'user_settings',
     {
       user: userId,
+      ...translationFields,
       defaultSystemPrompt: body.defaultSystemPrompt ?? null,
       defaultModel: body.defaultModel ?? null,
       titleModel: body.titleModel ?? null,
@@ -72,6 +89,7 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
     },
     pb.filter('user = {:u}', { u: userId }),
     {
+      ...translationFields,
       ...(body.defaultSystemPrompt !== undefined && { defaultSystemPrompt: body.defaultSystemPrompt }),
       ...(body.defaultModel !== undefined && { defaultModel: body.defaultModel }),
       ...(body.titleModel !== undefined && { titleModel: body.titleModel }),

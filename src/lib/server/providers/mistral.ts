@@ -97,6 +97,10 @@ const createMistralAdapter = (apiKey: string): LLMProvider => ({
       messages,
     }
 
+    if (request.outputSchema) {
+      streamParams.responseFormat = { type: 'json_schema', jsonSchema: { name: request.outputSchema.name, schemaDefinition: request.outputSchema.schema, strict: true } }
+    }
+
     if (request.tools?.length) {
       streamParams.tools = request.tools.map(t => ({
         type: 'function',

@@ -55,6 +55,8 @@
       { "name": "titleModel", "type": "text", "system": false, "required": false, "presentable": false, "hidden": false, "help": "", "min": 0, "max": 100000000, "pattern": "", "autogeneratePattern": "" },
       { "name": "toolSummarizerModel", "type": "text", "system": false, "required": false, "presentable": false, "hidden": false, "help": "", "min": 0, "max": 100000000, "pattern": "", "autogeneratePattern": "" },
       { "name": "dictationProvider", "type": "text", "system": false, "required": false, "presentable": false, "hidden": false, "help": "", "min": 0, "max": 100000000, "pattern": "", "autogeneratePattern": "" },
+      { "name": "translationModel", "type": "text", "required": false, "max": 500 },
+      { "name": "translationContexts", "type": "json", "required": false, "maxSize": 100000 },
       { "name": "updatedAt", "type": "date", "system": false, "required": true, "presentable": false, "hidden": false, "help": "", "min": "", "max": "" }
     ],
     "indexes": ["CREATE UNIQUE INDEX `idx_user_settings_user` ON `user_settings` (`user`)"]
