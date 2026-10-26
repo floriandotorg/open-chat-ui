@@ -1,10 +1,11 @@
 <script lang="ts">
 import { resolve } from '$app/paths'
+import { createTtsPlayer } from '#lib/stores/tts-player.svelte.ts'
 import { type ContextNote, isSpeakerGender, isTranslationEvent, LANGUAGES, SPEAKER_GENDERS, type SpeakerGender } from '#lib/translator.ts'
 import { getTranslatorCopy } from '#lib/translator-copy.ts'
 import { createTranslatorSpeech, type SpeechState } from '#lib/translator-speech.ts'
 import type { PageData } from './$types'
-import { onMount } from 'svelte'
+import { onMount, untrack } from 'svelte'
 
 let { data }: { data: PageData } = $props()
 let source = $state('en')
@@ -34,6 +35,8 @@ const sourceLanguage = $derived(LANGUAGES.find(language => language.code === sou
 const targetLanguage = $derived(LANGUAGES.find(language => language.code === target) ?? LANGUAGES[3])
 const sourceCopy = $derived(getTranslatorCopy(source))
 const targetCopy = $derived(getTranslatorCopy(target))
+const tts = createTtsPlayer(1)
+const playbackActive = $derived(tts.loading || tts.playing)
 let speechPrefix = ''
 const speech = createTranslatorSpeech({
   text: value => {
@@ -68,6 +71,7 @@ onMount(() => {
   mounted = true
   return () => {
     speech.dispose()
+    tts.close()
     activeTranslation?.abort()
     clearTimeout(copyTimer)
   }
@@ -96,6 +100,7 @@ $effect(() => {
   void additionalContext
   void speakerGender
   void recipientGender
+  untrack(tts.close)
   activeTranslation?.abort()
   busy = false
   translation = ''
@@ -114,6 +119,7 @@ const startTranslation = () => {
   if (busy || !text.trim() || !data.model || source === target || speechState !== 'idle') {
     return
   }
+  tts.close()
   activeTranslation?.abort()
   const controller = new AbortController()
   activeTranslation = controller
@@ -242,6 +248,7 @@ const toggleSpeech = () => {
     speech.stop()
     return
   }
+  tts.close()
   speechError = ''
   speechPrefix = text.trim() ? `${text.trim()} ` : ''
   void speech.start(source)
@@ -307,7 +314,7 @@ const copy = async () => {
       </select>
     </div>
 
-    <div class="grid gap-4 md:grid-cols-2">
+    <div class="grid items-start gap-4 md:grid-cols-2">
       <section aria-label={sourceCopy.original} class="flex min-h-44 flex-col rounded-3xl border border-gray-200 bg-gray-50/60 p-5 md:min-h-64 dark:border-gray-700 dark:bg-white/[0.02]">
         <textarea aria-label={sourceCopy.input} lang={source} inputmode="text" autocapitalize="sentences" spellcheck="true" bind:value={text} readonly={speechState !== 'idle'} maxlength="6000" placeholder={sourceCopy.inputPlaceholder} class="min-h-24 w-full flex-1 resize-y bg-transparent text-lg leading-relaxed outline-none placeholder:text-gray-400 sm:text-xl md:min-h-40"></textarea>
         <label class="mt-4 block border-t border-gray-200 pt-3 dark:border-gray-700">
@@ -326,19 +333,30 @@ const copy = async () => {
         </div>
       </section>
 
-      <section lang={target} aria-label={targetCopy.translation} aria-busy={busy && !translation} class="flex min-h-44 flex-col rounded-3xl border border-emerald-800/10 bg-emerald-600/[0.04] p-5 md:min-h-64 dark:border-emerald-300/15 dark:bg-emerald-400/[0.04]">
-        <div class="mb-3 flex items-center justify-between gap-3">
-          <span class="text-xs text-gray-400">{targetLanguage.label}</span>
-          <button type="button" lang={source} onclick={copy} disabled={!translation} aria-label={copied ? sourceCopy.copied : sourceCopy.copy} title={copied ? sourceCopy.copied : sourceCopy.copy} class="flex h-8 w-8 items-center justify-center rounded-full text-emerald-700 transition hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300">
-            <svg aria-hidden="true" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              {#if copied}<path d="m5 12 4 4L19 6" stroke-linecap="round" stroke-linejoin="round" />{:else}<rect x="8" y="8" width="12" height="13" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" stroke-linecap="round" />{/if}
-            </svg>
-            <span class="sr-only" aria-live="polite">{copied ? sourceCopy.copied : sourceCopy.copy}</span>
-          </button>
+      <section lang={target} aria-label={targetCopy.translation} aria-busy={busy && !translation} class="min-w-0 space-y-3">
+        <div class="rounded-3xl border border-emerald-800/10 bg-emerald-600/[0.04] p-5 dark:border-emerald-300/15 dark:bg-emerald-400/[0.04]">
+          <p class="mb-3 text-xs font-medium text-emerald-800/60 dark:text-emerald-200/60">{targetLanguage.label}</p>
+          <div lang={target} class="whitespace-pre-wrap break-words text-xl leading-relaxed sm:text-2xl {translation ? '' : 'min-h-24'}">{#if translation}{translation}{:else}<span class="text-gray-400">{busy ? targetCopy.findingWords : targetCopy.outputPlaceholder}</span>{/if}</div>
+          <div class="mt-5 flex items-center justify-between gap-3">
+            <button type="button" onclick={() => { if (playbackActive) { tts.close() } else { void tts.play(translation, target) } }} disabled={!translation || busy || speechState !== 'idle'} aria-label={playbackActive ? targetCopy.stopPlayback : targetCopy.listenTranslation} title={playbackActive ? targetCopy.stopPlayback : targetCopy.listenTranslation} aria-pressed={playbackActive} class="flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-full bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-500/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300">
+              {#if playbackActive}
+                <svg aria-hidden="true" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
+              {:else}
+                <svg aria-hidden="true" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m11 4-6 5H2v6h3l6 5V4ZM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" stroke-linecap="round" stroke-linejoin="round" /></svg>
+              {/if}
+              {playbackActive ? targetCopy.stopPlayback : targetCopy.listen}
+            </button>
+            <button type="button" lang={source} onclick={copy} disabled={!translation} aria-label={copied ? sourceCopy.copied : sourceCopy.copy} title={copied ? sourceCopy.copied : sourceCopy.copy} class="flex size-11 shrink-0 items-center justify-center rounded-full text-emerald-700 transition hover:bg-emerald-500/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300">
+              <svg aria-hidden="true" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                {#if copied}<path d="m5 12 4 4L19 6" stroke-linecap="round" stroke-linejoin="round" />{:else}<rect x="8" y="8" width="12" height="13" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" stroke-linecap="round" />{/if}
+              </svg>
+              <span class="sr-only" aria-live="polite">{copied ? sourceCopy.copied : sourceCopy.copy}</span>
+            </button>
+          </div>
+          {#if tts.errorMessage}<p lang={source} role="alert" class="mt-3 text-sm text-red-500">{tts.errorMessage}</p>{/if}
         </div>
-        <div lang={target} class="min-h-24 flex-1 whitespace-pre-wrap break-words text-xl leading-relaxed sm:text-2xl md:min-h-40">{translation || ''}{#if !translation}<span class="text-gray-400">{busy ? targetCopy.findingWords : targetCopy.outputPlaceholder}</span>{/if}</div>
         {#if translation}
-          <section lang={source} aria-labelledby="meaning-check-title" aria-busy={busy && !backComplete} class="mt-4 border-t border-emerald-800/10 pt-4 dark:border-emerald-300/15">
+          <section lang={source} aria-labelledby="meaning-check-title" aria-busy={busy && !backComplete} class="rounded-2xl border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-700 dark:bg-white/[0.02]">
             <div class="mb-2 flex items-center justify-between gap-3 text-xs text-gray-500 dark:text-gray-400">
               <div class="flex items-center gap-2">
                 <svg aria-hidden="true" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 10H5V6m0 4a8 8 0 1 1-1 7M8 14h8m-8 4h5" stroke-linecap="round" stroke-linejoin="round" /></svg>

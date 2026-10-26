@@ -98,7 +98,7 @@ const save = async () => {
     {/each}
     <button type="button" disabled={contexts.length >= 20} onclick={() => { contexts = [...contexts, { id: crypto.randomUUID(), title: '', content: '' }]; changed() }} class="rounded-xl border border-gray-300 px-4 py-2 text-sm disabled:opacity-40 dark:border-gray-600">Add context</button>
   </section>
-  <p class="text-sm text-gray-500 dark:text-gray-400">Live speech uses Mistral Voxtral. Thai uses ElevenLabs Scribe automatically. Add the respective API keys under API Keys and Tools.</p>
+  <p class="text-sm text-gray-500 dark:text-gray-400">Live speech uses Mistral Voxtral. Thai uses ElevenLabs Scribe automatically. Add the respective API keys under API Keys and Tools. Listening to translations uses ElevenLabs and requires an API key and Voice ID.</p>
   <div class="flex items-center gap-3">
     <button type="submit" disabled={saving} class="rounded-xl bg-emerald-700 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50">{saving ? 'Saving…' : 'Save settings'}</button>
     {#if saved}<span role="status" class="text-sm text-emerald-600">Saved</span>{/if}
