@@ -114,6 +114,49 @@ describe('translation pipeline', () => {
     expect(requests.notes).toHaveLength(2)
   })
 
+  it.each(['\n', '\r\n', '\t', '\u0000'])('accepts unescaped control characters inside JSON strings: %j', async character => {
+    const review = `Private review.${character}Thai loanword.`
+    const sender = [{ phrase: 'farang', note: `Kept as ฝรั่ง.${character}An everyday Thai word.` }]
+    const output = JSON.stringify({ review, sender, recipient: [] }).replaceAll(JSON.stringify(character).slice(1, -1), character)
+    const { provider, requests } = createProvider({ ...valid, notes: [output] })
+    const events = await collect(provider)
+    expect(events).toContainEqual({ type: 'notes', notes: { sender, recipient: [] } })
+    expect(requests.notes).toHaveLength(1)
+    expect(JSON.stringify(events)).not.toContain('Private review')
+  })
+
+  it('preserves escaped quotes, backslashes, and formatting outside JSON strings', async () => {
+    const sender = [{ phrase: '"farang"', note: 'Quoted as "ฝรั่ง"; not a path like C:\\notes.' }]
+    const output = JSON.stringify({ review: 'A review.\nAnother line.', sender, recipient: [] }, null, 2)
+    const { provider } = createProvider({ ...valid, notes: [output] })
+    expect(await collect(provider)).toContainEqual({ type: 'notes', notes: { sender, recipient: [] } })
+  })
+
+  it('gives the model its malformed response to repair instead of repeating the original request', async () => {
+    const invalid = '{"review":"Private review", "sender":['
+    const { provider, requests } = createProvider({ ...valid, notes: [invalid, notesOutput()] })
+    const events = await collect(provider)
+    expect(events).toContainEqual({ type: 'notes', notes })
+    expect(requests.notes[1].messages).toEqual([...requests.notes[0].messages, { role: 'assistant', content: invalid }, { role: 'user', content: expect.stringContaining('Invalid JSON') }])
+    expect(requests.notes[1].messages[2].content).toContain('complete JSON object')
+    expect(JSON.stringify(events)).not.toContain('Private review')
+  })
+
+  it('retries an empty response without sending an empty assistant message', async () => {
+    const { provider, requests } = createProvider({ ...valid, notes: ['', notesOutput()] })
+    expect(await collect(provider)).toContainEqual({ type: 'notes', notes })
+    expect(requests.notes[1].messages.every(message => message.content.trim())).toBe(true)
+    expect(requests.notes[1].messages.at(-1)?.role).toBe('user')
+  })
+
+  it.each(['{"review":"unfinished', '{"review":"done","sender":[],"recipient":[', '{"review":"unescaped "quote"","sender":[],"recipient":[]}'])('does not invent missing or ambiguous note content: %j', async invalid => {
+    const { provider } = createProvider({ ...valid, notes: [invalid, invalid] })
+    const events = await collect(provider)
+    expect(events).toContainEqual({ type: 'error', stage: 'notes', text: expect.stringContaining('Invalid JSON') })
+    expect(events.some(event => event.type === 'notes')).toBe(false)
+    expect(events).toContainEqual({ type: 'back', text: 'Why are you dating a Westerner?' })
+  })
+
   it('tells the model which note failed validation before retrying', async () => {
     const invalid = notesOutput([{ ...senderNote, phrase: 'word '.repeat(25) }])
     const { provider, requests } = createProvider({ ...valid, notes: [invalid, notesOutput()] })

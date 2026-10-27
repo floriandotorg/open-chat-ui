@@ -1,0 +1,19 @@
+{
+  "migrated_version": "3.0.0",
+  "finalized": false,
+  "appliedAt": "2026-10-26T05:06:35.232Z",
+  "log": [
+    {
+      "action": "skipped:missing",
+      "from": "/Users/florian/GitHub/open-chat-ui/.unipi/config/compactor.json"
+    },
+    {
+      "action": "skipped:missing",
+      "from": "/Users/florian/GitHub/open-chat-ui/.unipi/fusion-preset.json"
+    },
+    {
+      "action": "skipped:missing",
+      "from": "/Users/florian/GitHub/open-chat-ui/.unipi/config/background-tasks.json"
+    }
+  ]
+}

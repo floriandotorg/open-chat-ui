@@ -1,6 +1,7 @@
 import { formatModelRef } from '#lib/model-ref.ts'
 import type { ChatMessage, ChatRequest, ChatStreamEvent, LLMProvider, ModelInfo, ProviderCapability, ProviderFactory, ToolCallInfo } from './types'
 import Anthropic from '@anthropic-ai/sdk'
+import { transformJSONSchema } from '@anthropic-ai/sdk/lib/transform-json-schema'
 
 type AnyBlock = Record<string, unknown>
 
@@ -220,7 +221,7 @@ const createAnthropicAdapter = (apiKey: string): LLMProvider => ({
     }
 
     if (request.outputSchema) {
-      params.output_config = { ...(useThinking ? { effort: request.thinkingEffort } : {}), format: { type: 'json_schema', schema: request.outputSchema.schema } }
+      params.output_config = { ...(useThinking ? { effort: request.thinkingEffort } : {}), format: { type: 'json_schema', schema: transformJSONSchema(request.outputSchema.schema) } }
     }
 
     const tools: Record<string, unknown>[] = []
