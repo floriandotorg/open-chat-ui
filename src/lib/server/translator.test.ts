@@ -1,3 +1,4 @@
+import type { SpeakerGender } from '#lib/translator.ts'
 import type { ChatRequest, ChatStreamEvent, LLMProvider } from './providers/types'
 import { translate } from './translator'
 import { describe, expect, it } from 'vitest'
@@ -73,6 +74,22 @@ describe('translation pipeline', () => {
     expect(JSON.parse(requests.notes[0].messages[0].content)).toEqual({ original: 'why are you dating a farang?', translation: 'ทำไมถึงเดทกับฝรั่ง', situation: 'An early date', background: additionalContext.trim() })
     expect(requests.notes[0].systemPrompt).toContain('English')
     expect(requests.notes[0].systemPrompt).toContain('Thai')
+  })
+
+  it.each([
+    ['male', 'female'],
+    ['female', 'male'],
+    ['neutral', 'unspecified'],
+    ['unspecified', 'neutral'],
+  ] satisfies [SpeakerGender, SpeakerGender][])('reviews the translation with the same speaker (%s) and recipient (%s) settings', async (speakerGender, recipientGender) => {
+    const { provider, requests } = createProvider(valid)
+    await collect(provider, speakerGender, recipientGender)
+    for (const stage of ['translation', 'notes'] satisfies Stage[]) {
+      expect(requests[stage][0].systemPrompt).toContain(`Speaker gender: ${speakerGender}.`)
+      expect(requests[stage][0].systemPrompt).toContain(`Recipient gender: ${recipientGender}.`)
+    }
+    expect(requests.notes[0].systemPrompt).toContain('Do not call a gender choice an assumption when it follows these settings')
+    expect(requests.notes[0].systemPrompt).toContain('If the translation contradicts a specified gender, flag the mismatch')
   })
 
   it('never publishes the private review', async () => {
