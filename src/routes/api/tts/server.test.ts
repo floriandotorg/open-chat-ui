@@ -50,6 +50,19 @@ describe('translation speech synthesis', () => {
     expect(requestBody(upstream)).toEqual({ text: 'Olá', model_id: 'eleven_v4', language_code: 'pt' })
   })
 
+  it.each([
+    ['en', 'Hello'],
+    ['de', 'Hallo'],
+    ['ja', 'こんにちは'],
+    ['nl', 'Hallo'],
+    ['es', 'Hola'],
+  ])('uses v4 for %s without changing the selected voice', async (language, text) => {
+    const upstream = setup()
+    await invoke({ text, language })
+    expect(requestBody(upstream)).toEqual({ text, model_id: 'eleven_v4', language_code: language })
+    expect(upstream).toHaveBeenCalledWith(expect.stringContaining('/text-to-speech/configured/stream?'), expect.anything())
+  })
+
   it('does not require a default voice for Portuguese from Portugal', async () => {
     vi.mocked(getDecryptedKey).mockImplementation(async (_userId, provider) => (provider === 'elevenlabs' ? 'configured' : null))
     const upstream = setup()

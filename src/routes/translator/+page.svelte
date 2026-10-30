@@ -38,6 +38,7 @@ const targetCopy = $derived(getTranslatorCopy(target))
 const tts = createTtsPlayer(1)
 const playbackActive = $derived(tts.loading || tts.playing)
 const hasNotes = $derived(notes.sender.length > 0 || notes.recipient.length > 0)
+const canTranslate = $derived(!busy && Boolean(text.trim()) && Boolean(data.model) && source !== target && speechState === 'idle')
 let speechPrefix = ''
 const speech = createTranslatorSpeech({
   text: value => {
@@ -101,8 +102,14 @@ $effect(() => {
   void additionalContext
   void speakerGender
   void recipientGender
-  untrack(tts.close)
+  untrack(resetOutput)
+})
+
+const resetOutput = () => {
+  tts.close()
   activeTranslation?.abort()
+  activeTranslation = undefined
+  clearTimeout(copyTimer)
   busy = false
   translation = ''
   back = ''
@@ -114,31 +121,31 @@ $effect(() => {
   noteComplete = false
   checking = false
   copied = false
-})
-
-const startTranslation = () => {
-  if (busy || !text.trim() || !data.model || source === target || speechState !== 'idle') {
-    return
-  }
-  tts.close()
-  activeTranslation?.abort()
-  const controller = new AbortController()
-  activeTranslation = controller
-  translation = ''
-  back = ''
-  notes = { sender: [], recipient: [] }
-  error = ''
-  checkError = ''
-  noteError = ''
-  backComplete = false
-  noteComplete = false
-  checking = false
-  copied = false
-  busy = true
-  void run({ text: text.trim(), source, target, contextId, additionalContext: additionalContext.trim(), speakerGender, recipientGender }, controller)
 }
 
-const run = async (input: { text: string; source: string; target: string; contextId: string; additionalContext: string; speakerGender: SpeakerGender; recipientGender: SpeakerGender }, controller: AbortController) => {
+const clear = () => {
+  speech.dispose()
+  speechPrefix = ''
+  speechError = ''
+  text = ''
+  additionalContext = ''
+  resetOutput()
+}
+
+const startTranslation = () => translateText(false)
+
+const translateText = (speakImmediately: boolean) => {
+  if (!canTranslate) {
+    return
+  }
+  resetOutput()
+  const controller = new AbortController()
+  activeTranslation = controller
+  busy = true
+  void run({ text: text.trim(), source, target, contextId, additionalContext: additionalContext.trim(), speakerGender, recipientGender }, controller, speakImmediately)
+}
+
+const run = async (input: { text: string; source: string; target: string; contextId: string; additionalContext: string; speakerGender: SpeakerGender; recipientGender: SpeakerGender }, controller: AbortController, speakImmediately: boolean) => {
   try {
     const response = await fetch('/api/translate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: AbortSignal.any([controller.signal, AbortSignal.timeout(95_000)]) })
     if (!response.ok) {
@@ -171,6 +178,9 @@ const run = async (input: { text: string; source: string; target: string; contex
           }
           if (event.type === 'translation') {
             translation += event.text
+            if (speakImmediately) {
+              void tts.play(translation, input.target)
+            }
           } else if (event.type === 'back') {
             back = event.text
             backComplete = true
@@ -215,16 +225,13 @@ const run = async (input: { text: string; source: string; target: string; contex
 }
 
 const swap = () => {
-  speech.dispose()
+  clear()
   const previous = source
   source = target
   target = previous
   const previousGender = speakerGender
   speakerGender = recipientGender
   recipientGender = previousGender
-  if (translation) {
-    text = translation
-  }
 }
 
 const changeSource = (language: string) => {
@@ -232,7 +239,7 @@ const changeSource = (language: string) => {
     swap()
     return
   }
-  speech.dispose()
+  clear()
   source = language
 }
 
@@ -241,6 +248,7 @@ const changeTarget = (language: string) => {
     swap()
     return
   }
+  clear()
   target = language
 }
 
@@ -352,9 +360,14 @@ const copy = async () => {
               <svg aria-hidden="true" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="2" width="6" height="13" rx="3" /><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8" /></svg>
               {speechState === 'idle' ? sourceCopy.speak : speechState === 'connecting' ? sourceCopy.connecting : speechState === 'finishing' ? sourceCopy.finishing : sourceCopy.stop}
             </button>
-            <button type="button" onclick={() => { speech.dispose(); text = ''; additionalContext = ''; speechError = '' }} disabled={!text && !additionalContext && speechState === 'idle'} class="rounded-full px-3 py-2 text-sm text-gray-400 hover:text-gray-700 disabled:invisible dark:hover:text-gray-200">{sourceCopy.clear}</button>
+            <button type="button" onclick={clear} disabled={!text && !additionalContext && speechState === 'idle'} class="rounded-full px-3 py-2 text-sm text-gray-400 hover:text-gray-700 disabled:invisible dark:hover:text-gray-200">{sourceCopy.clear}</button>
           </div>
-          <button type="button" onclick={startTranslation} aria-keyshortcuts="Meta+Enter Control+Enter" disabled={busy || !text.trim() || !data.model || source === target || speechState !== 'idle'} class="ml-auto w-full rounded-full bg-emerald-700 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"><span aria-live="polite">{busy ? (checking ? sourceCopy.checking : sourceCopy.translating) : sourceCopy.translate}</span></button>
+          <div class="ml-auto flex w-full items-center gap-2 sm:w-auto">
+            <button type="button" onclick={startTranslation} aria-keyshortcuts="Meta+Enter Control+Enter" disabled={!canTranslate} class="flex-1 rounded-full bg-emerald-700 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"><span aria-live="polite">{busy ? (checking ? sourceCopy.checking : sourceCopy.translating) : sourceCopy.translate}</span></button>
+            <button type="button" onclick={() => translateText(true)} disabled={!canTranslate} aria-label={sourceCopy.translateAndSpeak} title={sourceCopy.translateAndSpeak} class="flex size-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-700 transition hover:bg-emerald-500/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300">
+              <svg aria-hidden="true" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m11 4-6 5H2v6h3l6 5V4ZM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -362,7 +375,7 @@ const copy = async () => {
         <div class="rounded-3xl border border-emerald-800/10 bg-emerald-600/[0.04] p-5 dark:border-emerald-300/15 dark:bg-emerald-400/[0.04]">
           <p class="mb-3 text-xs font-medium text-emerald-800/60 dark:text-emerald-200/60">{targetLanguage.label}</p>
           <div lang={target} class="whitespace-pre-wrap break-words text-xl leading-relaxed sm:text-2xl {translation ? '' : 'min-h-24'}">{#if translation}{translation}{:else}<span class="text-gray-400">{busy ? targetCopy.findingWords : targetCopy.outputPlaceholder}</span>{/if}</div>
-          <div class="mt-5 flex items-center justify-between gap-3">
+          <div class="mt-5 flex items-center gap-2">
             <button type="button" onclick={() => { if (playbackActive) { tts.close() } else { void tts.play(translation, target) } }} disabled={!translation || speechState !== 'idle'} aria-label={playbackActive ? targetCopy.stopPlayback : targetCopy.listenTranslation} title={playbackActive ? targetCopy.stopPlayback : targetCopy.listenTranslation} aria-pressed={playbackActive} class="flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-full bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-500/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300">
               {#if playbackActive}
                 <svg aria-hidden="true" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
@@ -371,7 +384,8 @@ const copy = async () => {
               {/if}
               {playbackActive ? targetCopy.stopPlayback : targetCopy.listen}
             </button>
-            <button type="button" lang={source} onclick={copy} disabled={!translation} aria-label={copied ? sourceCopy.copied : sourceCopy.copy} title={copied ? sourceCopy.copied : sourceCopy.copy} class="flex size-11 shrink-0 items-center justify-center rounded-full text-emerald-700 transition hover:bg-emerald-500/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300">
+            <button type="button" lang={source} onclick={tts.cycleSpeed} aria-label={`${sourceCopy.playbackSpeed}: ${tts.speed}×`} title={sourceCopy.playbackSpeed} class="min-h-11 shrink-0 rounded-full px-2 text-xs font-medium tabular-nums text-emerald-700 transition hover:bg-emerald-500/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:text-emerald-300">{tts.speed}×</button>
+            <button type="button" lang={source} onclick={copy} disabled={!translation} aria-label={copied ? sourceCopy.copied : sourceCopy.copy} title={copied ? sourceCopy.copied : sourceCopy.copy} class="ml-auto flex size-11 shrink-0 items-center justify-center rounded-full text-emerald-700 transition hover:bg-emerald-500/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300">
               <svg aria-hidden="true" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 {#if copied}<path d="m5 12 4 4L19 6" stroke-linecap="round" stroke-linejoin="round" />{:else}<rect x="8" y="8" width="12" height="13" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" stroke-linecap="round" />{/if}
               </svg>
