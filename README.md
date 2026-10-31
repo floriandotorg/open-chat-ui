@@ -108,6 +108,14 @@ bun start
 
 The app runs at `http://localhost:5179` by default.
 
+Inside an Orca terminal, start both services in the same tab:
+
+```bash
+bun run dev:orca
+```
+
+Vite runs with Bun in the invoking pane. PocketBase runs in a new pane beside it. No new terminal tab is created. PocketBase setup and environment configuration must already be complete. Stop each service with Ctrl+C in its pane.
+
 ### Run (Production)
 
 Build and preview:
@@ -184,19 +192,21 @@ The `LLMProvider` interface requires:
 
 ## Scripts
 
-| Command                   | Description                                   |
-| ------------------------- | --------------------------------------------- |
-| `bun start`               | Start dev server                              |
-| `bun run build`           | Production build                              |
-| `bun run check`           | Type checking                                 |
-| `bun run lint`            | Lint with Biome                               |
-| `bun run lint -- --fix`   | Lint and auto-fix                             |
-| `bun run test`            | Run tests                                     |
-| `bun run pb:setup`        | Download PocketBase binary + create superuser |
-| `bun run pb:serve`        | Run PocketBase locally                        |
-| `bun run pb:schema`       | Apply collection schema to PocketBase         |
-| `bun run pb:migrate-data` | Migrate old SQLite `local.db` into PocketBase |
-| `bun run user:add`        | Create a new user                             |
+| Command                   | Description                                     |
+| ------------------------- | ----------------------------------------------- |
+| `bun start`               | Start dev server                                |
+| `bun run dev:orca`        | Run Vite and PocketBase in the current Orca tab |
+| `bun run build`           | Production build                                |
+| `bun run check`           | Type checking                                   |
+| `bun run lint`            | Lint with Biome                                 |
+| `bun run lint -- --fix`   | Lint and auto-fix                               |
+| `bun run test`            | Run tests                                       |
+| `bun run test:orca`       | Test Orca development launcher                  |
+| `bun run pb:setup`        | Download PocketBase binary + create superuser   |
+| `bun run pb:serve`        | Run PocketBase locally                          |
+| `bun run pb:schema`       | Apply collection schema to PocketBase           |
+| `bun run pb:migrate-data` | Migrate old SQLite `local.db` into PocketBase   |
+| `bun run user:add`        | Create a new user                               |
 
 ## License
 
