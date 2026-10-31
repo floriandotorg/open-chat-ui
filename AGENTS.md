@@ -1,45 +1,53 @@
-# Open Chat UI — agent instructions
+# Open Chat UI
 
-Self-hosted, multi-provider LLM chat app with built-in tools, code execution, and vision support.
+Self-hosted, multi-provider LLM chat app: SvelteKit (Svelte 5 runes) on Bun, PocketBase, Tailwind 4, Biome, Vitest.
 
-## Code documents itself
+## Commands
 
-Prefer self-documenting names and structure over comments. Don't restate what the code already says; reserve comments for non-obvious cross-system invariants (e.g. the iOS Safari `backdrop-filter` rules documented in `src/routes/layout.css`).
+- Bun is the runtime and package manager; don't use npm, npx or node.
+- Dev: `bun run pb:serve` (PocketBase on http://127.0.0.1:8090), then `bun run start` (http://localhost:5179). Needs `POCKETBASE_*` and `ENCRYPTION_SECRET` env vars. Login: `test@example.com` / `testtest`.
+- While iterating: `bun run test <path>` for the affected test file.
+- Done means: `bun run lint` and `bun run check` pass with zero errors and warnings (`bun run lint -- --fix` auto-fixes), and tests for touched code pass. Run the full `bun run test` when changing `src/lib/sync/`, `src/lib/stream-ops.ts`, providers or tools.
+- Schema: `bun run pb:schema` applies `pocketbase/pb_schema.json` (source of truth, idempotent). Never edit `pb_data/` by hand.
 
-## Stack
+## Ask before
 
-- SvelteKit (Svelte 5 runes) on Bun via `svelte-adapter-bun`
-- Tailwind CSS 4 (`@tailwindcss/vite`, no config file)
-- PocketBase for data + auth (companion process; schema in `pocketbase/pb_schema.json`, applied via `bun run pb:schema`)
-- Biome (lint/format), Vitest (unit + Playwright browser tests)
+- Removing or renaming PocketBase collections or fields (drops data). Adding fields and indexes is fine.
+- Changing API key encryption or anything depending on `ENCRYPTION_SECRET` (stored keys become unreadable).
+- Adding dependencies.
 
-## Architectural invariants
+## Server
 
-- **Per-user isolation**: every PocketBase query filters by `user`; collections are superuser-only and isolation is enforced in SvelteKit route handlers.
-- **Auth guard**: all `/chat`, `/settings`, `/api/*` routes are protected in `hooks.server.ts`. Handlers use `requireUser(locals.user)` — never `locals.user!`.
-- **API keys**: encrypted with AES-256-GCM before storage; `ENCRYPTION_SECRET` env var required.
-- **Providers**: `LLMProvider` interface in `src/lib/server/providers/types.ts`; each provider is a factory function registered in `providers/index.ts`. Use the provider's official SDK directly (no Vercel AI SDK). `chat` is an `AsyncGenerator<ChatStreamEvent>`; yield `usage` before `done`; catch SDK errors and yield `{ type: 'error', error }` instead of throwing.
-- **Streaming**: generation writes delta ops to `stream_events` (~100 ms) and folds snapshots into `messages` (~2 s, `eventSeq` marks the folded prefix); clients subscribe to both via PocketBase realtime and rebuild the live message with `applyStreamOps` (`src/lib/stream-ops.ts`). When realtime is silent the `ChatStore` follows the generating message over REST, so streaming never depends on SSE alone. Reverse proxies must not compress PocketBase's `/api/realtime` (gzip buffers small SSE frames). Heavy data (tool results, raw content blocks, thinking) lives in `message_payloads` and is loaded on expand.
-- **Tools**: `ToolDefinition` implementations in `src/lib/server/tools/`; the chat API runs a tool loop (max 10 rounds).
-- **Optimistic sync**: every client write goes through `src/lib/sync/` (`SyncCollection` + `Mutation`): the view is server state plus pending writes, failures roll back by themselves (or stay visible with `keepOnError`), acknowledged writes fold into server state. Never hand roll optimistic state or reverts in components. Record ids for new messages/conversations are generated client side so the UI renders before the request leaves.
-- **State**: one `ChatStore` per conversation (`src/lib/stores/chat.svelte.ts`), cached by `ChatStores`, handed out synchronously so navigation never awaits the network; sidebar and branch state live in `conversations` / `conversationStates` (`src/lib/sync/conversations.svelte.ts`). Provider/model selection is shared via `chatContext`.
+- Auth: `/chat`, `/settings`, `/api/*` are guarded in `hooks.server.ts`. In handlers use `requireUser(locals.user)`, not `locals.user!`.
+- Isolation: collections are superuser-only, so the route handler is the only isolation layer. Every PocketBase query filters by `user`.
+- Records: mappers in `src/lib/server/db/records.ts` convert PB rows to app shapes. Set `createdAt`/`updatedAt` explicitly; they are not auto-managed.
+- API keys are stored only AES-256-GCM encrypted.
+- Providers: implement `LLMProvider` (`src/lib/server/providers/types.ts`) as a factory registered in `providers/index.ts`, using the provider's official SDK (not the Vercel AI SDK). `chat` is an `AsyncGenerator<ChatStreamEvent>`: yield `usage` before `done`; catch SDK errors and yield `{ type: 'error', error }` instead of throwing.
+- Tools: `ToolDefinition` implementations in `src/lib/server/tools/`; the chat API runs at most 10 tool rounds.
 
-## Svelte 5 conventions
+## Client
 
-Runes exclusively (`$state`, `$derived`, `$effect`, `$props`, `$bindable`). Event handlers are `onclick`/`onsubmit` (not `on:click`). Slot content uses `{@render children()}` with `Snippet` typing.
+- Every client write goes through `src/lib/sync/` (`SyncCollection` + `Mutation`), which handles optimistic state, rollback (`keepOnError` keeps failures visible) and folding acknowledged writes. Don't hand-roll optimistic state or reverts in components.
+- Generate record ids for new messages and conversations on the client.
+- Get a conversation's `ChatStore` (`src/lib/stores/chat.svelte.ts`) synchronously from the `ChatStores` cache; navigation never awaits the network.
+- Sidebar and branch state: `src/lib/sync/conversations.svelte.ts`. Provider/model selection: `chatContext`.
 
-## Liquid glass
+## Streaming
 
-iOS-style glass aesthetic. Utility classes and their critical iOS Safari `backdrop-filter` constraints — no nested glass, no `overflow: hidden` on glass ancestors, `-webkit-` prefix before unprefixed — are defined and documented in `src/routes/layout.css`. Don't override `backdrop-filter` or the box-shadow stack; add a new utility instead.
+- Generation writes deltas to `stream_events` and folds snapshots into `messages` (`eventSeq` marks the folded prefix). Clients rebuild the live message with `applyStreamOps` (`src/lib/stream-ops.ts`).
+- Streaming must keep working without SSE: `ChatStore` falls back to REST when realtime is silent.
+- Tool results, raw content blocks and thinking go in `message_payloads`, loaded on expand.
+- Mechanics, timings and proxy setup: `docs/streaming.md`.
 
-## PocketBase schema
+## Svelte 5
 
-`pocketbase/pb_schema.json` is the source of truth (`bun run pb:schema`, idempotent). Never edit `pb_data/` by hand. Prefer adding fields/indexes — removing or renaming drops data. Record mappers in `src/lib/server/db/records.ts` convert PB rows to app shapes; write `createdAt`/`updatedAt` explicitly (not auto-managed).
+Runes only (`$state`, `$derived`, `$effect`, `$props`, `$bindable`). Use `onclick`/`onsubmit`, not `on:click`. Use `{@render children()}` with `Snippet` types instead of slots.
 
-## Quality
+## Styling
 
-`bun run lint` and `bun run check` must both pass with zero errors and warnings before a task is finished (`bun run lint -- --fix` to auto-fix). Tests via `bun run test`.
+- Tailwind 4 via `@tailwindcss/vite`. There is no `tailwind.config.*`; don't create one.
+- Liquid glass utilities live in `src/routes/layout.css` together with their iOS Safari `backdrop-filter` constraints: no nested glass, no `overflow: hidden` on glass ancestors, `-webkit-` prefix before unprefixed. Don't override `backdrop-filter` or the box-shadow stack; add a new utility there instead.
 
-## Dev server
+## Comments
 
-`bun run start` serves at http://localhost:5179. Requires PocketBase on http://127.0.0.1:8090 (`bun run pb:serve`) and `POCKETBASE_*` / `ENCRYPTION_SECRET` env vars. Default user `test@example.com`, password `testtest`.
+Use descriptive names instead of comments. Comment only non-obvious cross-system invariants, like the Safari rules in `layout.css`. Never restate what the code already says.
