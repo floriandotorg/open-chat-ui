@@ -1,6 +1,5 @@
 export const createTtsPlayer = (initialSpeed = 1) => {
   let audio: HTMLAudioElement | undefined = $state()
-  let objectUrl = $state<string>()
   let visible = $state(false)
   let playing = $state(false)
   let blocked = $state(false)
@@ -11,14 +10,29 @@ export const createTtsPlayer = (initialSpeed = 1) => {
   let errorMessage = $state('')
   let speed = $state(initialSpeed)
   let abortController: AbortController | undefined
+  let playbackUrl = $state<string>()
+  let expiresAt = $state(0)
+  let retryTimer: ReturnType<typeof setTimeout> | undefined
+  let retries = 0
+  let resumePosition = 0
+  let wantsPlayback = false
+  let failed = false
+  let playAttempt = 0
 
   const SPEEDS: readonly number[] = [1, 1.25, 1.5, 1.75, 2]
-  const MIME_TYPE = 'audio/mpeg'
   const SILENT_AUDIO_SOURCE = 'data:audio/wav;base64,UklGRnQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YVAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA=='
 
   const cleanup = (releaseAudio = true) => {
     abortController?.abort()
     abortController = undefined
+    clearTimeout(retryTimer)
+    retryTimer = undefined
+    playbackUrl = undefined
+    expiresAt = 0
+    retries = 0
+    resumePosition = 0
+    wantsPlayback = false
+    failed = false
     if (audio) {
       audio.pause()
       audio.removeAttribute('src')
@@ -26,10 +40,6 @@ export const createTtsPlayer = (initialSpeed = 1) => {
       if (releaseAudio) {
         audio = undefined
       }
-    }
-    if (objectUrl) {
-      URL.revokeObjectURL(objectUrl)
-      objectUrl = undefined
     }
     playing = false
     blocked = false
@@ -39,42 +49,11 @@ export const createTtsPlayer = (initialSpeed = 1) => {
     errorMessage = ''
   }
 
-  const createAudioElement = () => {
-    const el = new Audio()
-    el.playbackRate = speed
-    el.addEventListener('timeupdate', () => {
-      if (audio !== el) {
-        return
-      }
-      currentTime = el.currentTime
-    })
-    el.addEventListener('durationchange', () => {
-      if (audio === el && Number.isFinite(el.duration)) {
-        duration = el.duration
-      }
-    })
-    el.addEventListener('ended', () => {
-      if (audio !== el) {
-        return
-      }
-      playing = false
-    })
-    el.addEventListener('error', () => {
-      if (audio !== el || !objectUrl) {
-        return
-      }
-      if (!errorMessage) {
-        errorMessage = 'Playback error'
-      }
-      playing = false
-      loading = false
-    })
-    return el
-  }
-
   const prepare = () => {
     cleanup()
-    const el = createAudioElement()
+    const el = new Audio()
+    el.preload = 'auto'
+    el.playbackRate = speed
     audio = el
     el.src = SILENT_AUDIO_SOURCE
     void el.play().catch(() => {})
@@ -82,95 +61,107 @@ export const createTtsPlayer = (initialSpeed = 1) => {
   }
 
   const resumeAudio = async (el: HTMLAudioElement, signal: AbortSignal) => {
+    const attempt = ++playAttempt
+    wantsPlayback = true
     try {
       await el.play()
-      if (audio === el && !signal.aborted) {
+      if (audio === el && !signal.aborted && attempt === playAttempt && wantsPlayback && !failed) {
         playing = true
+        loading = false
         blocked = false
         errorMessage = ''
       }
     } catch (cause) {
-      if (audio === el && !signal.aborted) {
+      if (audio === el && !signal.aborted && attempt === playAttempt && !failed) {
+        wantsPlayback = false
         playing = false
+        loading = false
         blocked = cause instanceof Error && cause.name === 'NotAllowedError'
         errorMessage = blocked ? 'Playback was blocked by your browser. Press play to listen.' : 'Unable to play audio. Please try again.'
       }
     }
   }
 
-  const streamViaMediaSource = (body: ReadableStream<Uint8Array>, el: HTMLAudioElement, signal: AbortSignal) =>
-    new Promise<void>((resolve, reject) => {
-      const mediaSource = new MediaSource()
-      objectUrl = URL.createObjectURL(mediaSource)
-      el.src = objectUrl
-
-      const onSourceOpen = async () => {
-        mediaSource.removeEventListener('sourceopen', onSourceOpen)
-        if (signal.aborted) {
-          resolve()
-          return
-        }
-        const sourceBuffer = mediaSource.addSourceBuffer(MIME_TYPE)
-
-        const appendChunk = (chunk: Uint8Array) =>
-          new Promise<void>((res2, rej2) => {
-            const onEnd = () => {
-              sourceBuffer.removeEventListener('updateend', onEnd)
-              sourceBuffer.removeEventListener('error', onErr)
-              res2()
-            }
-            const onErr = (e: Event) => {
-              sourceBuffer.removeEventListener('updateend', onEnd)
-              sourceBuffer.removeEventListener('error', onErr)
-              rej2(e)
-            }
-            sourceBuffer.addEventListener('updateend', onEnd)
-            sourceBuffer.addEventListener('error', onErr)
-            const copy = new Uint8Array(chunk.byteLength)
-            copy.set(chunk)
-            sourceBuffer.appendBuffer(copy)
-          })
-
-        const reader = body.getReader()
-        let started = false
-
-        try {
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done || signal.aborted) {
-              break
-            }
-            await appendChunk(value)
-            if (signal.aborted) {
-              break
-            }
-            if (!started) {
-              started = true
-              loading = false
-              void resumeAudio(el, signal)
-            }
-          }
-          if (!signal.aborted && mediaSource.readyState === 'open') {
-            mediaSource.endOfStream()
-          }
-          resolve()
-        } catch (err) {
-          reject(err)
-        }
-      }
-
-      mediaSource.addEventListener('sourceopen', onSourceOpen)
-    })
-
-  const fallbackPlay = async (res: Response, el: HTMLAudioElement, signal: AbortSignal) => {
-    const blob = await res.blob()
-    if (signal.aborted) {
+  const loadAudio = async (el: HTMLAudioElement, signal: AbortSignal) => {
+    if (!playbackUrl || signal.aborted) {
       return
     }
-    objectUrl = URL.createObjectURL(blob)
-    el.src = objectUrl
-    loading = false
+    failed = false
+    loading = true
+    blocked = false
+    errorMessage = ''
+    el.src = playbackUrl
+    el.load()
     await resumeAudio(el, signal)
+  }
+
+  const listen = (el: HTMLAudioElement, signal: AbortSignal) => {
+    const on = (name: string, handler: () => void) => {
+      el.addEventListener(
+        name,
+        () => {
+          if (audio === el && !signal.aborted) {
+            handler()
+          }
+        },
+        { signal },
+      )
+    }
+    on('timeupdate', () => {
+      currentTime = el.currentTime
+    })
+    on('durationchange', () => {
+      if (Number.isFinite(el.duration)) {
+        duration = el.duration
+      }
+    })
+    on('loadedmetadata', () => {
+      if (resumePosition > 0) {
+        try {
+          el.currentTime = Number.isFinite(el.duration) ? Math.min(resumePosition, el.duration) : resumePosition
+          resumePosition = 0
+        } catch {}
+      }
+    })
+    on('waiting', () => {
+      loading = wantsPlayback
+    })
+    on('playing', () => {
+      if (wantsPlayback && !failed) {
+        playing = true
+        loading = false
+      }
+    })
+    on('ended', () => {
+      wantsPlayback = false
+      playing = false
+      loading = false
+    })
+    on('error', () => {
+      if (failed) {
+        return
+      }
+      failed = true
+      playing = false
+      loading = false
+      blocked = false
+      resumePosition = Math.max(resumePosition, el.currentTime)
+      const recoverable = el.error?.code === 2 || el.error?.code === 3
+      if (recoverable && wantsPlayback && retries < 2) {
+        loading = true
+        retryTimer = setTimeout(
+          () => {
+            retryTimer = undefined
+            void loadAudio(el, signal)
+          },
+          750 * 2 ** retries,
+        )
+        ++retries
+      } else {
+        wantsPlayback = false
+        errorMessage = 'Audio interrupted or unavailable. Press play to retry.'
+      }
+    })
   }
 
   const play = async (text: string, language?: string) => {
@@ -179,74 +170,59 @@ export const createTtsPlayer = (initialSpeed = 1) => {
     visible = true
     loading = true
     messagePreview = text.slice(0, 100)
-    errorMessage = ''
-
     const controller = new AbortController()
     abortController = controller
 
-    let res: Response
     try {
-      res = await fetch('/api/tts', {
+      const response = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, language }),
         signal: controller.signal,
       })
+      if (controller.signal.aborted) {
+        return
+      }
+      const body: unknown = await response.json()
+      if (controller.signal.aborted) {
+        return
+      }
+      if (!response.ok) {
+        errorMessage = typeof body === 'object' && body !== null && 'message' in body && typeof body.message === 'string' ? body.message : 'Unable to generate speech. Please try again.'
+        loading = false
+        return
+      }
+      if (typeof body !== 'object' || body === null || !('url' in body) || typeof body.url !== 'string' || !/^\/api\/tts\/[\w-]+$/.test(body.url)) {
+        errorMessage = 'Invalid speech response. Please try again.'
+        loading = false
+        return
+      }
+      playbackUrl = body.url
+      expiresAt = 'expiresAt' in body && typeof body.expiresAt === 'number' ? body.expiresAt : Number.POSITIVE_INFINITY
+      listen(el, controller.signal)
+      await loadAudio(el, controller.signal)
     } catch {
-      if (controller.signal.aborted) {
-        return
+      if (!controller.signal.aborted) {
+        errorMessage = 'Network error. Please try again.'
+        loading = false
       }
-      errorMessage = 'Network error'
-      loading = false
-      return
-    }
-
-    if (controller.signal.aborted) {
-      return
-    }
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({ message: res.statusText }))
-      if (controller.signal.aborted) {
-        return
-      }
-      errorMessage = body.message ?? 'TTS failed'
-      loading = false
-      return
-    }
-
-    if (!res.body) {
-      errorMessage = 'No audio data'
-      loading = false
-      return
-    }
-
-    const canStream = typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(MIME_TYPE)
-
-    try {
-      if (canStream) {
-        await streamViaMediaSource(res.body, el, controller.signal)
-      } else {
-        await fallbackPlay(res, el, controller.signal)
-      }
-    } catch {
-      if (controller.signal.aborted) {
-        return
-      }
-      if (!errorMessage) {
-        errorMessage = 'Stream error'
-      }
-      loading = false
     }
   }
 
   const togglePlay = () => {
-    if (!audio || !abortController) {
+    if (!audio || !abortController || !playbackUrl) {
       return
     }
-    if (playing) {
+    if (wantsPlayback) {
+      wantsPlayback = false
+      clearTimeout(retryTimer)
+      retryTimer = undefined
       audio.pause()
       playing = false
+      loading = false
+    } else if (failed) {
+      retries = 0
+      void loadAudio(audio, abortController.signal)
     } else {
       void resumeAudio(audio, abortController.signal)
     }
@@ -260,8 +236,8 @@ export const createTtsPlayer = (initialSpeed = 1) => {
   }
 
   const cycleSpeed = () => {
-    const idx = SPEEDS.indexOf(speed)
-    speed = SPEEDS[(idx + 1) % SPEEDS.length]
+    const index = SPEEDS.indexOf(speed)
+    speed = SPEEDS[(index + 1) % SPEEDS.length]
     if (audio) {
       audio.playbackRate = speed
     }
@@ -274,6 +250,9 @@ export const createTtsPlayer = (initialSpeed = 1) => {
   }
 
   return {
+    get canReplay() {
+      return Boolean(playbackUrl) && Date.now() < expiresAt
+    },
     get visible() {
       return visible
     },

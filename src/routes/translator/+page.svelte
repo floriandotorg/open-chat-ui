@@ -181,6 +181,7 @@ const run = async (input: { text: string; source: string; target: string; contex
           }
           if (event.type === 'translation') {
             translation += event.text
+            busy = false
             if (speakImmediately) {
               void tts.play(translation, input.target)
             }
@@ -269,7 +270,7 @@ const toggleSpeech = () => {
 const togglePlayback = () => {
   if (playbackActive) {
     tts.close()
-  } else if (tts.blocked) {
+  } else if (tts.canReplay) {
     tts.togglePlay()
   } else {
     void tts.play(translation, target)
@@ -376,7 +377,7 @@ const copy = async () => {
             <button type="button" onclick={clear} disabled={!text && !additionalContext && speechState === 'idle'} class="rounded-full px-3 py-2 text-sm text-gray-400 hover:text-gray-700 disabled:invisible dark:hover:text-gray-200">{sourceCopy.clear}</button>
           </div>
           <div class="ml-auto flex w-full items-center gap-2 sm:w-auto">
-            <button type="button" onclick={startTranslation} aria-keyshortcuts="Meta+Enter Control+Enter" disabled={!canTranslate} class="flex-1 rounded-full bg-emerald-700 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"><span aria-live="polite">{busy ? (checking ? sourceCopy.checking : sourceCopy.translating) : sourceCopy.translate}</span></button>
+            <button type="button" onclick={startTranslation} aria-keyshortcuts="Meta+Enter Control+Enter" disabled={!canTranslate} class="flex-1 rounded-full bg-emerald-700 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"><span aria-live="polite">{busy ? sourceCopy.translating : sourceCopy.translate}</span></button>
             <button type="button" onclick={() => translateText(true)} disabled={!canTranslate} aria-label={sourceCopy.translateAndSpeak} title={sourceCopy.translateAndSpeak} class="flex size-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-700 transition hover:bg-emerald-500/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300">
               <svg aria-hidden="true" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m11 4-6 5H2v6h3l6 5V4ZM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" stroke-linecap="round" stroke-linejoin="round" /></svg>
             </button>
@@ -397,7 +398,6 @@ const copy = async () => {
               {/if}
               {playbackActive ? targetCopy.stopPlayback : targetCopy.listen}
             </button>
-            <button type="button" lang={source} onclick={tts.cycleSpeed} aria-label={`${sourceCopy.playbackSpeed}: ${tts.speed}×`} title={sourceCopy.playbackSpeed} class="min-h-11 shrink-0 rounded-full px-2 text-xs font-medium tabular-nums text-emerald-700 transition hover:bg-emerald-500/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:text-emerald-300">{tts.speed}×</button>
             <button type="button" lang={source} onclick={copy} disabled={!translation} aria-label={copied ? sourceCopy.copied : sourceCopy.copy} title={copied ? sourceCopy.copied : sourceCopy.copy} class="ml-auto flex size-11 shrink-0 items-center justify-center rounded-full text-emerald-700 transition hover:bg-emerald-500/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300">
               <svg aria-hidden="true" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 {#if copied}<path d="m5 12 4 4L19 6" stroke-linecap="round" stroke-linejoin="round" />{:else}<rect x="8" y="8" width="12" height="13" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" stroke-linecap="round" />{/if}
@@ -408,7 +408,7 @@ const copy = async () => {
           {#if tts.errorMessage}<p lang={source} role="alert" class="mt-3 text-sm text-red-500">{tts.errorMessage}</p>{/if}
         </div>
         {#if translation}
-          <section lang={source} aria-labelledby="meaning-check-title" aria-busy={busy && !backComplete} class="rounded-2xl border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-700 dark:bg-white/[0.02]">
+          <section lang={source} aria-labelledby="meaning-check-title" aria-busy={checking && !backComplete} class="rounded-2xl border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-700 dark:bg-white/[0.02]">
             <div class="mb-2 flex items-center justify-between gap-3 text-xs text-gray-500 dark:text-gray-400">
               <div class="flex items-center gap-2">
                 <svg aria-hidden="true" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 10H5V6m0 4a8 8 0 1 1-1 7M8 14h8m-8 4h5" stroke-linecap="round" stroke-linejoin="round" /></svg>
@@ -418,10 +418,10 @@ const copy = async () => {
             </div>
             {#if back}
               <p class="whitespace-pre-wrap break-words text-sm leading-relaxed text-gray-600 dark:text-gray-300">{back}</p>
-            {:else if busy && !backComplete}
+            {:else if checking && !backComplete}
               <p role="status" class="text-sm text-gray-500 dark:text-gray-400">{sourceCopy.checkingIndependently}</p>
             {/if}
-            {#if checkError || (!back && !busy)}<p role="status" class="text-sm leading-relaxed text-gray-500 dark:text-gray-400">{sourceCopy.checksFailed}</p>{/if}
+            {#if checkError || (!back && !checking)}<p role="status" class="text-sm leading-relaxed text-gray-500 dark:text-gray-400">{sourceCopy.checksFailed}</p>{/if}
           </section>
         {/if}
       </section>
@@ -430,15 +430,15 @@ const copy = async () => {
     {#if speechError}<p role="alert" class="mt-4 text-sm text-red-500">{speechError}</p>{/if}
     {#if error}<div role="alert" class="mt-4 flex items-center gap-3 text-sm text-red-500"><span>{error}</span><button type="button" onclick={startTranslation} disabled={busy || speechState !== 'idle'} class="shrink-0 underline underline-offset-4">{sourceCopy.retry}</button></div>{/if}
 
-    {#if translation && (hasNotes || noteError || busy && !noteComplete)}
-      <div aria-busy={busy && !noteComplete} class="mt-4 grid items-start gap-4 md:grid-cols-2">
+    {#if translation && (hasNotes || noteError || checking && !noteComplete)}
+      <div aria-busy={checking && !noteComplete} class="mt-4 grid items-start gap-4 md:grid-cols-2">
         {#if notes.sender.length > 0}
           {@render noteList(sourceCopy.senderNotes, notes.sender, source)}
         {/if}
         {#if notes.recipient.length > 0}
           <div class="min-w-0 md:col-start-2">{@render noteList(targetCopy.recipientNotes, notes.recipient, target)}</div>
         {/if}
-        {#if busy && !noteComplete}
+        {#if checking && !noteComplete}
           <p role="status" class="text-sm text-gray-500 md:col-span-2 dark:text-gray-400">{sourceCopy.notesPending}</p>
         {/if}
         {#if noteError}

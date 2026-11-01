@@ -1,8 +1,9 @@
 import { getDecryptedKey } from '#lib/server/api-key.ts'
 import { requireUser } from '#lib/server/auth-guard.ts'
+import { SPEECH_CACHE_TTL_MS, speechCache } from '#lib/server/speech-cache.ts'
 import { LANGUAGES } from '#lib/translator.ts'
 import type { RequestHandler } from './$types'
-import { error } from '@sveltejs/kit'
+import { error, json } from '@sveltejs/kit'
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   const userId = requireUser(locals.user).id
@@ -28,16 +29,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     throw error(400, 'No ElevenLabs Voice ID configured. Add one in Settings → Tools.')
   }
 
-  const upstream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/stream?output_format=mp3_44100_128`, {
+  const upstream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/stream?output_format=mp3_44100_64`, {
     method: 'POST',
     headers: {
       'xi-api-key': apiKey,
       'Content-Type': 'application/json',
     },
-    signal: request.signal,
+    signal: AbortSignal.timeout(120_000),
     body: JSON.stringify({
       text: language ? text : text.slice(0, 5000),
-      model_id: language ? 'eleven_v4' : 'eleven_multilingual_v2',
+      model_id: language === 'th' ? 'eleven_v4' : language ? 'eleven_flash_v2_5' : 'eleven_multilingual_v2',
       ...(typeof language === 'string' ? { language_code: language.split('-')[0] } : {}),
     }),
   })
@@ -47,11 +48,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     throw error(upstream.status, `ElevenLabs API error: ${body ? body : upstream.statusText}`)
   }
 
-  return new Response(upstream.body, {
-    headers: {
-      'Content-Type': 'audio/mpeg',
-      'Transfer-Encoding': 'chunked',
-      'Cache-Control': 'no-cache',
-    },
-  })
+  if (!upstream.body) {
+    throw error(502, 'ElevenLabs returned no audio')
+  }
+
+  const id = speechCache.create(userId, upstream.body)
+  return json({ url: `/api/tts/${id}`, expiresAt: Date.now() + SPEECH_CACHE_TTL_MS }, { status: 201, headers: { 'Cache-Control': 'private, no-store' } })
 }

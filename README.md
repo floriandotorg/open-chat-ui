@@ -149,6 +149,14 @@ docker compose exec open-chat-ui bun scripts/add-user.ts user@example.com mypass
 - Both services need persistent volumes (`./pb_data`, `./data`) — already wired in `compose.yaml`.
 - The app assumes a single instance (in-process generation hub). Do not horizontally scale `open-chat-ui` without an external hub.
 
+## Speech playback
+
+Read-aloud audio uses native progressive MP3 playback instead of MediaSource, so it does not require raw MP3 support in MediaSource on Safari or Firefox. Audio is requested at 64 kbps and starts with approximately one second of buffered audio, or immediately when a shorter clip finishes generating.
+
+Playback URLs require the current user's session. Generated audio is cached only in server memory for five minutes, with limits of eight clips per user, 64 clips overall, 4 MiB per clip, and 32 MiB total. A browser disconnect does not cancel generation. Automatic retries reuse the same URL and attempt to restore the playback position; completed clips support HTTP byte ranges for seeking and resuming.
+
+The cache is process-local and is lost on restart. Deploy a single app instance, or use sticky routing until a shared audio cache is introduced. Reverse proxies must forward `Range` and `If-Range` headers and disable response buffering for `/api/tts/` playback URLs. The endpoint sends `X-Accel-Buffering: no` for compatible proxies.
+
 ## Configuration
 
 After logging in, go to **Settings** to configure:
