@@ -139,6 +139,9 @@ const translateText = (speakImmediately: boolean) => {
     return
   }
   resetOutput()
+  if (speakImmediately) {
+    tts.prepare()
+  }
   const controller = new AbortController()
   activeTranslation = controller
   busy = true
@@ -263,6 +266,16 @@ const toggleSpeech = () => {
   void speech.start(source)
 }
 
+const togglePlayback = () => {
+  if (playbackActive) {
+    tts.close()
+  } else if (tts.blocked) {
+    tts.togglePlay()
+  } else {
+    void tts.play(translation, target)
+  }
+}
+
 const copy = async () => {
   try {
     await navigator.clipboard.writeText(translation)
@@ -376,7 +389,7 @@ const copy = async () => {
           <p class="mb-3 text-xs font-medium text-emerald-800/60 dark:text-emerald-200/60">{targetLanguage.label}</p>
           <div lang={target} class="whitespace-pre-wrap break-words text-xl leading-relaxed sm:text-2xl {translation ? '' : 'min-h-24'}">{#if translation}{translation}{:else}<span class="text-gray-400">{busy ? targetCopy.findingWords : targetCopy.outputPlaceholder}</span>{/if}</div>
           <div class="mt-5 flex items-center gap-2">
-            <button type="button" onclick={() => { if (playbackActive) { tts.close() } else { void tts.play(translation, target) } }} disabled={!translation || speechState !== 'idle'} aria-label={playbackActive ? targetCopy.stopPlayback : targetCopy.listenTranslation} title={playbackActive ? targetCopy.stopPlayback : targetCopy.listenTranslation} aria-pressed={playbackActive} class="flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-full bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-500/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300">
+            <button type="button" onclick={togglePlayback} disabled={!translation || speechState !== 'idle'} aria-label={playbackActive ? targetCopy.stopPlayback : targetCopy.listenTranslation} title={playbackActive ? targetCopy.stopPlayback : targetCopy.listenTranslation} aria-pressed={playbackActive} class="flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-full bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-500/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300">
               {#if playbackActive}
                 <svg aria-hidden="true" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
               {:else}

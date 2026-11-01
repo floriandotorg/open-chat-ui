@@ -3,6 +3,7 @@ export const createTtsPlayer = (initialSpeed = 1) => {
   let objectUrl = $state<string>()
   let visible = $state(false)
   let playing = $state(false)
+  let blocked = $state(false)
   let loading = $state(false)
   let currentTime = $state(0)
   let duration = $state(0)
@@ -11,23 +12,27 @@ export const createTtsPlayer = (initialSpeed = 1) => {
   let speed = $state(initialSpeed)
   let abortController: AbortController | undefined
 
-  const SPEEDS = [1, 1.25, 1.5, 1.75, 2] as const
+  const SPEEDS: readonly number[] = [1, 1.25, 1.5, 1.75, 2]
   const MIME_TYPE = 'audio/mpeg'
+  const SILENT_AUDIO_SOURCE = 'data:audio/wav;base64,UklGRnQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YVAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA=='
 
-  const cleanup = () => {
+  const cleanup = (releaseAudio = true) => {
     abortController?.abort()
     abortController = undefined
     if (audio) {
       audio.pause()
       audio.removeAttribute('src')
       audio.load()
-      audio = undefined
+      if (releaseAudio) {
+        audio = undefined
+      }
     }
     if (objectUrl) {
       URL.revokeObjectURL(objectUrl)
       objectUrl = undefined
     }
     playing = false
+    blocked = false
     loading = false
     currentTime = 0
     duration = 0
@@ -55,7 +60,7 @@ export const createTtsPlayer = (initialSpeed = 1) => {
       playing = false
     })
     el.addEventListener('error', () => {
-      if (audio !== el) {
+      if (audio !== el || !objectUrl) {
         return
       }
       if (!errorMessage) {
@@ -67,15 +72,28 @@ export const createTtsPlayer = (initialSpeed = 1) => {
     return el
   }
 
-  const resumeAudio = async (el: HTMLAudioElement) => {
+  const prepare = () => {
+    cleanup()
+    const el = createAudioElement()
+    audio = el
+    el.src = SILENT_AUDIO_SOURCE
+    void el.play().catch(() => {})
+    return el
+  }
+
+  const resumeAudio = async (el: HTMLAudioElement, signal: AbortSignal) => {
     try {
       await el.play()
-      if (audio === el) {
+      if (audio === el && !signal.aborted) {
         playing = true
+        blocked = false
+        errorMessage = ''
       }
-    } catch {
-      if (audio === el) {
+    } catch (cause) {
+      if (audio === el && !signal.aborted) {
         playing = false
+        blocked = cause instanceof Error && cause.name === 'NotAllowedError'
+        errorMessage = blocked ? 'Playback was blocked by your browser. Press play to listen.' : 'Unable to play audio. Please try again.'
       }
     }
   }
@@ -129,7 +147,7 @@ export const createTtsPlayer = (initialSpeed = 1) => {
             if (!started) {
               started = true
               loading = false
-              void resumeAudio(el)
+              void resumeAudio(el, signal)
             }
           }
           if (!signal.aborted && mediaSource.readyState === 'open') {
@@ -152,11 +170,12 @@ export const createTtsPlayer = (initialSpeed = 1) => {
     objectUrl = URL.createObjectURL(blob)
     el.src = objectUrl
     loading = false
-    await resumeAudio(el)
+    await resumeAudio(el, signal)
   }
 
   const play = async (text: string, language?: string) => {
-    cleanup()
+    cleanup(false)
+    const el = audio ?? prepare()
     visible = true
     loading = true
     messagePreview = text.slice(0, 100)
@@ -202,9 +221,6 @@ export const createTtsPlayer = (initialSpeed = 1) => {
       return
     }
 
-    const el = createAudioElement()
-    audio = el
-
     const canStream = typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(MIME_TYPE)
 
     try {
@@ -225,26 +241,30 @@ export const createTtsPlayer = (initialSpeed = 1) => {
   }
 
   const togglePlay = () => {
-    if (!audio) {
+    if (!audio || !abortController) {
       return
     }
     if (playing) {
       audio.pause()
       playing = false
     } else {
-      void resumeAudio(audio)
+      void resumeAudio(audio, abortController.signal)
     }
   }
 
   const seekRelative = (seconds: number) => {
-    if (!audio) return
+    if (!audio) {
+      return
+    }
     audio.currentTime = Math.max(0, Math.min(audio.duration || 0, audio.currentTime + seconds))
   }
 
   const cycleSpeed = () => {
-    const idx = SPEEDS.indexOf(speed as (typeof SPEEDS)[number])
+    const idx = SPEEDS.indexOf(speed)
     speed = SPEEDS[(idx + 1) % SPEEDS.length]
-    if (audio) audio.playbackRate = speed
+    if (audio) {
+      audio.playbackRate = speed
+    }
   }
 
   const close = () => {
@@ -259,6 +279,9 @@ export const createTtsPlayer = (initialSpeed = 1) => {
     },
     get playing() {
       return playing
+    },
+    get blocked() {
+      return blocked
     },
     get loading() {
       return loading
@@ -278,6 +301,7 @@ export const createTtsPlayer = (initialSpeed = 1) => {
     get speed() {
       return speed
     },
+    prepare,
     play,
     togglePlay,
     seekRelative,
