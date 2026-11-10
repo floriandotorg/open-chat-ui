@@ -2,55 +2,34 @@ import { formatModelRef } from '#lib/model-ref.ts'
 import type { ChatMessage, ChatRequest, ChatStreamEvent, LLMProvider, ModelInfo, ProviderFactory, ToolCallInfo } from './types'
 import OpenAI from 'openai'
 
-const BASE_URL = 'https://eu.openrouter.ai/api/v1'
-const MODELS_URL = `${BASE_URL}/models`
+const CHAT_BASE_URLS_IN_FALLBACK_ORDER = ['https://eu.openrouter.ai/api/v1', 'https://us.openrouter.ai/api/v1']
+const MODELS_URL = `${CHAT_BASE_URLS_IN_FALLBACK_ORDER[0]}/models`
 const MODELS_TTL_MS = 60 * 60 * 1000
 const SEARCH_LIMIT = 25
 
 type ProviderRouting = {
   zdr?: boolean
   data_collection?: 'deny' | 'allow'
-  ignore?: string[]
-  only?: string[]
   quantizations?: string[]
-  allow_fallbacks?: boolean
   max_price?: { prompt: number; completion: number }
 }
 
 const PROVIDER_ROUTING: ProviderRouting = {
   zdr: true,
   data_collection: 'deny',
-  ignore: ['novita', 'siliconflow', 'alibaba', 'gmicloud', 'atlas-cloud', 'chutes', 'deepseek', 'moonshotai', 'z-ai', 'minimax', 'baidu', 'tencent', 'stepfun', 'xiaomi', 'phala', 'sail-research', 'inceptron', 'nextbit', 'mancer', 'morph'],
-}
-
-const DEEPSEEK_V4_FLASH_ROUTING: ProviderRouting = {
-  only: ['baseten', 'fireworks', 'together', 'coreweave', 'makora', 'wafer', 'parasail', 'relace', 'venice', 'open-inference'],
-  allow_fallbacks: true,
 }
 
 const MODEL_ROUTING: Record<string, ProviderRouting> = {
-  'deepseek/deepseek-v4-flash-0731': DEEPSEEK_V4_FLASH_ROUTING,
-  'deepseek/deepseek-v4.1-flash': DEEPSEEK_V4_FLASH_ROUTING,
   'z-ai/glm-5.3': {
     quantizations: ['fp8', 'bf16', 'fp16'],
-    only: ['fireworks', 'baseten', 'together', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'parasail', 'open-inference'],
-    allow_fallbacks: true,
     max_price: { prompt: 1.4, completion: 4.4 },
   },
   'moonshotai/kimi-k3': {
-    only: ['fireworks', 'baseten', 'together', 'modal', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'open-inference'],
-    allow_fallbacks: true,
     max_price: { prompt: 3, completion: 15 },
   },
 }
 
-const routingForModel = (model: string): ProviderRouting => {
-  const override = MODEL_ROUTING[model]
-  if (!override) return PROVIDER_ROUTING
-  const merged = { ...PROVIDER_ROUTING, ...override }
-  if (merged.only) delete merged.ignore
-  return merged
-}
+const routingForModel = (model: string): ProviderRouting => ({ ...PROVIDER_ROUTING, ...MODEL_ROUTING[model] })
 
 export interface OpenRouterRawModel {
   id: string
@@ -233,8 +212,6 @@ const createOpenRouterAdapter = (apiKey: string): LLMProvider => ({
   },
 
   async *chat(request: ChatRequest): AsyncGenerator<ChatStreamEvent> {
-    const client = new OpenAI({ apiKey, baseURL: BASE_URL, maxRetries: 0 })
-
     const params: Record<string, unknown> = {
       model: request.model,
       messages: buildMessages(request.messages, request.systemPrompt),
@@ -263,9 +240,11 @@ const createOpenRouterAdapter = (apiKey: string): LLMProvider => ({
       }))
     }
 
+    let endpointIndex = 0
     for (let attempt = 0; ; ++attempt) {
       let streamedContent = false
       try {
+        const client = new OpenAI({ apiKey, baseURL: CHAT_BASE_URLS_IN_FALLBACK_ORDER[endpointIndex], maxRetries: 0 })
         const stream = await client.chat.completions.create(params as unknown as OpenAI.Chat.ChatCompletionCreateParamsStreaming, { signal: request.signal })
 
         let usage: OpenRouterUsage | undefined
@@ -340,6 +319,10 @@ const createOpenRouterAdapter = (apiKey: string): LLMProvider => ({
           } catch {
             return
           }
+          continue
+        }
+        if (!streamedContent && !isRateLimited(err) && endpointIndex < CHAT_BASE_URLS_IN_FALLBACK_ORDER.length - 1) {
+          ++endpointIndex
           continue
         }
         const message = err instanceof Error ? err.message : 'Unknown error'

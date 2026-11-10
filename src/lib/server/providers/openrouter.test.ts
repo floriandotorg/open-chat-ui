@@ -6,13 +6,16 @@ const streamChunks = vi.hoisted(() => ({ value: [] as unknown[] }))
 const chatCreateArgs = vi.hoisted(() => ({ value: [] as unknown[] }))
 const createFailures = vi.hoisted(() => ({ value: [] as unknown[] }))
 const streamError = vi.hoisted(() => ({ value: null as unknown }))
+const requestBaseUrls = vi.hoisted(() => ({ value: [] as unknown[] }))
 
 vi.mock('openai', () => ({
   default: class {
+    constructor(private readonly options: { baseURL?: string }) {}
     chat = {
       completions: {
         create: async (args: unknown) => {
           chatCreateArgs.value.push(args)
+          requestBaseUrls.value.push(this.options.baseURL)
           const failure = createFailures.value.shift()
           if (failure) throw failure
           return {
@@ -28,6 +31,10 @@ vi.mock('openai', () => ({
 }))
 
 const rateLimitError = () => Object.assign(new Error('429 Too Many Requests'), { status: 429 })
+const noEndpointsError = () => Object.assign(new Error('404 No endpoints found'), { status: 404 })
+
+const EU_BASE_URL = 'https://eu.openrouter.ai/api/v1'
+const US_BASE_URL = 'https://us.openrouter.ai/api/v1'
 
 const raw = (overrides: Partial<OpenRouterRawModel> = {}): OpenRouterRawModel => ({
   id: 'moonshotai/kimi-k3',
@@ -112,56 +119,30 @@ describe('chat provider routing', () => {
     return chatCreateArgs.value.at(-1)
   }
 
-  it('enforces zero data retention, denies data collection, and ignores untrusted providers by default', async () => {
+  it('enforces zero data retention and denies data collection by default', async () => {
     const args = await runChat('test-model')
 
-    expect(args).toMatchObject({
-      provider: {
-        zdr: true,
-        data_collection: 'deny',
-        ignore: ['novita', 'siliconflow', 'alibaba', 'gmicloud', 'atlas-cloud', 'chutes', 'deepseek', 'moonshotai', 'z-ai', 'minimax', 'baidu', 'tencent', 'stepfun', 'xiaomi', 'phala', 'sail-research', 'inceptron', 'nextbit', 'mancer', 'morph'],
-      },
-    })
-  })
-
-  it('pins overridden models to trusted providers with fallbacks', async () => {
-    for (const model of ['deepseek/deepseek-v4-flash-0731', 'deepseek/deepseek-v4.1-flash']) {
-      const args = await runChat(model)
-
-      expect(args).toMatchObject({
-        provider: {
-          zdr: true,
-          data_collection: 'deny',
-          only: ['baseten', 'fireworks', 'together', 'coreweave', 'makora', 'wafer', 'parasail', 'relace', 'venice', 'open-inference'],
-          allow_fallbacks: true,
-        },
-      })
-      expect((args as { provider: Record<string, unknown> }).provider.ignore).toBeUndefined()
-    }
+    expect((args as { provider: Record<string, unknown> }).provider).toEqual({ zdr: true, data_collection: 'deny' })
   })
 
   it('applies quantization and price caps for glm-5.3', async () => {
     const args = await runChat('z-ai/glm-5.3')
 
-    expect(args).toMatchObject({
-      provider: {
-        quantizations: ['fp8', 'bf16', 'fp16'],
-        only: ['fireworks', 'baseten', 'together', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'parasail', 'open-inference'],
-        allow_fallbacks: true,
-        max_price: { prompt: 1.4, completion: 4.4 },
-      },
+    expect((args as { provider: Record<string, unknown> }).provider).toEqual({
+      zdr: true,
+      data_collection: 'deny',
+      quantizations: ['fp8', 'bf16', 'fp16'],
+      max_price: { prompt: 1.4, completion: 4.4 },
     })
   })
 
   it('applies price caps for kimi-k3', async () => {
     const args = await runChat('moonshotai/kimi-k3')
 
-    expect(args).toMatchObject({
-      provider: {
-        only: ['fireworks', 'baseten', 'together', 'modal', 'wafer', 'makora', 'coreweave', 'crusoe', 'digitalocean', 'open-inference'],
-        allow_fallbacks: true,
-        max_price: { prompt: 3, completion: 15 },
-      },
+    expect((args as { provider: Record<string, unknown> }).provider).toEqual({
+      zdr: true,
+      data_collection: 'deny',
+      max_price: { prompt: 3, completion: 15 },
     })
   })
 })
@@ -189,6 +170,7 @@ describe('chat 429 retry', () => {
     withFakeTimers(async () => {
       streamChunks.value = [{ choices: [{ delta: {}, finish_reason: 'stop' }] }]
       chatCreateArgs.value = []
+      requestBaseUrls.value = []
       createFailures.value = [rateLimitError(), rateLimitError()]
       streamError.value = null
 
@@ -197,6 +179,7 @@ describe('chat 429 retry', () => {
       const events = await pending
 
       expect(chatCreateArgs.value).toHaveLength(3)
+      expect(requestBaseUrls.value).toEqual([EU_BASE_URL, EU_BASE_URL, EU_BASE_URL])
       expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'end' })
     }))
 
@@ -204,6 +187,7 @@ describe('chat 429 retry', () => {
     withFakeTimers(async () => {
       streamChunks.value = []
       chatCreateArgs.value = []
+      requestBaseUrls.value = []
       createFailures.value = [rateLimitError(), rateLimitError(), rateLimitError(), rateLimitError(), rateLimitError(), rateLimitError(), rateLimitError()]
       streamError.value = null
 
@@ -215,25 +199,11 @@ describe('chat 429 retry', () => {
       expect(events).toEqual([{ type: 'error', error: '429 Too Many Requests' }])
     }))
 
-  it('does not retry non-429 errors', () =>
-    withFakeTimers(async () => {
-      streamChunks.value = []
-      chatCreateArgs.value = []
-      createFailures.value = [Object.assign(new Error('500 Internal Server Error'), { status: 500 })]
-      streamError.value = null
-
-      const pending = drain()
-      await vi.runAllTimersAsync()
-      const events = await pending
-
-      expect(chatCreateArgs.value).toHaveLength(1)
-      expect(events).toEqual([{ type: 'error', error: '500 Internal Server Error' }])
-    }))
-
   it('does not retry once content has been streamed', () =>
     withFakeTimers(async () => {
       streamChunks.value = [{ choices: [{ delta: { content: 'hello' } }] }]
       chatCreateArgs.value = []
+      requestBaseUrls.value = []
       createFailures.value = []
       streamError.value = rateLimitError()
 
@@ -247,6 +217,64 @@ describe('chat 429 retry', () => {
         { type: 'error', error: '429 Too Many Requests' },
       ])
     }))
+})
+
+describe('chat region fallback', () => {
+  const drain = async () => {
+    const provider = createOpenRouterProvider('key')
+    const events: ChatStreamEvent[] = []
+    for await (const event of provider.chat({ model: 'test-model', messages: [] })) {
+      events.push(event)
+    }
+    return events
+  }
+
+  const reset = (failures: unknown[], chunks: unknown[] = [{ choices: [{ delta: {}, finish_reason: 'stop' }] }], error: unknown = null) => {
+    streamChunks.value = chunks
+    chatCreateArgs.value = []
+    requestBaseUrls.value = []
+    createFailures.value = failures
+    streamError.value = error
+  }
+
+  it('sends requests to the EU endpoint first', async () => {
+    reset([])
+
+    const events = await drain()
+
+    expect(requestBaseUrls.value).toEqual([EU_BASE_URL])
+    expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'end' })
+  })
+
+  it('falls back to the US endpoint when EU fails', async () => {
+    reset([noEndpointsError()])
+
+    const events = await drain()
+
+    expect(requestBaseUrls.value).toEqual([EU_BASE_URL, US_BASE_URL])
+    expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'end' })
+  })
+
+  it('surfaces the US error when both endpoints fail', async () => {
+    reset([noEndpointsError(), Object.assign(new Error('500 Internal Server Error'), { status: 500 })])
+
+    const events = await drain()
+
+    expect(requestBaseUrls.value).toEqual([EU_BASE_URL, US_BASE_URL])
+    expect(events).toEqual([{ type: 'error', error: '500 Internal Server Error' }])
+  })
+
+  it('does not fall back once content has been streamed', async () => {
+    reset([], [{ choices: [{ delta: { content: 'hello' } }] }], Object.assign(new Error('500 Internal Server Error'), { status: 500 }))
+
+    const events = await drain()
+
+    expect(requestBaseUrls.value).toEqual([EU_BASE_URL])
+    expect(events).toEqual([
+      { type: 'text_delta', text: 'hello' },
+      { type: 'error', error: '500 Internal Server Error' },
+    ])
+  })
 })
 
 describe('chat tool call streaming', () => {
