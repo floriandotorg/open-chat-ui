@@ -40,7 +40,9 @@ const extractPostId = (input: unknown): string | null => {
   return m ? m[1] : null
 }
 
-const isRetryable = (message: string) => message.includes('HTTP 429') || message.includes('HTTP 5') || message.includes('aborted') || message.includes('HTML instead of JSON') || message.toLowerCase().includes('rate limit') || message.toLowerCase().includes('timeout')
+const DECODO_SCRAPE_FAILED = 'Decodo could not scrape Reddit'
+
+const isRetryable = (message: string) => message.includes('HTTP 429') || message.includes('HTTP 5') || message.includes('aborted') || message.includes('HTML instead of') || message.includes(DECODO_SCRAPE_FAILED) || message.toLowerCase().includes('rate limit') || message.toLowerCase().includes('timeout')
 
 const fetchRedditJsonDirect = async (url: string): Promise<unknown> => {
   await sleep(randInt(MIN_DELAY_MS, MAX_DELAY_MS))
@@ -60,17 +62,109 @@ const fetchRedditJsonDirect = async (url: string): Promise<unknown> => {
   }
 }
 
+const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
+
+const decodeEntities = (s: string) =>
+  s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, entity: string) => {
+    if (entity[0] !== '#') {
+      return NAMED_ENTITIES[entity.toLowerCase()] ?? match
+    }
+    const codePoint = entity[1].toLowerCase() === 'x' ? Number.parseInt(entity.slice(2), 16) : Number.parseInt(entity.slice(1), 10)
+    return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match
+  })
+
+const anchorToMarkdown = (_match: string, href: string, innerHtml: string) => {
+  const text = innerHtml.replace(/<[^>]+>/g, '').trim()
+  if (href.startsWith('/') && text === href.slice(1)) {
+    return text
+  }
+  const url = href.startsWith('/') ? `${BASE_URL}${href}` : href
+  if (!text || text === url) {
+    return url
+  }
+  return `[${text}](${url})`
+}
+
+const htmlToText = (html: string) =>
+  decodeEntities(
+    html
+      .replace(/<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, anchorToMarkdown)
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|li|blockquote|pre|h[1-6])>/gi, '\n\n')
+      .replace(/<[^>]+>/g, ''),
+  )
+    .split('\n')
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
+const atomTag = (entry: string, tag: string) => entry.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`))?.[1] ?? null
+const atomAttr = (entry: string, tag: string, attr: string) => entry.match(new RegExp(`<${tag}\\b[^>]*\\b${attr}="([^"]*)"`))?.[1] ?? null
+
+const atomMarkdownBody = (entry: string) => {
+  const content = atomTag(entry, 'content')
+  if (!content) {
+    return null
+  }
+  const markdownDiv = decodeEntities(content).match(/<div class="md">([\s\S]*?)<\/div>\s*<!-- SC_ON -->/)
+  return markdownDiv ? htmlToText(markdownDiv[1]) || null : null
+}
+
+const atomEntryToThing = (entry: string): RedditThing => {
+  const id = atomTag(entry, 'id') ?? ''
+  const link = atomAttr(entry, 'link', 'href')
+  const createdAt = Date.parse(atomTag(entry, 'published') ?? atomTag(entry, 'updated') ?? '')
+  const body = atomMarkdownBody(entry)
+  return {
+    kind: id.split('_')[0],
+    data: {
+      subreddit: atomAttr(entry, 'category', 'term') ?? undefined,
+      title: decodeEntities(decodeEntities(atomTag(entry, 'title') ?? '')),
+      author: atomTag(entry, 'name')?.replace(/^\/u\//, ''),
+      created_utc: Number.isFinite(createdAt) ? createdAt / 1000 : 0,
+      permalink: link ? new URL(link).pathname : null,
+      selftext: body ?? undefined,
+      body: body ?? undefined,
+    },
+  }
+}
+
+const parseRedditAtomFeed = (feed: string, url: string) => {
+  const things = [...feed.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].map(match => atomEntryToThing(match[1]))
+  if (!new URL(url).pathname.includes('/comments/')) {
+    return { data: { children: things } }
+  }
+  return [{ data: { children: things.filter(thing => thing.kind === 't3') } }, { data: { children: things.filter(thing => thing.kind === 't1') } }]
+}
+
+const toRssUrl = (url: string) => {
+  const rssUrl = new URL(url)
+  rssUrl.pathname = rssUrl.pathname.replace(/\.json$/, '.rss')
+  return rssUrl.toString()
+}
+
+const decodoFailureMessage = (result: unknown) => {
+  if (!result || typeof result !== 'object') {
+    return null
+  }
+  const status = 'status_code' in result ? result.status_code : 'unknown'
+  const message = 'message' in result && typeof result.message === 'string' ? result.message : 'no content returned'
+  return `${DECODO_SCRAPE_FAILED} (status ${status}): ${message}`
+}
+
 const normalizeDecodoToken = (raw: string) => (raw.includes(':') ? Buffer.from(raw, 'utf8').toString('base64') : raw)
 
-const scrapeRedditJsonViaDecodo = async (url: string, token: string): Promise<unknown> => {
+// Reddit blocks Decodo on .json endpoints (status 613) but serves the equivalent .rss feeds
+const scrapeRedditViaDecodo = async (url: string, token: string): Promise<unknown> => {
   const client = new DecodoClient({ webScrapingApi: { token: normalizeDecodoToken(token) } })
+  const rssUrl = toRssUrl(url)
   let result: Awaited<ReturnType<typeof client.webScrapingApi.scrape>>
   try {
     result = await client.webScrapingApi.scrape({
       target: Target.Universal,
-      url,
+      url: rssUrl,
       proxy_pool: 'premium',
-      headless: 'html',
     })
   } catch (e) {
     if (e instanceof AuthenticationError) {
@@ -78,17 +172,17 @@ const scrapeRedditJsonViaDecodo = async (url: string, token: string): Promise<un
     }
     throw e
   }
-  const entry = result.results?.[0]
-  const content = entry?.content
-  if (content && typeof content === 'object') return content
-  if (typeof content !== 'string') throw new Error(`Decodo returned no scrape content (status ${entry?.status_code ?? 'unknown'})`)
-  const trimmed = content.trim()
-  if (!trimmed) throw new Error(`Decodo returned empty content (status ${entry?.status_code ?? 'unknown'})`)
-  if (trimmed.startsWith('<')) throw new Error('Decodo returned HTML instead of JSON')
-  return JSON.parse(trimmed)
+  const content = result.results?.[0]?.content
+  if (typeof content !== 'string') {
+    throw new Error(decodoFailureMessage(result) ?? `${DECODO_SCRAPE_FAILED}: no content returned`)
+  }
+  if (!content.includes('<feed')) {
+    throw new Error('Decodo returned HTML instead of an RSS feed')
+  }
+  return parseRedditAtomFeed(content, rssUrl)
 }
 
-const fetchRedditJson = async (url: string, token: string | null): Promise<unknown> => (token ? scrapeRedditJsonViaDecodo(url, token) : fetchRedditJsonDirect(url))
+const fetchRedditJson = async (url: string, token: string | null): Promise<unknown> => (token ? scrapeRedditViaDecodo(url, token) : fetchRedditJsonDirect(url))
 
 const fetchWithRetry = async (url: string, token: string | null, retries = 3): Promise<unknown> => {
   let lastErr: Error | null = null
@@ -245,7 +339,7 @@ const cmdSearch = async (args: Args, context: ToolContext) => {
   const limit = clamp(args.limit, 1, 100, 10)
   const token = await getDecodoToken(context)
 
-  const qs = new URLSearchParams({ q: query, sort, t: time, limit: String(limit) })
+  const qs = new URLSearchParams({ q: query, sort, t: time, limit: String(limit), type: 'link' })
   if (scope !== 'all') qs.set('restrict_sr', 'on')
   const path = scope === 'all' ? `/search?${qs}` : `/r/${scope}/search?${qs}`
 
@@ -291,7 +385,7 @@ const cmdFind = async (args: Args, context: ToolContext) => {
   for (const sub of subreddits) {
     let posts: ReturnType<typeof normalisePost>[]
     if (query) {
-      const qs = new URLSearchParams({ q: query, restrict_sr: 'on', sort: 'new', t: 'all', limit: String(perSubLimit) })
+      const qs = new URLSearchParams({ q: query, restrict_sr: 'on', sort: 'new', t: 'all', limit: String(perSubLimit), type: 'link' })
       const listing = (await fetchWithRetry(buildUrl(`/r/${sub}/search?${qs}`), token)) as Listing
       posts = (listing?.data?.children ?? []).filter(x => x.kind === 't3').map(normalisePost)
     } else {
@@ -334,7 +428,7 @@ const COMMANDS: Record<string, (args: Args, context: ToolContext) => Promise<str
 
 export const redditQuery: ToolDefinition = {
   name: 'reddit_query',
-  description: `Query Reddit for posts, comments, and discussions. Uses Decodo (Settings > Tools) when configured for reliable access, otherwise falls back to direct Reddit endpoints.
+  description: `Query Reddit for posts, comments, and discussions. Uses Decodo (Settings > Tools) when configured for reliable access, otherwise falls back to direct Reddit endpoints. Via Decodo, data comes from Reddit's RSS feeds, so scores, comment counts and comment nesting are unavailable (min_score and rank by score/comments have no effect).
 
 Workflow guidance:
 - Clarify scope if needed: subreddits + topic keywords + timeframe.
