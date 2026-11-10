@@ -181,4 +181,20 @@ describe('applyStreamOps', () => {
     const result = applyStreamOps(baseMessage(), [{ t: 'tool_progress', id: 'nope', progress: { sessionId: 's1', step: 1, status: 'running' } }])
     expect(result.toolCalls).toBeUndefined()
   })
+
+  it('records a steer after the tool calls and code executions that preceded it', () => {
+    const result = applyStreamOps(baseMessage(), [
+      { t: 'tool_call', id: 'tc1', name: 'search', arguments: {}, textOffset: 0 },
+      { t: 'code_exec_start', id: 'ce1', name: 'bash_code_execution', textOffset: 0 },
+      { t: 'steer', id: 's1', content: 'focus on docs', textOffset: 0 },
+      { t: 'tool_call', id: 'tc2', name: 'search', arguments: {}, textOffset: 0 },
+    ])
+    expect(result.steers).toEqual([{ id: 's1', content: 'focus on docs', textOffset: 0, toolCallsBefore: 1, codeExecutionsBefore: 1 }])
+  })
+
+  it('ignores a steer that is already part of the snapshot', () => {
+    const steer = { id: 's1', content: 'x', textOffset: 0, toolCallsBefore: 0, codeExecutionsBefore: 0 }
+    const result = applyStreamOps(baseMessage({ steers: [steer] }), [{ t: 'steer', id: 's1', content: 'x', textOffset: 0 }])
+    expect(result.steers).toEqual([steer])
+  })
 })

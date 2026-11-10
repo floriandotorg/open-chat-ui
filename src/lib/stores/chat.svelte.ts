@@ -35,11 +35,14 @@ interface LiveState {
   pendingGap: Promise<void> | null
 }
 
+// Entries with a steer status were handed to the running generation; the
+// rest wait for it to end and are sent as new turns.
 export interface QueueEntry {
   id: string
   content: string
   images?: ImageAttachment[]
   files?: FileAttachment[]
+  steer?: 'sending' | 'accepted'
 }
 
 export type ChatStoreStatus = 'loading' | 'ready' | 'missing' | 'error'
@@ -111,7 +114,7 @@ export class ChatStore {
     const { persistQueue } = deps
     this.disposeEffects = $effect.root(() => {
       $effect(() => {
-        if (!this.isStreaming && this.status === 'ready' && this.queue.length > 0) {
+        if (!this.isStreaming && this.status === 'ready' && this.pendingQueue.length > 0) {
           queueMicrotask(this.processQueue)
         }
       })
@@ -124,7 +127,7 @@ export class ChatStore {
         return () => clearInterval(timer)
       })
       if (persistQueue) {
-        $effect(() => persistQueue(this.queue))
+        $effect(() => persistQueue(this.pendingQueue))
       }
     })
   }
@@ -151,8 +154,12 @@ export class ChatStore {
 
   isStreaming = $derived(this.serverGenerating || !!this.streamingMessage)
 
+  private appliedSteerIds = $derived(new Set(this.allMessages.flatMap(m => m.steers?.map(steer => steer.id) ?? [])))
+
+  private pendingQueue = $derived(this.queue.filter(entry => !this.appliedSteerIds.has(entry.id)))
+
   get messageQueue() {
-    return this.queue
+    return this.pendingQueue
   }
 
   set messageQueue(v: QueueEntry[]) {
@@ -401,7 +408,21 @@ export class ChatStore {
     }
   }
 
+  private steer = async (content: string) => {
+    const id = this.deps.id()
+    this.queue = [...this.queue, { id, content, steer: 'sending' }]
+    const accepted = await this.deps.request<{ accepted?: boolean }>('/api/chat/steer', { conversationId: this.conversationId, id, content }).then(
+      response => response.accepted === true,
+      () => false,
+    )
+    this.queue = this.queue.map(entry => (entry.id === id ? (accepted ? { ...entry, steer: 'accepted' } : { id, content }) : entry))
+  }
+
   sendMessage = async (content: string, images?: ImageAttachment[], files?: FileAttachment[]) => {
+    if (this.isStreaming && this.status === 'ready' && !images?.length && !files?.length) {
+      await this.steer(content)
+      return
+    }
     if (this.isStreaming || this.status !== 'ready') {
       this.queue = [...this.queue, { id: this.deps.id(), content, images, files }]
       return
@@ -470,11 +491,13 @@ export class ChatStore {
     void mutate(writes, () => this.deps.request('/api/chat/stop', { conversationId: this.conversationId })).then(() => (streamingId ? this.refreshMessage(streamingId) : undefined))
   }
 
+  // A steer whose acceptance is still unknown blocks the queue, so it is
+  // never sent twice.
   processQueue = () => {
-    if (this.isStreaming || this.status !== 'ready' || this.queue.length === 0) {
+    const [next, ...rest] = this.pendingQueue
+    if (this.isStreaming || this.status !== 'ready' || !next || next.steer === 'sending') {
       return
     }
-    const [next, ...rest] = this.queue
     this.queue = rest
     void this.sendMessage(next.content, next.images, next.files)
   }

@@ -13,7 +13,8 @@ const queueKey = (conversationId: string) => `chat-queue-${conversationId}`
 
 const readQueue = (conversationId: string): QueueEntry[] => {
   const parsed = JSON.parse(localStorage.getItem(queueKey(conversationId)) ?? 'null')
-  return Array.isArray(parsed) ? parsed : []
+  // A steer request cut off by the reload may or may not have been accepted.
+  return Array.isArray(parsed) ? parsed.map(entry => (entry?.steer === 'sending' ? { ...entry, steer: 'accepted' } : entry)) : []
 }
 
 const writeQueue = (conversationId: string, queue: QueueEntry[]) => {

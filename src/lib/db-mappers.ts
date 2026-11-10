@@ -2,7 +2,7 @@ import type { BrowserUserRequest } from '#lib/browser-protocol.ts'
 import { normalizeModelRef } from '#lib/model-ref.ts'
 import { parseContexts } from '#lib/translator.ts'
 import type { ChatMessage, ConversationDetail, ConversationSummary } from '#lib/types/chat.ts'
-import type { Message as ClientMessage, CodeExecutionSummary, FileAttachment, ImageAttachment, MessagePayload, ModelInfo, ToolCallSummary, ToolProgress } from '#lib/types.ts'
+import type { Message as ClientMessage, CodeExecutionSummary, FileAttachment, ImageAttachment, MessagePayload, ModelInfo, SteerSummary, ToolCallSummary, ToolProgress } from '#lib/types.ts'
 import type { RecordModel } from 'pocketbase'
 
 export interface ApiKey {
@@ -226,11 +226,25 @@ const toCodeExecutionSummary = (e: RawEntry): CodeExecutionSummary => ({
   ...(strOrUndefined(e.stderr) !== undefined ? { stderr: strOrUndefined(e.stderr) } : {}),
 })
 
+const splitEntries = (raw: RawEntry[]) => {
+  const toolCalls: ToolCallSummary[] = []
+  const codeExecutions: CodeExecutionSummary[] = []
+  const steers: SteerSummary[] = []
+  for (const e of raw) {
+    if (e.type === 'steer') {
+      steers.push({ id: typeof e.id === 'string' ? e.id : '', content: typeof e.content === 'string' ? e.content : '', textOffset: typeof e.textOffset === 'number' ? e.textOffset : 0, toolCallsBefore: toolCalls.length, codeExecutionsBefore: codeExecutions.length })
+    } else if (e.type === 'code_execution') {
+      codeExecutions.push(toCodeExecutionSummary(e))
+    } else {
+      toolCalls.push(toToolCallSummary(e))
+    }
+  }
+  return { toolCalls, codeExecutions, steers }
+}
+
 export const mapClientMessage = (r: RecordModel): ClientMessage => {
   const m = mapMessage(r)
-  const raw = (m.toolCalls ?? []) as RawEntry[]
-  const toolCalls = raw.filter(e => e.type !== 'code_execution').map(toToolCallSummary)
-  const codeExecutions = raw.filter(e => e.type === 'code_execution').map(toCodeExecutionSummary)
+  const { toolCalls, codeExecutions, steers } = splitEntries((m.toolCalls ?? []) as RawEntry[])
   return {
     id: m.id,
     conversationId: m.conversationId,
@@ -246,6 +260,7 @@ export const mapClientMessage = (r: RecordModel): ClientMessage => {
     cacheCreationInputTokens: m.cacheCreationInputTokens,
     toolCalls: toolCalls.length ? toolCalls : undefined,
     codeExecutions: codeExecutions.length ? codeExecutions : undefined,
+    steers: steers.length ? steers : undefined,
     sendError: m.error ?? undefined,
     thinking: m.thinking ?? undefined,
     thinkingDuration: m.thinkingDuration ?? undefined,

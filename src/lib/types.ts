@@ -44,6 +44,7 @@ export type StreamOp =
   | { t: 'code_exec_input'; id: string; input: Record<string, unknown> }
   | { t: 'code_exec_result'; id: string; returnCode?: number; error?: string; stdoutChars: number; stderrChars: number }
   | { t: 'code_exec_files'; id: string; files: CodeExecutionFile[] }
+  | { t: 'steer'; id: string; content: string; textOffset: number }
 
 export interface StreamEvent {
   messageId: string
@@ -83,6 +84,16 @@ export interface CodeExecutionSummary {
   stderr?: string
 }
 
+// A user message injected into a running generation. It follows the first
+// toolCallsBefore tool calls and codeExecutionsBefore code executions.
+export interface SteerSummary {
+  id: string
+  content: string
+  textOffset: number
+  toolCallsBefore: number
+  codeExecutionsBefore: number
+}
+
 export interface MessagePayload {
   messageId: string
   toolResults: Record<string, { result?: string; rawResult?: string; stdout?: string; stderr?: string; arguments?: Record<string, unknown>; input?: Record<string, unknown> }>
@@ -107,6 +118,7 @@ export interface Message {
   thinkingDuration?: number
   toolCalls?: ToolCallSummary[]
   codeExecutions?: CodeExecutionSummary[]
+  steers?: SteerSummary[]
   eventSeq?: number
   siblingIndex?: number
   siblingCount?: number

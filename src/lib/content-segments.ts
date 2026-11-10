@@ -1,32 +1,35 @@
-import type { CodeExecutionSummary, ToolCallSummary } from './types'
+import type { CodeExecutionSummary, SteerSummary, ToolCallSummary } from './types'
 
-export type ContentSegment = { type: 'text'; content: string } | { type: 'tool_call'; toolCall: ToolCallSummary } | { type: 'code_execution'; codeExecution: CodeExecutionSummary }
+export type ContentSegment = { type: 'text'; content: string } | { type: 'tool_call'; toolCall: ToolCallSummary } | { type: 'code_execution'; codeExecution: CodeExecutionSummary } | { type: 'steer'; steer: SteerSummary }
 
 interface OffsetItem {
   offset: number
   segment: ContentSegment
+  toolCallIndex?: number
+  codeExecutionIndex?: number
 }
 
-export const buildContentSegments = (text: string, toolCalls?: ToolCallSummary[], codeExecutions?: CodeExecutionSummary[]): ContentSegment[] => {
-  const hasToolCalls = toolCalls?.length ?? 0
-  const hasCodeExecs = codeExecutions?.length ?? 0
-  if (!hasToolCalls && !hasCodeExecs) return text ? [{ type: 'text', content: text }] : []
+const followsSteer = (item: OffsetItem, steer: SteerSummary) => item.offset > steer.textOffset || (item.toolCallIndex ?? -1) >= steer.toolCallsBefore || (item.codeExecutionIndex ?? -1) >= steer.codeExecutionsBefore
+
+export const buildContentSegments = (text: string, toolCalls?: ToolCallSummary[], codeExecutions?: CodeExecutionSummary[], steers?: SteerSummary[]): ContentSegment[] => {
+  if (!toolCalls?.length && !codeExecutions?.length && !steers?.length) return text ? [{ type: 'text', content: text }] : []
 
   const items: OffsetItem[] = []
 
-  if (toolCalls) {
-    for (const tc of toolCalls) {
-      items.push({ offset: tc.textOffset ?? 0, segment: { type: 'tool_call', toolCall: tc } })
-    }
+  for (const [index, tc] of (toolCalls ?? []).entries()) {
+    items.push({ offset: tc.textOffset ?? 0, segment: { type: 'tool_call', toolCall: tc }, toolCallIndex: index })
   }
 
-  if (codeExecutions) {
-    for (const ce of codeExecutions) {
-      items.push({ offset: ce.textOffset ?? 0, segment: { type: 'code_execution', codeExecution: ce } })
-    }
+  for (const [index, ce] of (codeExecutions ?? []).entries()) {
+    items.push({ offset: ce.textOffset ?? 0, segment: { type: 'code_execution', codeExecution: ce }, codeExecutionIndex: index })
   }
 
   items.sort((a, b) => a.offset - b.offset)
+
+  for (const steer of steers ?? []) {
+    const position = items.findIndex(item => item.segment.type !== 'steer' && followsSteer(item, steer))
+    items.splice(position < 0 ? items.length : position, 0, { offset: steer.textOffset, segment: { type: 'steer', steer } })
+  }
 
   const segments: ContentSegment[] = []
   let lastOffset = 0

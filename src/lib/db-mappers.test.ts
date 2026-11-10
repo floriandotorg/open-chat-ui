@@ -44,4 +44,18 @@ describe('mapClientMessage', () => {
     const [toolCall] = mapClientMessage(message([{ id: 't1', name: 'browser_task', textOffset: 0, done: false, progress: { ...waiting, request: { kind: 'hack', message: 'x', url: '' } } }])).toolCalls ?? []
     expect(toolCall.progress).toBeUndefined()
   })
+
+  it('splits steers out of the entry list and counts the entries before them', () => {
+    const mapped = mapClientMessage(
+      message([
+        { id: 't1', name: 'search', textOffset: 0, done: true },
+        { type: 'code_execution', id: 'c1', name: 'bash_code_execution', textOffset: 0, done: true },
+        { type: 'steer', id: 's1', content: 'shorter please', textOffset: 0, rawBefore: 1 },
+        { id: 't2', name: 'search', textOffset: 0, done: true },
+      ]),
+    )
+    expect(mapped.toolCalls?.map(tc => tc.id)).toEqual(['t1', 't2'])
+    expect(mapped.codeExecutions?.map(ce => ce.id)).toEqual(['c1'])
+    expect(mapped.steers).toEqual([{ id: 's1', content: 'shorter please', textOffset: 0, toolCallsBefore: 1, codeExecutionsBefore: 1 }])
+  })
 })

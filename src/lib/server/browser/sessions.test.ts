@@ -1,6 +1,6 @@
 import { createFakeHost } from '#lib/server/browser/fake-host.ts'
 import { getBrowserSession, registerBrowserSession, resolveUserRequest, unregisterBrowserSession, waitForUser } from '#lib/server/browser/sessions.ts'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const request = { kind: 'login' as const, message: 'Log in', url: 'https://example.com' }
 
@@ -56,5 +56,20 @@ describe('browser sessions', () => {
   it('rejects resolving when nothing is pending', () => {
     register('s1')
     expect(resolveUserRequest('s1', 'u1', 'done')).toBe(false)
+  })
+})
+
+describe('browser sessions across module reloads', () => {
+  it('keeps sessions registered by an earlier module instance', async () => {
+    vi.resetModules()
+    const before = await import('#lib/server/browser/sessions.ts')
+    before.registerBrowserSession({ sessionId: 'reload', userId: 'u1', conversationId: 'c1', host: createFakeHost().host })
+    const waiting = before.waitForUser('reload', request, { timeoutMs: 1_000 })
+    vi.resetModules()
+    const after = await import('#lib/server/browser/sessions.ts')
+    expect(after.getBrowserSession('reload', 'u1')?.sessionId).toBe('reload')
+    expect(after.resolveUserRequest('reload', 'u1', 'done')).toBe(true)
+    expect(await waiting).toBe('done')
+    after.unregisterBrowserSession('reload')
   })
 })

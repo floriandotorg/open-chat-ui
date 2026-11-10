@@ -21,6 +21,7 @@ export const applyStreamOps = (base: Message, ops: StreamOp[]): Message => {
   let thinking = base.thinking ?? ''
   const toolCalls = base.toolCalls ? [...base.toolCalls] : []
   const codeExecutions = base.codeExecutions ? [...base.codeExecutions] : []
+  const steers = base.steers ? [...base.steers] : []
   for (const op of ops) {
     if (op.t === 'text') {
       content += op.v
@@ -50,6 +51,8 @@ export const applyStreamOps = (base: Message, ops: StreamOp[]): Message => {
     } else if (op.t === 'code_exec_files') {
       const n = codeExecutions.findIndex(ce => ce.id === op.id)
       if (n >= 0) codeExecutions[n] = { ...codeExecutions[n], files: op.files }
+    } else if (op.t === 'steer' && !steers.some(steer => steer.id === op.id)) {
+      steers.push({ id: op.id, content: op.content, textOffset: op.textOffset, toolCallsBefore: toolCalls.length, codeExecutionsBefore: codeExecutions.length })
     }
   }
   return {
@@ -58,5 +61,6 @@ export const applyStreamOps = (base: Message, ops: StreamOp[]): Message => {
     thinking: thinking || undefined,
     toolCalls: toolCalls.length ? toolCalls : undefined,
     codeExecutions: codeExecutions.length ? codeExecutions : undefined,
+    steers: steers.length ? steers : undefined,
   }
 }

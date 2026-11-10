@@ -37,6 +37,7 @@ Self-hosted, multi-provider LLM chat app: SvelteKit (Svelte 5 runes) on Bun, Poc
 - Generation writes deltas to `stream_events` and folds snapshots into `messages` (`eventSeq` marks the folded prefix). Clients rebuild the live message with `applyStreamOps` (`src/lib/stream-ops.ts`).
 - Streaming must keep working without SSE: `ChatStore` falls back to REST when realtime is silent.
 - Tool results, raw content blocks and thinking go in `message_payloads`, loaded on expand.
+- Text sent while generating steers the running turn (`/api/chat/steer`): it is injected as a user turn at the next round boundary and stored as a `type: 'steer'` entry in the assistant's `toolCalls`. Steers the generation never applied, and messages with attachments, fall back to the client queue.
 - Mechanics, timings and proxy setup: `docs/streaming.md`.
 
 ## Svelte 5

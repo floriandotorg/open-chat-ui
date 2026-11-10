@@ -165,22 +165,98 @@ describe('sending', () => {
     expect(chat.allMessages).toHaveLength(2)
   })
 
-  it('queues messages while streaming and drains the queue once generation ends', async () => {
-    const { chat, chatCalls } = setup()
+  const steerSetup = (accepted: boolean) => {
+    const ctx = setup({ handler: path => (path === '/api/chat/steer' ? { accepted } : {}) })
+    const steerCalls = () => ctx.calls.filter(c => c.path === '/api/chat/steer')
+    const finish = async (steers: { id: string; content: string }[] = []) => {
+      const { assistantMsgId, userMsgId } = ctx.chatCalls()[0].body
+      ctx.chat.upsertMessage(assistant({ id: String(assistantMsgId), parentId: String(userMsgId), content: 'answer', generating: false, eventSeq: 1, steers: steers.map(steer => ({ ...steer, textOffset: 6, toolCallsBefore: 0, codeExecutionsBefore: 0 })) }))
+      await flush()
+      await flush()
+    }
+    return { ...ctx, steerCalls, finish }
+  }
+
+  it('steers the running generation instead of queueing a new turn', async () => {
+    const { chat, chatCalls, steerCalls } = steerSetup(true)
 
     await chat.sendMessage('first')
     await chat.sendMessage('second')
-    expect(chat.messageQueue).toHaveLength(1)
-    expect(chatCalls()).toHaveLength(1)
 
+    expect(steerCalls()[0].body).toMatchObject({ conversationId: 'conv-1', content: 'second' })
+    expect(chatCalls()).toHaveLength(1)
+    expect(chat.messageQueue).toEqual([expect.objectContaining({ content: 'second', steer: 'accepted' })])
+  })
+
+  it('drops a steer from the queue once the assistant message contains it', async () => {
+    const { chat, chatCalls, steerCalls, finish } = steerSetup(true)
+
+    await chat.sendMessage('first')
+    await chat.sendMessage('second')
+    await finish([{ id: String(steerCalls()[0].body.id), content: 'second' }])
+
+    expect(chat.messageQueue).toHaveLength(0)
+    expect(chatCalls()).toHaveLength(1)
+  })
+
+  it('sends a rejected steer as a new turn once generation ends', async () => {
+    const { chat, chatCalls, finish } = steerSetup(false)
+
+    await chat.sendMessage('first')
+    await chat.sendMessage('second')
+    expect(chat.messageQueue).toEqual([expect.not.objectContaining({ steer: expect.anything() })])
+    await finish()
+
+    expect(chatCalls().map(c => c.body.message)).toEqual(['first', 'second'])
+    expect(chatCalls()[1].body.parentId).toBe(chatCalls()[0].body.assistantMsgId)
+  })
+
+  it('sends an accepted steer the generation never applied once it ends', async () => {
+    const { chat, chatCalls, finish } = steerSetup(true)
+
+    await chat.sendMessage('first')
+    await chat.sendMessage('second')
+    await finish()
+
+    expect(chatCalls().map(c => c.body.message)).toEqual(['first', 'second'])
+  })
+
+  it('waits for the steer response before deciding to send it as a new turn', async () => {
+    const response = deferred()
+    const { chat, chatCalls } = setup({ handler: path => (path === '/api/chat/steer' ? response.promise : {}) })
+
+    await chat.sendMessage('first')
+    void chat.sendMessage('second')
     const { assistantMsgId, userMsgId } = chatCalls()[0].body
     chat.upsertMessage(assistant({ id: String(assistantMsgId), parentId: String(userMsgId), content: 'answer', generating: false, eventSeq: 1 }))
     await flush()
-    await flush()
+    expect(chatCalls()).toHaveLength(1)
 
-    expect(chat.messageQueue).toHaveLength(0)
+    response.resolve({ accepted: false })
+    await flush()
+    await flush()
     expect(chatCalls().map(c => c.body.message)).toEqual(['first', 'second'])
-    expect(chatCalls()[1].body.parentId).toBe(assistantMsgId)
+  })
+
+  it('queues messages with attachments instead of steering', async () => {
+    const { chat, steerCalls } = steerSetup(true)
+
+    await chat.sendMessage('first')
+    await chat.sendMessage('look', [{ id: 'img-1.png', mimeType: 'image/png' }])
+
+    expect(steerCalls()).toHaveLength(0)
+    expect(chat.messageQueue).toEqual([expect.objectContaining({ content: 'look' })])
+  })
+
+  it('discards pending steers when the generation is stopped', async () => {
+    const { chat, steerCalls } = steerSetup(true)
+
+    await chat.sendMessage('first')
+    await chat.sendMessage('second')
+    chat.stopStreaming()
+
+    expect(steerCalls()).toHaveLength(1)
+    expect(chat.messageQueue).toHaveLength(0)
   })
 
   it('queues sends until the conversation finished loading', async () => {

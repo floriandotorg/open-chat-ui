@@ -261,3 +261,51 @@ describe('slimEntry', () => {
     })
   })
 })
+
+describe('steering', () => {
+  const steerEntry = (overrides = {}) => ({ type: 'steer' as const, id: 's1', content: 'use the docs', textOffset: 0, rawBefore: 0, ...overrides })
+  const toolEntry = (id: string, textOffset = 0) => ({ id, name: 'search', arguments: {}, textOffset, result: `r-${id}` })
+
+  it('replays a steer as a user turn between the tool rounds around it', () => {
+    expect(buildHistoryMessages('assistant', 'done', [toolEntry('A'), steerEntry(), toolEntry('B')], null)).toEqual([
+      { role: 'assistant', content: '', toolCalls: [{ id: 'A', name: 'search', arguments: {} }] },
+      { role: 'tool', content: 'r-A', toolCallId: 'A' },
+      { role: 'user', content: 'use the docs' },
+      { role: 'assistant', content: '', toolCalls: [{ id: 'B', name: 'search', arguments: {} }] },
+      { role: 'tool', content: 'r-B', toolCallId: 'B' },
+      { role: 'assistant', content: 'done' },
+    ])
+  })
+
+  it('replays a steer that arrived after a finished answer', () => {
+    expect(buildHistoryMessages('assistant', 'answerrevised', [steerEntry({ textOffset: 6 })], null)).toEqual([
+      { role: 'assistant', content: 'answer' },
+      { role: 'user', content: 'use the docs' },
+      { role: 'assistant', content: 'revised' },
+    ])
+  })
+
+  it('keeps raw rounds on the side of the steer they were streamed on', () => {
+    const later = [{ type: 'server_tool_use', id: 'srvtoolu_2', name: 'bash_code_execution' }]
+    const entries = buildHistoryMessages(
+      'assistant',
+      'done',
+      [codeExecEntry({ textOffset: 0 }), steerEntry({ rawBefore: 1 }), codeExecEntry({ id: 'srvtoolu_2', textOffset: 0 })],
+      [
+        { textOffset: 0, blocks: rawBlocks },
+        { textOffset: 0, blocks: later },
+      ],
+    )
+    expect(entries).toEqual([
+      { role: 'assistant', content: '', rawContentBlocks: rawBlocks },
+      { role: 'user', content: 'use the docs' },
+      { role: 'assistant', content: '', rawContentBlocks: later },
+      { role: 'assistant', content: 'done' },
+    ])
+  })
+
+  it('survives slimming and hydration', () => {
+    const slim = slimEntry(steerEntry(), true)
+    expect(hydrateEntries([slim], undefined)).toEqual([steerEntry()])
+  })
+})

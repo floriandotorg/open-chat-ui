@@ -5,8 +5,8 @@ import { getDecryptedKey, getDecryptedKeys } from '#lib/server/api-key.ts'
 import { isBrowserAgentConfigured } from '#lib/server/browser/config.ts'
 import { decrypt } from '#lib/server/crypto.ts'
 import { type Conversation, type Message, mapApiKey, mapMessagePayload, mapSystemPrompt, mapUserSettings, now } from '#lib/server/db/records.ts'
-import { type ActiveGeneration, finishGeneration, getGeneration, registerGeneration } from '#lib/server/generations.ts'
-import { buildHistoryMessages, hydrateEntries, isCodeExecutionEntry, type LiveEntry, type PersistedCodeExecution, type PersistedToolCall, slimEntry } from '#lib/server/history.ts'
+import { type ActiveGeneration, closeSteering, closeSteeringIfIdle, finishGeneration, getGeneration, registerGeneration, takeSteers } from '#lib/server/generations.ts'
+import { buildHistoryMessages, hydrateEntries, isCodeExecutionEntry, isSteerEntry, type LiveEntry, type PersistedCodeExecution, type PersistedEntry, type PersistedSteer, slimEntry } from '#lib/server/history.ts'
 import { getKnowledgeCutoff } from '#lib/server/knowledge-cutoff.ts'
 import { createOrRecover, getFirstOrNull, isNotFound, pb } from '#lib/server/pb.ts'
 import { getPricing } from '#lib/server/pricing.ts'
@@ -273,7 +273,7 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
     }
   }
   const totalUsage = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, cost: 0 }
-  const allToolCalls: (PersistedToolCall | PersistedCodeExecution)[] = []
+  const allToolCalls: PersistedEntry[] = []
   const allRawContentBlocks: { textOffset: number; blocks: unknown[] }[] = []
   const liveToolCalls: LiveEntry[] = []
   let citationCounter = 0
@@ -289,7 +289,12 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
     } catch {}
   }
 
-  const liveEntryDone = (entry: LiveEntry): boolean => (isCodeExecutionEntry(entry) ? entry.returnCode !== undefined || entry.stdout !== undefined || entry.stderr !== undefined || entry.error !== undefined : entry.result !== undefined)
+  const liveEntryDone = (entry: LiveEntry): boolean => {
+    if (isSteerEntry(entry)) {
+      return true
+    }
+    return isCodeExecutionEntry(entry) ? entry.returnCode !== undefined || entry.stdout !== undefined || entry.stderr !== undefined || entry.error !== undefined : entry.result !== undefined
+  }
 
   // Deltas go to tiny stream_events rows (~100 ms); the messages record is
   // folded every ~2 s with eventSeq marking the folded prefix, so per-flush
@@ -306,6 +311,16 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
   })
   const emit = (op: Parameters<StreamWriter['emit']>[0]) => {
     if (placeholderCreated) writer.emit(op)
+  }
+
+  const injectSteers = () => {
+    for (const { id, content } of takeSteers(generation)) {
+      const entry: PersistedSteer = { type: 'steer', id, content, textOffset: fullText.length, rawBefore: allRawContentBlocks.length }
+      allToolCalls.push(entry)
+      liveToolCalls.push(entry)
+      chatMessages.push({ role: 'user', content })
+      emit({ t: 'steer', id, content, textOffset: entry.textOffset })
+    }
   }
 
   let streamError: string | undefined
@@ -408,17 +423,27 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
       // mixed server/client tool turns) still needs its raw blocks persisted —
       // otherwise the later result replays without its partner and Anthropic
       // rejects the request.
-      if (rawContentBlocks?.length && containsServerToolBlocks(rawContentBlocks)) {
+      const keepsRawBlocks = !!rawContentBlocks?.length && containsServerToolBlocks(rawContentBlocks)
+      if (rawContentBlocks && keepsRawBlocks) {
         allRawContentBlocks.push({ textOffset: textOffsetForRound, blocks: rawContentBlocks })
       }
 
-      if (stopReason !== 'tool_use' || toolCalls.length === 0) break
+      // A turn the model finished on its own continues only for steers that
+      // arrived meanwhile, replayed exactly like buildHistoryMessages would.
+      if (stopReason !== 'tool_use' || toolCalls.length === 0) {
+        if (streamError || signal.aborted || closeSteeringIfIdle(generation)) break
+        if (roundText || keepsRawBlocks) {
+          chatMessages.push({ role: 'assistant', content: roundText, ...(keepsRawBlocks ? { rawContentBlocks } : {}) })
+        }
+        injectSteers()
+        continue
+      }
 
       chatMessages.push({ role: 'assistant', content: roundText, toolCalls, rawContentBlocks })
 
       const emitToolProgress = (id: string) => (progress: ToolProgress) => {
         const live = liveToolCalls.find(entry => entry.id === id)
-        if (live && !isCodeExecutionEntry(live)) {
+        if (live && !isCodeExecutionEntry(live) && !isSteerEntry(live)) {
           live.progress = progress
         }
         emit({ t: 'tool_progress', id, progress })
@@ -451,10 +476,12 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
         const citations = extractCitations([{ name: tc.name, result: finalResult }])
         emit({ t: 'tool_result', id: tc.id, resultChars: finalResult.length, ...(citations.length ? { citations } : {}) })
       }
+      injectSteers()
     }
   } catch (err) {
     streamError = err instanceof Error ? err.message : 'Stream error'
   }
+  closeSteering(generation)
 
   closeThinkingPhase()
   const persisted = !!(fullText || allToolCalls.length)
@@ -470,6 +497,9 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
     const slimToolCalls = allToolCalls.map(entry => slimEntry(entry, true))
     const toolResults: MessagePayload['toolResults'] = {}
     for (const entry of allToolCalls) {
+      if (isSteerEntry(entry)) {
+        continue
+      }
       if (isCodeExecutionEntry(entry)) {
         toolResults[entry.id] = { input: entry.input, ...(entry.stdout !== undefined ? { stdout: entry.stdout } : {}), ...(entry.stderr !== undefined ? { stderr: entry.stderr } : {}) }
       } else {

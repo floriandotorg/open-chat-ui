@@ -6,7 +6,7 @@ import { renderMarkdownBlocks, whenKatexReady } from '#lib/markdown.ts'
 import { selectionIntersects } from '#lib/selection.ts'
 import type { createTtsPlayer } from '#lib/stores/tts-player.svelte.ts'
 import { stripMarkdown } from '#lib/strip-markdown.ts'
-import type { Message } from '#lib/types.ts'
+import type { Message, SteerSummary } from '#lib/types.ts'
 import CodeExecutionBlock from './CodeExecutionBlock.svelte'
 import ConfirmDialog from './ConfirmDialog.svelte'
 import SourcesBlock from './SourcesBlock.svelte'
@@ -61,7 +61,7 @@ $effect(() => {
 })
 
 let isUser = $derived(displayed.role === 'user')
-let segments = $derived(isUser ? [] : buildContentSegments(displayed.content, displayed.toolCalls, displayed.codeExecutions))
+let segments = $derived(isUser ? [] : buildContentSegments(displayed.content, displayed.toolCalls, displayed.codeExecutions, displayed.steers))
 let allCitations = $derived(collectCitations(displayed.toolCalls))
 let citations = $derived(filterReferencedCitations(displayed.content, allCitations))
 
@@ -88,6 +88,24 @@ const renderBlocks = (content: string): string[] => {
 const renderedSegments = $derived.by(() => {
   void mathVersion
   return segments.map(segment => (segment.type === 'text' ? { ...segment, blocks: renderBlocks(segment.content) } : segment))
+})
+
+type RenderedSegment = (typeof renderedSegments)[number]
+
+// Steers render as their own user rows, splitting the answer around them.
+type MessagePart = { type: 'answer'; segments: RenderedSegment[] } | { type: 'steer'; steer: SteerSummary }
+
+const parts = $derived.by(() => {
+  const result: MessagePart[] = [{ type: 'answer', segments: [] }]
+  for (const segment of renderedSegments) {
+    const last = result[result.length - 1]
+    if (segment.type === 'steer') {
+      result.push({ type: 'steer', steer: segment.steer }, { type: 'answer', segments: [] })
+    } else if (last.type === 'answer') {
+      last.segments.push(segment)
+    }
+  }
+  return result.filter((part, n) => part.type === 'steer' || part.segments.length > 0 || n === 0 || n === result.length - 1)
 })
 
 const copyPlain = () => {
@@ -251,76 +269,95 @@ const autoResizeEdit = () => {
       </div>
     </div>
   {:else}
-    <div class="flex max-w-[90%] gap-3 min-w-0">
-      <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-purple-600 text-xs font-bold text-white">
-        AI
-      </div>
-      <div class="min-w-0">
-        {#if displayed.model}
-          <div class="mb-1 text-xs font-medium text-gray-400 dark:text-neutral-500">{displayed.model}</div>
-        {/if}
-        {#if displayed.thinking || displayed.thinkingDuration != null}
-          <ThinkingBlock messageId={displayed.id} thinking={displayed.thinking} duration={displayed.thinkingDuration} isActive={!!displayed.generating && !displayed.content} />
-        {/if}
-        {#each renderedSegments as segment, idx}
-          {#if segment.type === 'tool_call'}
-            <ToolCallBlock messageId={displayed.id} toolCall={segment.toolCall} />
-          {:else if segment.type === 'code_execution'}
-            <CodeExecutionBlock messageId={displayed.id} codeExecution={segment.codeExecution} />
-          {:else}
-            <div class="prose prose-sm dark:prose-invert max-w-none" use:copyCodeAction>{#each segment.blocks as blockHtml}{@html blockHtml}{/each}{#if displayed.generating && idx === renderedSegments.length - 1}<span class="inline-block h-4 w-0.5 animate-pulse bg-gray-400 dark:bg-neutral-400"></span>{/if}</div>
-          {/if}
-        {/each}
-        {#if displayed.generating && renderedSegments.length === 0}
-          <span class="inline-block h-4 w-0.5 animate-pulse bg-gray-400 dark:bg-neutral-400"></span>
-        {/if}
-        <SourcesBlock {citations} />
-        {#if !displayed.generating}
-        <div class="mt-1 flex items-center gap-0.5">
-          {#if hasBranches}
-            <div class="flex items-center gap-0.5 mr-1">
-              <button
-                onclick={() => onswitchbranch?.(message.id, 'prev')}
-                disabled={(displayed.siblingIndex ?? 0) === 0}
-                class="cursor-pointer rounded p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-default dark:text-neutral-500 dark:hover:text-neutral-300"
-                aria-label="Previous version"
-              >
-                <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7" /></svg>
-              </button>
-              <span class="text-xs tabular-nums text-gray-400 dark:text-neutral-500">{(displayed.siblingIndex ?? 0) + 1}/{displayed.siblingCount ?? 1}</span>
-              <button
-                onclick={() => onswitchbranch?.(message.id, 'next')}
-                disabled={(displayed.siblingIndex ?? 0) >= (displayed.siblingCount ?? 1) - 1}
-                class="cursor-pointer rounded p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-default dark:text-neutral-500 dark:hover:text-neutral-300"
-                aria-label="Next version"
-              >
-                <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7" /></svg>
-              </button>
+    <div class="flex w-full min-w-0 flex-col gap-6">
+      {#each parts as part, partIdx}
+        {#if part.type === 'steer'}
+          <div class="flex justify-end">
+            <div class="max-w-[80%] whitespace-pre-wrap rounded-2xl bg-gray-100 px-4 py-2.5 text-sm text-gray-900 dark:bg-neutral-700 dark:text-gray-100">{part.steer.content}</div>
+          </div>
+        {:else}
+          {@const isLastPart = partIdx === parts.length - 1}
+          <div class="flex max-w-[90%] gap-3 min-w-0">
+            {#if partIdx === 0}
+              <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-purple-600 text-xs font-bold text-white">
+                AI
+              </div>
+            {:else}
+              <div class="w-7 shrink-0"></div>
+            {/if}
+            <div class="min-w-0">
+              {#if partIdx === 0}
+                {#if displayed.model}
+                  <div class="mb-1 text-xs font-medium text-gray-400 dark:text-neutral-500">{displayed.model}</div>
+                {/if}
+                {#if displayed.thinking || displayed.thinkingDuration != null}
+                  <ThinkingBlock messageId={displayed.id} thinking={displayed.thinking} duration={displayed.thinkingDuration} isActive={!!displayed.generating && !displayed.content} />
+                {/if}
+              {/if}
+              {#each part.segments as segment, idx}
+                {#if segment.type === 'tool_call'}
+                  <ToolCallBlock messageId={displayed.id} toolCall={segment.toolCall} />
+                {:else if segment.type === 'code_execution'}
+                  <CodeExecutionBlock messageId={displayed.id} codeExecution={segment.codeExecution} />
+                {:else if segment.type === 'text'}
+                  <div class="prose prose-sm dark:prose-invert max-w-none" use:copyCodeAction>{#each segment.blocks as blockHtml}{@html blockHtml}{/each}{#if displayed.generating && isLastPart && idx === part.segments.length - 1}<span class="inline-block h-4 w-0.5 animate-pulse bg-gray-400 dark:bg-neutral-400"></span>{/if}</div>
+                {/if}
+              {/each}
+              {#if isLastPart}
+                {#if displayed.generating && part.segments.length === 0}
+                  <span class="inline-block h-4 w-0.5 animate-pulse bg-gray-400 dark:bg-neutral-400"></span>
+                {/if}
+              <SourcesBlock {citations} />
+              {#if !displayed.generating}
+              <div class="mt-1 flex items-center gap-0.5">
+                {#if hasBranches}
+                  <div class="flex items-center gap-0.5 mr-1">
+                    <button
+                      onclick={() => onswitchbranch?.(message.id, 'prev')}
+                      disabled={(displayed.siblingIndex ?? 0) === 0}
+                      class="cursor-pointer rounded p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-default dark:text-neutral-500 dark:hover:text-neutral-300"
+                      aria-label="Previous version"
+                    >
+                      <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7" /></svg>
+                    </button>
+                    <span class="text-xs tabular-nums text-gray-400 dark:text-neutral-500">{(displayed.siblingIndex ?? 0) + 1}/{displayed.siblingCount ?? 1}</span>
+                    <button
+                      onclick={() => onswitchbranch?.(message.id, 'next')}
+                      disabled={(displayed.siblingIndex ?? 0) >= (displayed.siblingCount ?? 1) - 1}
+                      class="cursor-pointer rounded p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-default dark:text-neutral-500 dark:hover:text-neutral-300"
+                      aria-label="Next version"
+                    >
+                      <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7" /></svg>
+                    </button>
+                  </div>
+                {/if}
+                <button onclick={copyPlain} class="cursor-pointer rounded p-0.5 text-gray-400 hover:text-gray-600 dark:text-neutral-500 dark:hover:text-neutral-300" aria-label="Copy plain text">
+                  {#if copiedPlain}
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  {:else}
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+                  {/if}
+                </button>
+                <button onclick={copyMarkdown} class="cursor-pointer rounded p-0.5 text-gray-400 hover:text-gray-600 dark:text-neutral-500 dark:hover:text-neutral-300" aria-label="Copy markdown">
+                  {#if copiedMarkdown}
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  {:else}
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                  {/if}
+                </button>
+                <button onclick={() => tts.play(stripMarkdown(displayed.content))} class="cursor-pointer rounded p-0.5 text-gray-400 hover:text-gray-600 dark:text-neutral-500 dark:hover:text-neutral-300" aria-label="Read aloud">
+                  <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 010 7.07" /><path d="M19.07 4.93a10 10 0 010 14.14" /></svg>
+                </button>
+                <button onclick={() => confirmRegenerate = true} class="cursor-pointer rounded p-0.5 text-gray-400 hover:text-gray-600 dark:text-neutral-500 dark:hover:text-neutral-300" aria-label="Regenerate message">
+                  <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                </button>
+              </div>
+              {/if}
+              {/if}
             </div>
-          {/if}
-          <button onclick={copyPlain} class="cursor-pointer rounded p-0.5 text-gray-400 hover:text-gray-600 dark:text-neutral-500 dark:hover:text-neutral-300" aria-label="Copy plain text">
-            {#if copiedPlain}
-              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            {:else}
-              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
-            {/if}
-          </button>
-          <button onclick={copyMarkdown} class="cursor-pointer rounded p-0.5 text-gray-400 hover:text-gray-600 dark:text-neutral-500 dark:hover:text-neutral-300" aria-label="Copy markdown">
-            {#if copiedMarkdown}
-              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            {:else}
-              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-            {/if}
-          </button>
-          <button onclick={() => tts.play(stripMarkdown(displayed.content))} class="cursor-pointer rounded p-0.5 text-gray-400 hover:text-gray-600 dark:text-neutral-500 dark:hover:text-neutral-300" aria-label="Read aloud">
-            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 010 7.07" /><path d="M19.07 4.93a10 10 0 010 14.14" /></svg>
-          </button>
-          <button onclick={() => confirmRegenerate = true} class="cursor-pointer rounded p-0.5 text-gray-400 hover:text-gray-600 dark:text-neutral-500 dark:hover:text-neutral-300" aria-label="Regenerate message">
-            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-          </button>
-        </div>
+          </div>
         {/if}
-      </div>
+      {/each}
     </div>
   {/if}
 </div>

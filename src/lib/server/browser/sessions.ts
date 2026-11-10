@@ -16,7 +16,14 @@ export interface ActiveBrowserSession {
   pending: PendingUserRequest | null
 }
 
-const sessions = new Map<string, ActiveBrowserSession>()
+// A running browser task can wait minutes for the user. Dev hot reloads
+// re-evaluate this module for the API routes while the task keeps its old
+// instance, so the registry lives on globalThis to be shared by both.
+declare global {
+  var openChatUiBrowserSessions: Map<string, ActiveBrowserSession> | undefined
+}
+globalThis.openChatUiBrowserSessions ??= new Map()
+const sessions = globalThis.openChatUiBrowserSessions
 
 export const registerBrowserSession = (session: Omit<ActiveBrowserSession, 'pending'>) => {
   sessions.set(session.sessionId, { ...session, pending: null })

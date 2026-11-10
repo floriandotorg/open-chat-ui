@@ -24,7 +24,17 @@ export interface PersistedCodeExecution {
   files?: { fileId: string; filename: string; mimeType: string }[]
 }
 
-export type PersistedEntry = PersistedToolCall | PersistedCodeExecution
+// A user message injected between rounds of a running generation. rawBefore
+// counts the rawContentBlocks entries streamed before it.
+export interface PersistedSteer {
+  type: 'steer'
+  id: string
+  content: string
+  textOffset: number
+  rawBefore: number
+}
+
+export type PersistedEntry = PersistedToolCall | PersistedCodeExecution | PersistedSteer
 
 // Live entries accumulate during generation; regular calls may not have their
 // result yet.
@@ -38,11 +48,16 @@ export interface LiveToolCall {
   progress?: ToolProgress
 }
 
-export type LiveEntry = LiveToolCall | PersistedCodeExecution
+export type LiveEntry = LiveToolCall | PersistedCodeExecution | PersistedSteer
 
 export const isCodeExecutionEntry = (entry: LiveEntry): entry is PersistedCodeExecution => 'type' in entry && entry.type === 'code_execution'
 
-export const slimEntry = (entry: LiveEntry, done: boolean): ToolCallSummary | CodeExecutionSummary => {
+export const isSteerEntry = (entry: LiveEntry): entry is PersistedSteer => 'type' in entry && entry.type === 'steer'
+
+export const slimEntry = (entry: LiveEntry, done: boolean): ToolCallSummary | CodeExecutionSummary | PersistedSteer => {
+  if (isSteerEntry(entry)) {
+    return entry
+  }
   if (isCodeExecutionEntry(entry)) {
     return {
       type: 'code_execution',
@@ -80,6 +95,12 @@ export const hydrateEntries = (entries: unknown[], payload: MessagePayload | und
   for (const raw of entries) {
     if (typeof raw !== 'object' || raw === null) continue
     const entry = raw as Record<string, unknown>
+    if (entry.type === 'steer') {
+      if (typeof entry.id === 'string' && typeof entry.content === 'string') {
+        hydrated.push({ type: 'steer', id: entry.id, content: entry.content, textOffset: typeof entry.textOffset === 'number' ? entry.textOffset : 0, rawBefore: typeof entry.rawBefore === 'number' ? entry.rawBefore : 0 })
+      }
+      continue
+    }
     if (typeof entry.id !== 'string' || typeof entry.name !== 'string') continue
     const results = payload?.toolResults[entry.id]
     const textOffset = typeof entry.textOffset === 'number' ? entry.textOffset : 0
@@ -119,6 +140,8 @@ export interface RawContentBlockEntry {
 
 const isCodeExecution = (tc: PersistedEntry): tc is PersistedCodeExecution => 'type' in tc && tc.type === 'code_execution'
 
+type RoundEntry = PersistedToolCall | PersistedCodeExecution
+
 // Rebuilds the provider-facing turn sequence for one persisted message. The
 // persisted content is the concatenated text of every tool round; each round's
 // textOffset marks where its text ends. Rounds with code execution replay
@@ -149,7 +172,7 @@ const blockIdsIn = (blocks: unknown[], types: string[]): Set<string> => {
   }
   return ids
 }
-export const buildHistoryMessages = (role: string, content: string, toolCalls: PersistedEntry[], rawEntries: RawContentBlockEntry[] | null | undefined): ChatMessage[] => {
+const buildRounds = (role: string, content: string, toolCalls: RoundEntry[], rawEntries: RawContentBlockEntry[] | null | undefined): ChatMessage[] => {
   const regularToolCalls = toolCalls.filter((tc): tc is PersistedToolCall => !isCodeExecution(tc))
   const hasCodeExec = toolCalls.some(isCodeExecution)
   const hasRawBlocks = (rawEntries ?? []).some(entry => entry.blocks.length > 0)
@@ -230,5 +253,45 @@ export const buildHistoryMessages = (role: string, content: string, toolCalls: P
     result.push({ role: 'assistant', content: tail })
   }
 
+  return result
+}
+
+const shiftOffsets = <T extends { textOffset: number }>(entries: T[], by: number): T[] => entries.map(entry => ({ ...entry, textOffset: entry.textOffset - by }))
+
+const isEmptyTurn = (m: ChatMessage) => m.role === 'assistant' && !m.content && !m.toolCalls && !m.rawContentBlocks?.length
+
+// Steers split the message into independently replayed chunks with a user
+// turn between them.
+export const buildHistoryMessages = (role: string, content: string, entries: PersistedEntry[], rawEntries: RawContentBlockEntry[] | null | undefined): ChatMessage[] => {
+  const steers = entries.filter((entry): entry is PersistedSteer => 'type' in entry && entry.type === 'steer')
+  if (role !== 'assistant' || steers.length === 0) {
+    return buildRounds(
+      role,
+      content,
+      entries.filter((entry): entry is RoundEntry => !('type' in entry) || entry.type !== 'steer'),
+      rawEntries,
+    )
+  }
+  const raw = rawEntries ?? []
+  const result: ChatMessage[] = []
+  let chunk: RoundEntry[] = []
+  let textStart = 0
+  let rawStart = 0
+  const flushChunk = (textEnd: number, rawEnd: number) => {
+    const turns = buildRounds('assistant', content.slice(textStart, textEnd), shiftOffsets(chunk, textStart), shiftOffsets(raw.slice(rawStart, rawEnd), textStart))
+    result.push(...turns.filter(turn => !isEmptyTurn(turn)))
+    chunk = []
+    textStart = textEnd
+    rawStart = rawEnd
+  }
+  for (const entry of entries) {
+    if ('type' in entry && entry.type === 'steer') {
+      flushChunk(entry.textOffset, entry.rawBefore)
+      result.push({ role: 'user', content: entry.content })
+    } else {
+      chunk.push(entry)
+    }
+  }
+  flushChunk(content.length, raw.length)
   return result
 }
