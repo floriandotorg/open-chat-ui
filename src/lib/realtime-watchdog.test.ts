@@ -98,6 +98,30 @@ describe('realtime watchdog', () => {
     expect(resync).toHaveBeenCalledTimes(1)
   })
 
+  it('re-subscribes registrations concurrently and resyncs each once its own subscription is back', async () => {
+    heartbeatSubscribe.mockResolvedValue(vi.fn())
+    const watchdog = await loadWatchdog()
+    watchdog.startRealtimeWatchdog()
+    await vi.advanceTimersByTimeAsync(0)
+
+    const events: string[] = []
+    const slowSubscribe = (name: string, ms: number) => () =>
+      new Promise<void>(resolve =>
+        setTimeout(() => {
+          events.push(`subscribed ${name}`)
+          resolve()
+        }, ms),
+      )
+    watchdog.registerRealtime({ subscribe: slowSubscribe('a', 1_000), unsubscribe: vi.fn(), resync: () => void events.push('resync a') }, { subscribe: slowSubscribe('b', 1_000), unsubscribe: vi.fn(), resync: () => void events.push('resync b') })
+
+    await vi.advanceTimersByTimeAsync(50_000)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(events).toHaveLength(4)
+    expect(events.indexOf('resync a')).toBeGreaterThan(events.indexOf('subscribed a'))
+    expect(events.indexOf('resync b')).toBeGreaterThan(events.indexOf('subscribed b'))
+  })
+
   it('recovers on resume when the heartbeat went stale while backgrounded', async () => {
     let onBeat: (() => void) | undefined
     heartbeatSubscribe.mockImplementation((_topic: string, cb: () => void) => {

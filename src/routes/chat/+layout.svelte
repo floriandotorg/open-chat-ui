@@ -10,7 +10,7 @@ import ThinkingEffortPicker from '#lib/components/ThinkingEffortPicker.svelte'
 import TtsPlayer from '#lib/components/TtsPlayer.svelte'
 import { mapSystemPrompt } from '#lib/db-mappers.ts'
 import { pbClient } from '#lib/pb-client.ts'
-import { createRealtimeSlot, registerRealtime, startRealtimeWatchdog } from '#lib/realtime-watchdog.ts'
+import { createRealtimeSlot, registerRealtime, resyncOnceConnected, startRealtimeWatchdog } from '#lib/realtime-watchdog.ts'
 import { chatContext } from '#lib/stores/chat-context.svelte.ts'
 import { attachChatRealtime, getChatStores, markChatMounted } from '#lib/stores/chat-sync.svelte.ts'
 import { createModelsStore } from '#lib/stores/models.svelte.ts'
@@ -171,6 +171,8 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
 }
 const PREFETCH_COUNT = 10
 const PREFETCH_DELAY_MS = 1_000
+// Older renders come from the service worker's page cache.
+const STALE_RENDER_MS = 10_000
 
 const prefetchRecentConversations = () => {
   const connection: { saveData?: boolean } | undefined = Reflect.get(navigator, 'connection')
@@ -220,6 +222,9 @@ onMount(() => {
       systemPrompts = rows.map(mapSystemPrompt)
     },
   })
+  if (Date.now() - data.renderedAt > STALE_RENDER_MS) {
+    void resyncOnceConnected()
+  }
   return () => {
     clearTimeout(prefetchTimer)
     detachChatRealtime()

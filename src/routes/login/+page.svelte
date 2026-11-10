@@ -1,8 +1,14 @@
 <script lang="ts">
 import { enhance } from '$app/forms'
+import { clearPageCache } from '#lib/page-cache.ts'
 import type { ActionData } from './$types'
+import { onMount } from 'svelte'
 
 let { form }: { form: ActionData } = $props()
+
+onMount(() => {
+  void clearPageCache()
+})
 </script>
 
 <div class="login-bg flex min-h-screen items-center justify-center px-4">

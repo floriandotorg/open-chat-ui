@@ -7,7 +7,7 @@ node_modules
 .wrangler
 /.svelte-kit
 /build
-uploads
+/uploads
 .agent-screenshots
 
 # OS

@@ -140,6 +140,7 @@ Optional warm up: after layout mount, in `requestIdleCallback`, `acquire` the 5 
 ### 6. `/chat` without a server load
 
 Delete `chat/+page.server.ts`. In `chat/+page.svelte`:
+
 - `onMount`: if `page.url.searchParams.get('q')` is non-empty, call `handleSubmit(q)` and `replaceState` without `q` (same pattern the conversation page already uses in `consumeQueryMessage`).
 - `goToNewChat` in the layout: `goto` now completes without network. Keep the focus token but do not await `goto` before focusing; `afterNavigate` in `chat/+page.svelte` already exists for the textarea (`ctx.newChatFocusToken` effect).
 
@@ -160,6 +161,7 @@ await goto(resolve(`/chat/${id}`)) // universal load hits the cache: no network
 The conversation page's `attachToConversation` consumes the pending message and calls `chat.sendMessage`, which posts `/api/chat` with a new optional field `createConversation: { systemPromptId }` (read from `consumePendingConversation()` and passed through `sendMessage`'s existing `systemPrompt` slot or a new parameter).
 
 `POST /api/chat`:
+
 - After the conversation lookup returns null and `body.createConversation` is present: resolve the prompt exactly as `POST /api/conversations` does today (one query: `id = {:id} && user = {:u}` when an id is given, else `isDefault = true`), then `createOrRecover('conversations', { id: conversationId, user, title: 'New Chat', systemPrompt, systemPromptRef, createdAt, updatedAt }, filter id = {:id}, {})`. Continue as today. Without `createConversation`, a missing conversation stays a 404.
 - Realtime `create` event on `conversations` reaches the sidebar store, `upsert` confirms the pending entry.
 

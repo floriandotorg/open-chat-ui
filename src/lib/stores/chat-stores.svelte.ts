@@ -1,4 +1,5 @@
 import type { ChatStore } from '#lib/stores/chat.svelte.ts'
+import { syncClock } from '#lib/sync/collection.svelte.ts'
 import type { ChatMessage, ConversationDetail, ConversationSummary } from '#lib/types/chat.ts'
 import type { StreamEvent } from '#lib/types.ts'
 import { isHttpError } from '@sveltejs/kit'
@@ -118,9 +119,10 @@ export class ChatStores {
     }
     const replays: Replay[] = []
     this.replays.set(id, replays)
+    const since = syncClock()
     const promise = this.deps
       .fetchDetail(id, fetchFn)
-      .then(detail => this.seed(id, detail, replays))
+      .then(detail => this.seed(id, detail, replays, since))
       .catch(err => this.fail(id, err))
       .finally(() => {
         this.inflight.delete(id)
@@ -130,12 +132,12 @@ export class ChatStores {
     return promise
   }
 
-  private seed = (id: string, detail: ConversationDetail, replays: Replay[]) => {
+  private seed = (id: string, detail: ConversationDetail, replays: Replay[], since: number) => {
     const entry = this.entries.get(id)
     if (!entry) {
       return
     }
-    entry.store.seed(detail)
+    entry.store.seed(detail, since)
     entry.stale = false
     for (const replay of replays) {
       replay(entry.store)

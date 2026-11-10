@@ -499,6 +499,10 @@ export class ChatStore {
       // snapshot; inferring it keeps the UI correct without that echo.
       this.deps.conversationStates.merge(this.conversationId, { generating: false })
     }
+    this.foldLive(msg)
+  }
+
+  private foldLive = (msg: ChatMessage) => {
     const state = this.live.get(msg.id)
     if (!state) {
       return
@@ -531,11 +535,16 @@ export class ChatStore {
     this.dropLive(id)
   }
 
-  seed = (detail: ConversationDetail) => {
-    this.live = new Map()
+  seed = (detail: ConversationDetail, since?: number) => {
     this.appliedCache.clear()
-    this.records.reset(detail.messages)
-    this.deps.conversationStates.receive(detail.conversation)
+    this.records.reset(detail.messages, { since })
+    this.deps.conversationStates.receive(detail.conversation, { since })
+    for (const messageId of this.live.keys()) {
+      const confirmed = this.records.confirmed(messageId)
+      if (confirmed) {
+        this.foldLive(confirmed)
+      }
+    }
     this.status = 'ready'
   }
 }

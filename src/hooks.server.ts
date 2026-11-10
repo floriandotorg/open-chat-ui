@@ -1,10 +1,11 @@
 import { building, dev } from '$app/env'
 import * as env from '$app/env/private'
+import { handleCompression } from '#lib/server/compression.ts'
 import { startServerHeartbeat } from '#lib/server/heartbeat.ts'
 import { syncAllProviders } from '#lib/server/model-sync.ts'
 import { reapStaleGenerations } from '#lib/server/reaper.ts'
 import { redirect } from '@sveltejs/kit'
-import type { Handle, HandleServerError } from '@sveltejs/kit/hooks'
+import { type Handle, type HandleServerError, sequence } from '@sveltejs/kit/hooks'
 import PocketBase, { isTokenExpired } from 'pocketbase'
 
 if (!building) {
@@ -74,4 +75,4 @@ const handleAuth: Handle = async ({ event, resolve }) => {
   return response
 }
 
-export const handle: Handle = handleAuth
+export const handle: Handle = sequence(handleCompression, handleAuth)

@@ -212,6 +212,27 @@ describe('ChatStores', () => {
     expect(fetchDetail.mock.calls.map(c => c[0])).toEqual(['conv-1', 'conv-2'])
   })
 
+  it('keeps a message sent while a revalidation was in flight when the older snapshot lands', async () => {
+    const stale = deferred<ConversationDetail>()
+    let calls = 0
+    const { stores, load, conversationStates } = setup({
+      currentId: 'conv-1',
+      fetchDetail: async id => (++calls === 1 ? detail(id, [message({ id: 'conv-1-m' })]) : stale.promise),
+    })
+    const store = await load('conv-1')
+    conversationStates.receive({ id: 'conv-1', generating: false, activeBranches: {} })
+
+    stores.markStale()
+    await store.sendMessage('sent during the refetch')
+    stale.resolve(detail('conv-1', [message({ id: 'conv-1-m' })]))
+    await stores.whenLoaded('conv-1')
+
+    const sent = store.allMessages.find(m => m.content === 'sent during the refetch')
+    expect(sent).toBeDefined()
+    expect(store.messages.map(m => m.id)).toContain(sent?.id)
+    expect(store.isStreaming).toBe(true)
+  })
+
   it('evicts the least recently used store but keeps the current and streaming ones', async () => {
     const { stores, load, conversationStates } = setup({ currentId: 'conv-1', capacity: 2 })
     const current = await load('conv-1')

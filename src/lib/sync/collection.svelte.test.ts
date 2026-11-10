@@ -1,4 +1,4 @@
-import { Mutation, mutate, SyncCollection } from './collection.svelte'
+import { Mutation, mutate, SyncCollection, syncClock } from './collection.svelte'
 import { onSyncError } from './errors'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -162,6 +162,56 @@ describe('SyncCollection', () => {
 
     expect(docs.confirmed('a')).toBeUndefined()
     expect(docs.get('a')?.title).toBe('Mine')
+  })
+
+  it('a snapshot requested before a write settled does not revert it', async () => {
+    const docs = new SyncCollection<Doc>()
+    docs.reset([doc('a')])
+    const since = syncClock()
+
+    await mutate([docs.patch('a', { title: 'Saved' }), docs.put(doc('b'))], async () => {})
+    docs.reset([doc('a', { title: 'Stale' })], { since })
+
+    expect(docs.get('a')?.title).toBe('Saved')
+    expect(docs.get('b')).toEqual(doc('b'))
+  })
+
+  it('a snapshot keeps realtime updates and deletions that arrived while it was in flight', () => {
+    const docs = new SyncCollection<Doc>()
+    docs.reset([doc('a'), doc('d')])
+    const since = syncClock()
+
+    docs.receive(doc('c'))
+    docs.merge('a', { title: 'Live' })
+    docs.forget('d')
+    docs.reset([doc('a', { title: 'Stale' }), doc('d')], { since })
+
+    expect(docs.list.map(d => d.id).sort()).toEqual(['a', 'c'])
+    expect(docs.get('a')?.title).toBe('Live')
+  })
+
+  it('a snapshot replaces records nothing touched since it was requested', () => {
+    const docs = new SyncCollection<Doc>()
+    docs.reset([doc('a'), doc('gone')])
+    const since = syncClock()
+
+    docs.reset([doc('a', { title: 'Fresh' }), doc('new')], { since })
+
+    expect(docs.list.map(d => d.id).sort()).toEqual(['a', 'new'])
+    expect(docs.get('a')?.title).toBe('Fresh')
+  })
+
+  it('ignores snapshot records and merges older than a later write', async () => {
+    const docs = new SyncCollection<Doc>()
+    docs.reset([doc('a')])
+    const since = syncClock()
+
+    await mutate([docs.patch('a', { title: 'Saved' })], async () => {})
+
+    expect(docs.receive(doc('a', { title: 'Stale' }), { since })).toBe(false)
+    docs.merge('a', { title: 'Stale' }, { since })
+    expect(docs.get('a')?.title).toBe('Saved')
+    expect(docs.receive(doc('a', { title: 'Newer' }))).toBe(true)
   })
 
   it('does not report errors for writes kept on failure', async () => {

@@ -75,32 +75,33 @@ const recover = async () => {
         entry.unsubscribe()
       } catch {}
     }
-    // Removing the last subscription auto-closes the SSE connection, so the
-    // re-subscribes below start from a fresh connection and clientId.
+    // Removing the last subscription auto-closes the SSE connection. Every
+    // subscribe started in the same tick then joins the SDK's single pending
+    // connect and one subscription submit, so recovery costs one round trip
+    // instead of one per registration.
     try {
       await pbClient.realtime.unsubscribe()
     } catch {
       failed = true
     }
-    await ensureHeartbeat()
-    if (!heartbeatUnsub) failed = true
-    for (const entry of registrations) {
+    const heartbeat = ensureHeartbeat()
+    const resubscribed = [...registrations].map(async entry => {
       try {
         await entry.subscribe()
       } catch {
         failed = true
+        return
       }
-    }
-    // Events fired while the connection was dead cannot be replayed, so each
-    // registration re-pulls its data after re-subscribing.
-    for (const entry of registrations) {
+      // Events fired while the connection was dead cannot be replayed, so
+      // each registration re-pulls its data once its subscription is back.
       try {
         await entry.resync?.()
       } catch {
         failed = true
       }
-    }
-    if (hasUnhealthyRegistration()) failed = true
+    })
+    await Promise.all([heartbeat, ...resubscribed])
+    if (!heartbeatUnsub || hasUnhealthyRegistration()) failed = true
     lastEventAt = Date.now()
   } finally {
     recoverIncomplete = failed
@@ -152,6 +153,14 @@ const onVisibilityChange = () => {
 const onRealtimeDisconnect = () => {
   if (!browser || !registrations.size) return
   void recover()
+}
+
+// For pages booted from a cached render: every subscription made in the
+// same tick as the heartbeat rides its connect, so once it is up the
+// snapshots can be re-pulled without missing events in between.
+export const resyncOnceConnected = async () => {
+  await ensureHeartbeat()
+  await Promise.allSettled([...registrations].map(async entry => entry.resync?.()))
 }
 
 export const startRealtimeWatchdog = () => {

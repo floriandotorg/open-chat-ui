@@ -160,6 +160,7 @@ The cache is process-local and is lost on restart. Deploy a single app instance,
 ## Configuration
 
 After logging in, go to **Settings** to configure:
+
 - **API Keys** — Add your Anthropic and/or Mistral API keys.
 - **Models** — Enable/disable specific models and set a title-generation model.
 - **System Prompt** — Create and manage reusable system prompts.
@@ -193,6 +194,7 @@ scripts/
 2. Register it in `src/lib/server/providers/index.ts`
 
 The `LLMProvider` interface requires:
+
 - `id` / `name` — Provider identifier and display name
 - `capabilities` — Supported features (`streaming`, `vision`, `tool_use`, `code_interpreter`, `system_prompt`)
 - `listModels()` — Fetch available models from the provider's API

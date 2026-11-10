@@ -9,7 +9,7 @@ export default defineConfig({
   plugins: [
     tailwindcss(),
     sveltekit({
-      adapter: adapter(),
+      adapter: adapter({ precompress: true }),
       compilerOptions: {
         runes: ({ filename }) => {
           const relativePath = relative(import.meta.dirname, filename)

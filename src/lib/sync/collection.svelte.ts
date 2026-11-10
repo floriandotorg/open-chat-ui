@@ -5,6 +5,19 @@ import { errorMessage, reportSyncError } from './errors'
 // local write layered on top. Failed writes vanish from the view on their
 // own (no hand written revert), acknowledged writes are folded into the
 // server state so the UI never depends on the realtime echo arriving.
+//
+// Snapshots (list and detail fetches) race acknowledged writes and realtime
+// events on slow links. Every fresher change stamps its id with the shared
+// write clock; a snapshot applied with `since` (the clock when it was
+// requested) leaves the ids touched after that alone.
+
+let writeClock = 0
+
+export const syncClock = (): number => writeClock
+
+export interface SnapshotOptions {
+  since?: number
+}
 
 export type Op<T> = { kind: 'put'; record: T } | { kind: 'patch'; id: string; patch: Partial<T> } | { kind: 'update'; id: string; update: (current: T) => T } | { kind: 'delete'; id: string }
 
@@ -92,6 +105,7 @@ export interface SyncCollectionOptions<T> {
 export class SyncCollection<T extends { id: string }> implements MutationTarget {
   private server = $state.raw(new Map<string, T>())
   private staged = $state.raw<Staged<T>[]>([])
+  private touchedAt = new Map<string, number>()
 
   readonly records = $derived.by(() => {
     if (this.staged.length === 0) {
@@ -118,19 +132,21 @@ export class SyncCollection<T extends { id: string }> implements MutationTarget 
 
   failure = (id: string): Mutation | undefined => this.staged.find(s => s.mutation.status === 'failed' && opId(s.op) === id)?.mutation
 
-  receive = (record: T): boolean => {
+  receive = (record: T, { since }: SnapshotOptions = {}): boolean => {
     const current = this.server.get(record.id)
-    if (current && this.options.accept && !this.options.accept(record, current)) {
+    if (this.isNewerThan(record.id, since) || (current && this.options.accept && !this.options.accept(record, current))) {
       return false
     }
     this.server = new Map(this.server).set(record.id, record)
+    this.touch(record.id)
     return true
   }
 
-  merge = (id: string, partial: Partial<T>) => {
+  merge = (id: string, partial: Partial<T>, { since }: SnapshotOptions = {}) => {
     const current = this.server.get(id)
-    if (current) {
+    if (current && !this.isNewerThan(id, since)) {
       this.server = new Map(this.server).set(id, { ...current, ...partial })
+      this.touch(id)
     }
   }
 
@@ -140,10 +156,24 @@ export class SyncCollection<T extends { id: string }> implements MutationTarget 
       next.delete(id)
       this.server = next
     }
+    this.touch(id)
   }
 
-  reset = (records: T[], { merge = false }: { merge?: boolean } = {}) => {
-    this.server = new Map(records.map(record => [record.id, merge ? { ...this.server.get(record.id), ...record } : record]))
+  reset = (records: T[], { merge = false, since }: { merge?: boolean } & SnapshotOptions = {}) => {
+    const next = new Map<string, T>()
+    for (const record of records) {
+      if (!this.isNewerThan(record.id, since)) {
+        next.set(record.id, merge ? { ...this.server.get(record.id), ...record } : record)
+      }
+    }
+    if (since !== undefined) {
+      for (const [id, record] of this.server) {
+        if (this.isNewerThan(id, since)) {
+          next.set(id, record)
+        }
+      }
+    }
+    this.server = next
   }
 
   put = (record: T): Write => this.writer({ kind: 'put', record })
@@ -159,6 +189,7 @@ export class SyncCollection<T extends { id: string }> implements MutationTarget 
     for (const staged of this.staged) {
       if (staged.mutation === mutation) {
         applyOp(next, staged.op)
+        this.touch(opId(staged.op))
       }
     }
     this.server = next
@@ -168,6 +199,12 @@ export class SyncCollection<T extends { id: string }> implements MutationTarget 
   revert = (mutation: Mutation) => {
     this.staged = this.staged.filter(s => s.mutation !== mutation)
   }
+
+  private touch = (id: string) => {
+    this.touchedAt.set(id, ++writeClock)
+  }
+
+  private isNewerThan = (id: string, since: number | undefined): boolean => since !== undefined && (this.touchedAt.get(id) ?? 0) > since
 
   private writer = (op: Op<T>): Write => ({
     stage: mutation => {

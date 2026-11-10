@@ -426,6 +426,16 @@ describe('stream events', () => {
     expect(chat.allMessages[0].content).toBe('hello!')
   })
 
+  it('keeps streamed text beyond a reseeded snapshot instead of rewinding it', () => {
+    const { chat } = setup({ messages: [assistant()] })
+
+    chat.ingestEvent({ messageId: 'assist-1', seq: 1, ops: [{ t: 'text', v: 'he' }] })
+    chat.ingestEvent({ messageId: 'assist-1', seq: 2, ops: [{ t: 'text', v: 'llo' }] })
+    chat.seed({ conversation: { id: 'conv-1', generating: true, activeBranches: {} }, messages: [assistant({ content: 'he', eventSeq: 1 })] })
+
+    expect(chat.allMessages[0].content).toBe('hello')
+  })
+
   it('ignores events already folded into the snapshot', () => {
     const { chat } = setup({ messages: [assistant({ content: 'hello', eventSeq: 2 })] })
 

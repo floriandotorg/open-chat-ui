@@ -8,6 +8,7 @@ import ModelManager from '#lib/components/ModelManager.svelte'
 import SystemPromptManager from '#lib/components/SystemPromptManager.svelte'
 import TranslatorSettings from '#lib/components/TranslatorSettings.svelte'
 import UsagePanel from '#lib/components/UsagePanel.svelte'
+import { clearPageCache } from '#lib/page-cache.ts'
 import { registerRealtime, startRealtimeWatchdog } from '#lib/realtime-watchdog.ts'
 import { createSettingsStore } from '#lib/stores/settings.svelte.ts'
 import type { ActionData, PageData } from './$types'
@@ -220,6 +221,7 @@ const setTab = (tab: Tab) => {
 
       <form method="post" action="?/signOut" use:enhance={() => async ({ result }) => {
         if (result.type === 'success') {
+          await clearPageCache()
           await goto(resolve('/login'))
         }
       }}>
