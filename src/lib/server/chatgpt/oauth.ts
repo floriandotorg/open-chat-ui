@@ -97,9 +97,27 @@ export const buildAuthorizeUrl = (params: AuthorizeUrlParams) => {
   return `${params.authorizationEndpoint}?${encoded.join('&')}`
 }
 
+const CALLBACK_PARAM_KEYS = ['code', 'state', 'client_id', 'error', 'error_description']
+
+const decodeQueryValue = (value: string) => {
+  const withSpaces = value.replaceAll('+', ' ')
+  try {
+    return decodeURIComponent(withSpaces)
+  } catch {
+    return withSpaces
+  }
+}
+
 export const parseCallbackParams = (input: string) => {
-  const trimmed = input.trim()
-  return new URLSearchParams(trimmed.slice(trimmed.indexOf('?') + 1).split('#')[0])
+  const unwrapped = input.replace(/[\r\n]+/g, '')
+  const params = new URLSearchParams()
+  for (const key of CALLBACK_PARAM_KEYS) {
+    const value = unwrapped.match(new RegExp(`(?:^|[?&\\s"'“‘])${key}=([^&#\\s"'“”‘’<>]+)`))?.[1]
+    if (value) {
+      params.set(key, decodeQueryValue(value))
+    }
+  }
+  return params
 }
 
 const timestampMs = (value: unknown): number | undefined => {

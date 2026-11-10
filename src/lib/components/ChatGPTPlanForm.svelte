@@ -11,6 +11,8 @@ let { provider, account: initialAccount }: { provider: ProviderInfo; account: Ac
 const USAGE_URL = 'https://chatgpt.com/settings/usage'
 const WELCOME_SEEN_KEY = 'chatgpt-plan-welcome-seen'
 const CONNECTED_SIGNAL_KEY = 'chatgpt-plan-connected-at'
+const PENDING_SIGN_IN_KEY = 'chatgpt-plan-pending-sign-in'
+const PENDING_SIGN_IN_TTL_MS = 10 * 60_000
 
 // svelte-ignore state_referenced_locally
 let account = $state<Account | null>(initialAccount)
@@ -23,6 +25,7 @@ let callbackReachesApp = $state(false)
 let linkCopied = $state(false)
 let callbackUrl = $state('')
 let showWelcome = $state(false)
+let standalone = $state(false)
 
 const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object'
 
@@ -36,12 +39,37 @@ const parseAccount = (value: unknown): Account => ({
   name: isObject(value) && typeof value.name === 'string' ? value.name : undefined,
 })
 
+const isStandaloneApp = () => window.matchMedia('(display-mode: standalone)').matches || ('standalone' in navigator && navigator.standalone === true)
+
+const rememberPendingSignIn = (url: string, reachesApp: boolean) => {
+  localStorage.setItem(PENDING_SIGN_IN_KEY, JSON.stringify({ url, reachesApp, expiresAt: Date.now() + PENDING_SIGN_IN_TTL_MS }))
+}
+
+const forgetPendingSignIn = () => localStorage.removeItem(PENDING_SIGN_IN_KEY)
+
+const restorePendingSignIn = () => {
+  let stored: unknown = null
+  try {
+    stored = JSON.parse(localStorage.getItem(PENDING_SIGN_IN_KEY) ?? 'null')
+  } catch {
+    stored = null
+  }
+  if (!isObject(stored) || typeof stored.url !== 'string' || typeof stored.expiresAt !== 'number' || stored.expiresAt < Date.now()) {
+    forgetPendingSignIn()
+    return
+  }
+  signInUrl = stored.url
+  callbackReachesApp = stored.reachesApp === true
+  awaitingPaste = true
+}
+
 const markConnected = (connected: Account) => {
   account = connected
   provider.hasKey = true
   awaitingPaste = false
   callbackUrl = ''
   signInUrl = ''
+  forgetPendingSignIn()
   if (!localStorage.getItem(WELCOME_SEEN_KEY)) {
     showWelcome = true
   }
@@ -68,6 +96,10 @@ const onStorage = (event: StorageEvent) => {
 
 onMount(() => {
   window.addEventListener('storage', onStorage)
+  standalone = isStandaloneApp()
+  if (!account) {
+    restorePendingSignIn()
+  }
   const params = page.url.searchParams
   if (params.has('chatgpt') || params.has('chatgpt_error')) {
     if (params.get('chatgpt') === 'connected' && account) {
@@ -85,7 +117,7 @@ onMount(() => {
 })
 
 const start = async () => {
-  const signInTab = window.open('about:blank', '_blank')
+  const signInTab = standalone ? null : window.open('about:blank', '_blank')
   busy = true
   error = ''
   notice = ''
@@ -101,6 +133,7 @@ const start = async () => {
   linkCopied = false
   callbackReachesApp = body.callbackReachesApp === true
   awaitingPaste = true
+  rememberPendingSignIn(signInUrl, callbackReachesApp)
   if (signInTab) {
     signInTab.opener = null
     signInTab.location.href = body.url
@@ -110,6 +143,17 @@ const start = async () => {
 const copySignInUrl = async () => {
   await navigator.clipboard.writeText(signInUrl)
   linkCopied = true
+}
+
+const pasteCallbackUrl = async () => {
+  error = ''
+  try {
+    callbackUrl = (await navigator.clipboard.readText()).trim()
+  } catch {
+    error = 'Could not read the clipboard. Paste the address into the field instead.'
+    return
+  }
+  await submitCallback()
 }
 
 const submitCallback = async () => {
@@ -128,6 +172,7 @@ const submitCallback = async () => {
   } else {
     error = await readMessage(res, 'Could not connect ChatGPT')
     awaitingPaste = false
+    forgetPendingSignIn()
   }
   busy = false
 }
@@ -193,38 +238,63 @@ const disconnect = async () => {
 
     {#if awaitingPaste}
       <div class="mt-3 space-y-2 text-sm">
-        <p class="text-gray-600 dark:text-gray-300">
-          {#if callbackReachesApp}
-            Approve the request in the new window. It finishes by itself.
-          {:else}
-            After you approve, your browser opens a <span class="font-mono text-xs">127.0.0.1</span> page that won't load. Copy that page's full address and paste it here.
-          {/if}
-          If the window shows no address to copy, copy the sign-in link, open it in a regular browser tab and paste the final address here.
-        </p>
+        {#if callbackReachesApp && !standalone}
+          <p class="text-gray-600 dark:text-gray-300">Approve the request in the new window. It finishes by itself.</p>
+        {:else}
+          <ol class="list-decimal space-y-1 pl-5 text-gray-600 dark:text-gray-300">
+            <li>{standalone ? 'Open the sign-in page or copy its link into your browser' : 'Approve the request in the new window'}.</li>
+            <li>After approving, a <span class="font-mono text-xs">127.0.0.1</span> page opens that won't load. That is expected.</li>
+            <li>Copy that page's address. Without an address bar, copy the whole error text instead (Cmd+A, then Cmd+C on a Mac).</li>
+            <li>Come back here and paste it.</li>
+          </ol>
+        {/if}
         {#if signInUrl}
-          <button
-            type="button"
-            onclick={copySignInUrl}
-            class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium transition hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800"
-          >
-            {linkCopied ? 'Link copied' : 'Copy sign-in link'}
-          </button>
+          <div class="flex flex-wrap items-center gap-2">
+            {#if standalone}
+              <a
+                href={signInUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="rounded-lg bg-black px-3 py-1.5 text-sm font-medium text-white transition hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
+              >
+                Open sign-in page
+              </a>
+            {/if}
+            <button
+              type="button"
+              onclick={copySignInUrl}
+              class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium transition hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800"
+            >
+              {linkCopied ? 'Link copied' : 'Copy sign-in link'}
+            </button>
+          </div>
         {/if}
         <div class="flex items-center gap-2">
           <input
             type="text"
             bind:value={callbackUrl}
-            placeholder="http://127.0.0.1:.../auth/callback?code=..."
-            class="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            placeholder="Address or error text with code=..."
+            class="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
           />
-          <button
-            type="button"
-            onclick={submitCallback}
-            disabled={!callbackUrl.trim() || busy}
-            class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
-          >
-            {busy ? 'Connecting...' : 'Connect'}
-          </button>
+          {#if callbackUrl.trim()}
+            <button
+              type="button"
+              onclick={submitCallback}
+              disabled={busy}
+              class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+            >
+              {busy ? 'Connecting...' : 'Connect'}
+            </button>
+          {:else}
+            <button
+              type="button"
+              onclick={pasteCallbackUrl}
+              disabled={busy}
+              class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+            >
+              {busy ? 'Connecting...' : 'Paste and connect'}
+            </button>
+          {/if}
         </div>
       </div>
     {/if}

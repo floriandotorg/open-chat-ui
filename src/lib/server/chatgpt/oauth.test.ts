@@ -77,6 +77,33 @@ describe('parseCallbackParams', () => {
   it('reads a bare query string', () => {
     expect(parseCallbackParams('code=abc&state=xyz').get('state')).toBe('xyz')
   })
+
+  it('reads the whole text of the browser error page shown for the unreachable callback', () => {
+    const pageText = `Chat UI Can’t Connect to the Server
+Chat UI can’t open the page “127.0.0.1:1455/auth/callback?code=ac.2.AAD6hc_RW-gu&scope=openid%20profile&state=xyz-1_2&client_id=oaiapp_1” because Chat UI can’t connect to the server “127.0.0.1”.`
+    const params = parseCallbackParams(pageText)
+    expect(params.get('code')).toBe('ac.2.AAD6hc_RW-gu')
+    expect(params.get('state')).toBe('xyz-1_2')
+    expect(params.get('client_id')).toBe('oaiapp_1')
+  })
+
+  it('reads a callback url that was wrapped across lines when copied', () => {
+    const params = parseCallbackParams('“127.0.0.1:1455/auth/callback?code=abc\ndef&state=xyz\n&client_id=oaiapp_1”')
+    expect(params.get('code')).toBe('abcdef')
+    expect(params.get('state')).toBe('xyz')
+  })
+
+  it('keeps reading parameters after a decoded scope with spaces', () => {
+    const params = parseCallbackParams('"127.0.0.1:1455/auth/callback?code=abc&scope=openid profile email&state=xyz"')
+    expect(params.get('code')).toBe('abc')
+    expect(params.get('state')).toBe('xyz')
+  })
+
+  it('reads an error callback', () => {
+    const params = parseCallbackParams('http://127.0.0.1:1455/auth/callback?error=access_denied&error_description=User%20cancelled&state=xyz')
+    expect(params.get('error')).toBe('access_denied')
+    expect(params.get('error_description')).toBe('User cancelled')
+  })
 })
 
 describe('parseTokenResponse', () => {
