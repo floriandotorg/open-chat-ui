@@ -24,18 +24,38 @@ describe('repairServerToolResults', () => {
     expect(repairServerToolResults(messages)).toEqual(messages)
   })
 
-  it('moves an orphan result next to its server_tool_use in an earlier assistant message', () => {
+  it('keeps a result that arrives in the turn after a mixed client and server tool round', () => {
     const messages = [
       { role: 'user' as const, content: 'go' },
-      { role: 'assistant' as const, content: [text('a'), serverToolUse('srvtoolu_1')] },
+      { role: 'assistant' as const, content: [text('a'), { type: 'tool_use', id: 'toolu_1', name: 'fetch_url', input: {} }, serverToolUse('srvtoolu_1')] },
       { role: 'user' as const, content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'r' }] },
       { role: 'assistant' as const, content: [bashResult('srvtoolu_1'), text('done')] },
     ]
+    expect(repairServerToolResults(messages)).toEqual(messages)
+  })
+
+  it('keeps a server_tool_use still awaiting its result after client tool results', () => {
+    const messages = [
+      { role: 'user' as const, content: 'go' },
+      { role: 'assistant' as const, content: [{ type: 'tool_use', id: 'toolu_1', name: 'fetch_url', input: {} }, serverToolUse('srvtoolu_1')] },
+      { role: 'user' as const, content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'r' }] },
+    ]
+    expect(repairServerToolResults(messages)).toEqual(messages)
+  })
+
+  it('drops a server_tool_use whose result never arrived once the conversation moved on', () => {
+    const toolUse = { type: 'tool_use', id: 'toolu_1', name: 'fetch_url', input: {} }
+    const messages = [
+      { role: 'user' as const, content: 'go' },
+      { role: 'assistant' as const, content: [toolUse, serverToolUse('srvtoolu_1')] },
+      { role: 'user' as const, content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'r' }] },
+      { role: 'user' as const, content: 'next' },
+    ]
     expect(repairServerToolResults(messages)).toEqual([
       { role: 'user', content: 'go' },
-      { role: 'assistant', content: [text('a'), serverToolUse('srvtoolu_1'), bashResult('srvtoolu_1')] },
+      { role: 'assistant', content: [toolUse] },
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'r' }] },
-      { role: 'assistant', content: [text('done')] },
+      { role: 'user', content: 'next' },
     ])
   })
 

@@ -52,15 +52,18 @@ const buildAnthropicContent = (m: ChatMessage): string | Anthropic.ContentBlockP
 
 export const containsServerToolBlocks = (blocks: unknown[]): boolean => blocks.some(b => typeof b === 'object' && b !== null && ((b as AnyBlock).type === 'server_tool_use' || CODE_EXEC_RESULT_TYPES.has((b as AnyBlock).type as string)))
 
-// Anthropic may deliver a server tool result in a later turn than the one
-// carrying its server_tool_use (pause_turn during long executions, mixed
-// server/client tool turns). Replayed verbatim, the result block lands in an
-// assistant message without its server_tool_use and the API rejects the whole
-// request. Move every orphaned result next to its server_tool_use; drop
-// results whose server_tool_use is gone entirely.
+// When a round mixes client tool_use with a server_tool_use, Anthropic returns
+// the server result at the start of the next assistant turn, after the client
+// tool_result. That placement must be replayed as-is: moving the result back
+// next to its server_tool_use puts it after the client tool_use, and the API
+// rejects that tool_use as missing its tool_result. Only results with no
+// earlier server_tool_use are repaired: moved after a later one in the same
+// message, otherwise dropped. server_tool_use blocks whose result never
+// arrived are dropped unless the API can still deliver it.
 export const repairServerToolResults = <T extends { role: string; content: unknown }>(messages: T[]): T[] => {
   const repaired = messages.map(m => (Array.isArray(m.content) ? { ...m, content: [...m.content] } : m))
   const emptied = new Set<number>()
+  const earlierServerToolUseIds = new Set<string>()
   for (let i = 0; i < repaired.length; ++i) {
     const m = repaired[i]
     if (m.role !== 'assistant' || !Array.isArray(m.content)) continue
@@ -72,7 +75,7 @@ export const repairServerToolResults = <T extends { role: string; content: unkno
         seen.add(block.id)
         continue
       }
-      if (typeof block.type !== 'string' || !CODE_EXEC_RESULT_TYPES.has(block.type) || typeof block.tool_use_id !== 'string' || seen.has(block.tool_use_id)) continue
+      if (typeof block.type !== 'string' || !CODE_EXEC_RESULT_TYPES.has(block.type) || typeof block.tool_use_id !== 'string' || seen.has(block.tool_use_id) || earlierServerToolUseIds.has(block.tool_use_id)) continue
       const id = block.tool_use_id
       const laterInMessage = blocks.findIndex((b, n) => n > j && b.type === 'server_tool_use' && b.id === id)
       if (laterInMessage >= 0) {
@@ -81,28 +84,42 @@ export const repairServerToolResults = <T extends { role: string; content: unkno
         seen.add(id)
         continue
       }
-      let placed = false
-      for (let k = i - 1; k >= 0 && !placed; --k) {
-        const prev = repaired[k]
-        if (prev.role !== 'assistant' || !Array.isArray(prev.content)) continue
-        const prevBlocks = prev.content as unknown as AnyBlock[]
-        const n = prevBlocks.findIndex(b => b.type === 'server_tool_use' && b.id === id)
-        if (n >= 0) {
-          prevBlocks.splice(n + 1, 0, block)
+      blocks.splice(j, 1)
+      --j
+    }
+    for (const id of seen) {
+      earlierServerToolUseIds.add(id)
+    }
+  }
+  const answeredServerToolUseIds = new Set<string>()
+  for (const m of repaired) {
+    if (m.role !== 'assistant' || !Array.isArray(m.content)) continue
+    for (const block of m.content as unknown as AnyBlock[]) {
+      if (typeof block.tool_use_id === 'string') answeredServerToolUseIds.add(block.tool_use_id)
+    }
+  }
+  for (let i = 0; i < repaired.length; ++i) {
+    const m = repaired[i]
+    if (m.role !== 'assistant' || !Array.isArray(m.content)) continue
+    const blocks = m.content as unknown as AnyBlock[]
+    if (!awaitsServerToolResults(repaired, i)) {
+      for (let j = blocks.length - 1; j >= 0; --j) {
+        const block = blocks[j]
+        if (block.type === 'server_tool_use' && typeof block.id === 'string' && !answeredServerToolUseIds.has(block.id)) {
           blocks.splice(j, 1)
-          --j
-          placed = true
         }
-      }
-      if (!placed) {
-        blocks.splice(j, 1)
-        --j
       }
     }
     if (blocks.length === 0) emptied.add(i)
   }
   return repaired.filter((_, i) => !emptied.has(i))
 }
+
+// A server_tool_use without a result is only valid while the API can still
+// finish it: in the latest assistant turn, followed by nothing but client
+// tool_results. Once the conversation moves on (the generation died before
+// the result arrived), the API rejects it.
+const awaitsServerToolResults = (messages: { role: string; content: unknown }[], assistantIndex: number): boolean => messages.slice(assistantIndex + 1).every(m => m.role === 'user' && Array.isArray(m.content) && (m.content as AnyBlock[]).every(block => block.type === 'tool_result'))
 
 const buildAnthropicMessages = (messages: ChatMessage[]): Anthropic.MessageParam[] => {
   const result: Anthropic.MessageParam[] = []

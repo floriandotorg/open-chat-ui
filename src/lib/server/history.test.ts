@@ -50,6 +50,21 @@ describe('buildHistoryMessages', () => {
     ])
   })
 
+  it('replays plain rounds before a later raw round at the same offset', () => {
+    const blocks = [
+      { type: 'tool_use', id: 'toolu_B', name: 'fetch_url' },
+      { type: 'server_tool_use', id: 'srvtoolu_1', name: 'bash_code_execution' },
+    ]
+    const entries = buildHistoryMessages('assistant', 'done', [{ id: 'toolu_A', name: 'search', arguments: {}, textOffset: 0, result: 'rA' }, { id: 'toolu_B', name: 'fetch_url', arguments: {}, textOffset: 0, result: 'rB' }, codeExecEntry({ textOffset: 0 })], [{ textOffset: 0, blocks }])
+    expect(entries).toEqual([
+      { role: 'assistant', content: '', toolCalls: [{ id: 'toolu_A', name: 'search', arguments: {} }] },
+      { role: 'tool', content: 'rA', toolCallId: 'toolu_A' },
+      { role: 'assistant', content: '', rawContentBlocks: blocks },
+      { role: 'tool', content: 'rB', toolCallId: 'toolu_B' },
+      { role: 'assistant', content: 'done' },
+    ])
+  })
+
   it('keeps consecutive empty-text code-exec rounds at the same offset distinct', () => {
     const blocks1 = [
       { type: 'server_tool_use', id: 'srvtoolu_1' },

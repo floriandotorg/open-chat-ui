@@ -135,13 +135,15 @@ const isCodeExecution = (tc: PersistedEntry): tc is PersistedCodeExecution => 't
 // tool_use id; unmatched calls merge into one reconstructed assistant turn.
 // Splitting rounds back apart keeps every tool_result paired with its
 // tool_use — merging them under a single raw replay drops the other rounds'
-// tool_use blocks and Anthropic rejects the orphan tool_result.
+// tool_use blocks and Anthropic rejects the orphan tool_result. Entries are
+// persisted in round order, so walking them places each raw turn after the
+// merged calls that preceded it.
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
-const toolUseIdsIn = (blocks: unknown[]): Set<string> => {
+const blockIdsIn = (blocks: unknown[], types: string[]): Set<string> => {
   const ids = new Set<string>()
   for (const block of blocks) {
-    if (isRecord(block) && block.type === 'tool_use' && typeof block.id === 'string') {
+    if (isRecord(block) && typeof block.type === 'string' && types.includes(block.type) && typeof block.id === 'string') {
       ids.add(block.id)
     }
   }
@@ -167,31 +169,58 @@ export const buildHistoryMessages = (role: string, content: string, toolCalls: P
   const result: ChatMessage[] = []
   let prev = 0
   for (const off of offsets) {
-    const roundCalls = regularToolCalls.filter(tc => tc.textOffset === off)
-    const rawRounds = rawBlocksByOffset.get(off) ?? []
+    const offsetEntries = toolCalls.filter(tc => tc.textOffset === off)
+    const offsetCalls = regularToolCalls.filter(tc => tc.textOffset === off)
+    const rawRounds = (rawBlocksByOffset.get(off) ?? []).map(blocks => ({
+      blocks,
+      toolUseIds: blockIdsIn(blocks, ['tool_use']),
+      callIds: blockIdsIn(blocks, ['tool_use', 'server_tool_use']),
+    }))
     let roundText = content.slice(prev, off)
-    const matched = new Set<string>()
-    for (const blocks of rawRounds) {
-      const ids = toolUseIdsIn(blocks)
-      result.push({ role: 'assistant', content: roundText, rawContentBlocks: blocks })
+    let emitted = false
+    let pending: PersistedToolCall[] = []
+    let nextRawRound = 0
+    const takeRoundText = () => {
+      const text = roundText
       roundText = ''
-      for (const tc of roundCalls) {
-        if (ids.has(tc.id)) {
-          matched.add(tc.id)
-          result.push({ role: 'tool', content: tc.result, toolCallId: tc.id })
+      emitted = true
+      return text
+    }
+    const flushPending = () => {
+      if (!pending.length) return
+      result.push({ role: 'assistant', content: takeRoundText(), toolCalls: pending.map(tc => ({ id: tc.id, name: tc.name, arguments: tc.arguments })) })
+      for (const tc of pending) {
+        result.push({ role: 'tool', content: tc.result, toolCallId: tc.id })
+      }
+      pending = []
+    }
+    const emitRawRoundsThrough = (index: number) => {
+      for (; nextRawRound <= index; ++nextRawRound) {
+        const { blocks, toolUseIds } = rawRounds[nextRawRound]
+        result.push({ role: 'assistant', content: takeRoundText(), rawContentBlocks: blocks })
+        for (const tc of offsetCalls) {
+          if (toolUseIds.has(tc.id)) {
+            result.push({ role: 'tool', content: tc.result, toolCallId: tc.id })
+          }
         }
       }
     }
-    const remaining = roundCalls.filter(tc => !matched.has(tc.id))
-    if (remaining.length || !rawRounds.length) {
-      result.push({
-        role: 'assistant',
-        content: roundText,
-        toolCalls: remaining.map(tc => ({ id: tc.id, name: tc.name, arguments: tc.arguments })),
-      })
-      for (const tc of remaining) {
-        result.push({ role: 'tool', content: tc.result, toolCallId: tc.id })
+    for (const entry of offsetEntries) {
+      const rawIndex = rawRounds.findIndex(round => round.callIds.has(entry.id))
+      if (rawIndex < 0) {
+        if (!isCodeExecution(entry)) {
+          pending.push(entry)
+        }
+        continue
       }
+      if (rawIndex < nextRawRound) continue
+      flushPending()
+      emitRawRoundsThrough(rawIndex)
+    }
+    flushPending()
+    emitRawRoundsThrough(rawRounds.length - 1)
+    if (!emitted) {
+      result.push({ role: 'assistant', content: roundText, toolCalls: [] })
     }
     prev = off
   }
