@@ -2,7 +2,7 @@ import { formatModelRef } from '#lib/model-ref.ts'
 import type { ChatMessage, ChatRequest, ChatStreamEvent, LLMProvider, ModelInfo, ProviderFactory, ToolCallInfo } from './types'
 import OpenAI from 'openai'
 
-const BASE_URL = 'https://openrouter.ai/api/v1'
+const BASE_URL = 'https://eu.openrouter.ai/api/v1'
 const MODELS_URL = `${BASE_URL}/models`
 const MODELS_TTL_MS = 60 * 60 * 1000
 const SEARCH_LIMIT = 25
