@@ -1,4 +1,5 @@
 import { createAnthropicProvider } from './anthropic'
+import { createChatGPTProvider } from './chatgpt'
 import { createMistralProvider } from './mistral'
 import { createOpenAIProvider } from './openai'
 import { createOpenRouterProvider } from './openrouter'
@@ -6,6 +7,7 @@ import type { ProviderFactory } from './types'
 
 const registry = new Map<string, ProviderFactory>([
   ['anthropic', createAnthropicProvider],
+  ['chatgpt', createChatGPTProvider],
   ['mistral', createMistralProvider],
   ['openai', createOpenAIProvider],
   ['openrouter', createOpenRouterProvider],

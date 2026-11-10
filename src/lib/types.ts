@@ -162,36 +162,35 @@ export const THINKING_EFFORT_LABELS: Record<ThinkingEffort, string> = {
   max: 'Max',
 }
 
-export interface DailyUsage {
-  date: string
-  cost: number
+export type UsageBilling = 'api' | 'plan'
+
+export interface UsageTotals {
+  requests: number
   inputTokens: number
   outputTokens: number
   cacheReadInputTokens: number
   cacheCreationInputTokens: number
+  cost: number
+  apiEquivalentCost: number
+}
+
+export interface DailyUsage {
+  date: string
+  apiCost: number
+  planApiEquivalentCost: number
   requests: number
 }
 
-export interface ModelUsage {
+export interface ModelUsage extends UsageTotals {
   model: string
-  requests: number
-  inputTokens: number
-  outputTokens: number
-  cacheReadInputTokens: number
-  cacheCreationInputTokens: number
-  cost: number
+  billing: UsageBilling
   priced: boolean
 }
 
 export interface UsageResponse {
   month: string
-  totalCost: number
-  totalInputTokens: number
-  totalOutputTokens: number
-  totalCacheReadInputTokens: number
-  totalCacheCreationInputTokens: number
-  totalRequests: number
-  cacheSavings: number
+  api: UsageTotals
+  plan: UsageTotals
   daily: DailyUsage[]
   models: ModelUsage[]
 }

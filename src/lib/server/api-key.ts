@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { CHATGPT_PROVIDER, getChatGPTAccessToken } from '#lib/server/chatgpt/session.ts'
 import { decrypt } from '#lib/server/crypto.ts'
 import { mapApiKey } from '#lib/server/db/records.ts'
 import { getFirstOrNull, pb } from '#lib/server/pb.ts'
@@ -20,16 +21,18 @@ const dedupe = <T>(key: string, fn: () => Promise<T>): Promise<T> => {
 }
 
 export const getDecryptedKey = (userId: string, provider: string): Promise<string | null> =>
-  dedupe(`key:${userId}:${provider}`, async () => {
-    const row = await getFirstOrNull(
-      pb
-        .collection('api_keys')
-        .getFirstListItem(pb.filter('user = {:u} && provider = {:p}', { u: userId, p: provider }), { sort: '-updatedAt' })
-        .then(mapApiKey),
-    )
-    if (!row) return null
-    return (await decrypt(row.encryptedKey, row.iv)).trim() || null
-  })
+  provider === CHATGPT_PROVIDER
+    ? getChatGPTAccessToken(userId)
+    : dedupe(`key:${userId}:${provider}`, async () => {
+        const row = await getFirstOrNull(
+          pb
+            .collection('api_keys')
+            .getFirstListItem(pb.filter('user = {:u} && provider = {:p}', { u: userId, p: provider }), { sort: '-updatedAt' })
+            .then(mapApiKey),
+        )
+        if (!row) return null
+        return (await decrypt(row.encryptedKey, row.iv)).trim() || null
+      })
 
 export const getDecryptedKeys = (userId: string, provider: string): Promise<string[]> =>
   dedupe(`keys:${userId}:${provider}`, async () => {

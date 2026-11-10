@@ -1,5 +1,6 @@
 import { requireUser } from '#lib/server/auth-guard.ts'
 import { BROWSER_HOST_KEY } from '#lib/server/browser/config.ts'
+import { getChatGPTAccount } from '#lib/server/chatgpt/session.ts'
 import { mapSystemPrompt, mapUserSettings } from '#lib/server/db/records.ts'
 import { getFirstOrNull, pb } from '#lib/server/pb.ts'
 import { listProviders } from '#lib/server/providers/index.ts'
@@ -22,7 +23,7 @@ const TOOL_SERVICES: ToolService[] = [
 export const load: PageServerLoad = async ({ locals }) => {
   const user = requireUser(locals.user)
 
-  const [settingsRow, userKeys, prompts] = await Promise.all([
+  const [settingsRow, userKeys, prompts, chatgptAccount] = await Promise.all([
     getFirstOrNull(
       pb
         .collection('user_settings')
@@ -34,6 +35,7 @@ export const load: PageServerLoad = async ({ locals }) => {
       .collection('system_prompts')
       .getFullList({ filter: pb.filter('user = {:u}', { u: user.id }), sort: 'createdAt' })
       .then(rows => rows.map(mapSystemPrompt)),
+    getChatGPTAccount(user.id),
   ])
 
   const keyCounts = new Map<string, number>()
@@ -58,6 +60,7 @@ export const load: PageServerLoad = async ({ locals }) => {
     providers,
     toolServices,
     systemPrompts: prompts,
+    chatgptAccount,
     user,
   }
 }

@@ -22,6 +22,8 @@ export default defineConfig({
     }),
   ],
   server: {
+    // ChatGPT sign-in only redirects to http://127.0.0.1, and "localhost" binds to ::1 alone on macOS.
+    host: '127.0.0.1',
     port: 5179,
   },
   test: {

@@ -1,7 +1,8 @@
+import type { BrowserUserRequest } from '#lib/browser-protocol.ts'
 import { normalizeModelRef } from '#lib/model-ref.ts'
 import { parseContexts } from '#lib/translator.ts'
 import type { ChatMessage, ConversationDetail, ConversationSummary } from '#lib/types/chat.ts'
-import type { Message as ClientMessage, CodeExecutionSummary, FileAttachment, ImageAttachment, MessagePayload, ModelInfo, ToolCallSummary } from '#lib/types.ts'
+import type { Message as ClientMessage, CodeExecutionSummary, FileAttachment, ImageAttachment, MessagePayload, ModelInfo, ToolCallSummary, ToolProgress } from '#lib/types.ts'
 import type { RecordModel } from 'pocketbase'
 
 export interface ApiKey {
@@ -167,6 +168,33 @@ interface RawEntry {
 
 const strOrUndefined = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined)
 
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
+
+const toUserRequest = (value: unknown): BrowserUserRequest | undefined => {
+  if (!isRecord(value) || typeof value.message !== 'string' || typeof value.url !== 'string') {
+    return undefined
+  }
+  const { kind } = value
+  return kind === 'login' || kind === 'captcha' || kind === 'confirm' ? { kind, message: value.message, url: value.url } : undefined
+}
+
+const toToolProgress = (value: unknown): ToolProgress | undefined => {
+  if (!isRecord(value) || typeof value.sessionId !== 'string' || typeof value.step !== 'number') {
+    return undefined
+  }
+  const { status } = value
+  if (status !== 'running' && status !== 'waiting_for_user') {
+    return undefined
+  }
+  const request = toUserRequest(value.request)
+  if (status === 'waiting_for_user' && !request) {
+    return undefined
+  }
+  return { sessionId: value.sessionId, step: value.step, status, ...(typeof value.summary === 'string' ? { summary: value.summary } : {}), ...(request ? { request } : {}) }
+}
+
+const withProgress = (progress: ToolProgress | undefined) => (progress ? { progress } : {})
+
 // New rows store the slim summary shape; legacy rows carry results inline and
 // no done flag, which is derived from the presence of a result instead.
 const toToolCallSummary = (e: RawEntry): ToolCallSummary => ({
@@ -179,6 +207,7 @@ const toToolCallSummary = (e: RawEntry): ToolCallSummary => ({
   ...(Array.isArray(e.citations) ? { citations: e.citations as ToolCallSummary['citations'] } : {}),
   ...(strOrUndefined(e.result) !== undefined ? { result: strOrUndefined(e.result) } : {}),
   ...(strOrUndefined(e.rawResult) !== undefined ? { rawResult: strOrUndefined(e.rawResult) } : {}),
+  ...withProgress(toToolProgress(e.progress)),
 })
 
 const toCodeExecutionSummary = (e: RawEntry): CodeExecutionSummary => ({

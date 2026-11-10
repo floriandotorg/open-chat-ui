@@ -74,7 +74,7 @@ const imageUrl = (result: BrowserActionResult | undefined): string | null => (re
 
 const resultNotes = (results: BrowserActionResult[]): string[] => results.flatMap(result => (result.ok ? (result.text ? [result.text] : []) : [`Action failed: ${result.error}`]))
 
-const createRunner = (session: TaskSession) => {
+export const createRunner = (session: TaskSession) => {
   const screenshot = async (): Promise<string> => {
     const [result] = await session.act([{ type: 'screenshot' }])
     const url = imageUrl(result)
@@ -98,8 +98,9 @@ const createRunner = (session: TaskSession) => {
   const runComputerCall = async (call: ResponseComputerToolCall): Promise<ResponseInputItem[]> => {
     const notes: string[] = []
     let approved = true
-    if (call.pending_safety_checks.length) {
-      const question = call.pending_safety_checks.map(check => check.message ?? check.code ?? 'Safety check').join(' ')
+    const safetyChecks = call.pending_safety_checks ?? []
+    if (safetyChecks.length) {
+      const question = safetyChecks.map(check => check.message ?? check.code ?? 'Safety check').join(' ')
       const answer = await session.askUser('confirm', question)
       approved = answer.outcome === 'done'
       if (!approved) {
@@ -113,7 +114,7 @@ const createRunner = (session: TaskSession) => {
       type: 'computer_call_output',
       call_id: call.call_id,
       output: { type: 'computer_screenshot', image_url: captured.image },
-      ...(approved && call.pending_safety_checks.length ? { acknowledged_safety_checks: call.pending_safety_checks.map(({ id, code, message }) => ({ id, code, message })) } : {}),
+      ...(approved && safetyChecks.length ? { acknowledged_safety_checks: safetyChecks.map(({ id, code, message }) => ({ id, code, message })) } : {}),
     }
     return notes.length ? [output, { role: 'user', content: [{ type: 'input_text', text: notes.join('\n') }] }] : [output]
   }

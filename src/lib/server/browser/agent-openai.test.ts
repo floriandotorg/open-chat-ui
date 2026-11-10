@@ -1,4 +1,6 @@
-import { computerActionToBrowser, keypressToChord } from '#lib/server/browser/agent-openai.ts'
+import { computerActionToBrowser, createRunner, keypressToChord } from '#lib/server/browser/agent-openai.ts'
+import { createFakeHost, fakeState, okResult } from '#lib/server/browser/fake-host.ts'
+import { createTaskSession } from '#lib/server/browser/task-session.ts'
 import { describe, expect, it } from 'vitest'
 
 describe('keypressToChord', () => {
@@ -51,5 +53,15 @@ describe('computerActionToBrowser', () => {
 
   it('skips screenshots because every turn ends with one', () => {
     expect(computerActionToBrowser({ type: 'screenshot' })).toBeNull()
+  })
+})
+
+describe('createRunner', () => {
+  it('runs computer calls that omit pending safety checks', async () => {
+    const fake = createFakeHost(action => okResult(fakeState(), action.type === 'screenshot' ? { image: { base64: 'aGk=', mediaType: 'image/jpeg' } } : {}))
+    const session = createTaskSession({ host: fake.host, sessionId: 's1', initialState: fakeState(), files: [] })
+    const call = JSON.parse(JSON.stringify({ type: 'computer_call', id: 'cu1', call_id: 'call1', status: 'completed', actions: [{ type: 'click', button: 'left', x: 1, y: 2 }] }))
+    const [output] = await createRunner(session).runComputerCall(call)
+    expect(output).toEqual({ type: 'computer_call_output', call_id: 'call1', output: { type: 'computer_screenshot', image_url: 'data:image/jpeg;base64,aGk=' } })
   })
 })

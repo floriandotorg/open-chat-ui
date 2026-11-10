@@ -1,5 +1,5 @@
 import { parseModelRef } from '#lib/model-ref.ts'
-import { decrypt } from '#lib/server/crypto.ts'
+import { getDecryptedKey } from '#lib/server/api-key.ts'
 import { mapApiKey, mapProviderModel, now } from '#lib/server/db/records.ts'
 import { createOrRecover, getFirstOrNull, pb } from '#lib/server/pb.ts'
 import { getProviderFactory, listProviders } from '#lib/server/providers/index.ts'
@@ -13,11 +13,11 @@ const anyDecryptedKey = async (provider: string): Promise<string | null> => {
   const row = await getFirstOrNull(
     pb
       .collection('api_keys')
-      .getFirstListItem(pb.filter('provider = {:p}', { p: provider }), { fields: 'user,encryptedKey,iv' })
+      .getFirstListItem(pb.filter('provider = {:p}', { p: provider }), { fields: 'user' })
       .then(mapApiKey),
   )
   if (!row) return null
-  return (await decrypt(row.encryptedKey, row.iv)).trim() || null
+  return getDecryptedKey(row.userId, provider)
 }
 
 const runProviderSync = async (provider: string): Promise<void> => {

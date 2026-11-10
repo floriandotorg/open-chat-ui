@@ -2,7 +2,7 @@ import { formatModelRef } from '#lib/model-ref.ts'
 import type { ChatMessage, ChatRequest, ChatStreamEvent, LLMProvider, ModelInfo, ProviderFactory, ToolCallInfo } from './types'
 import OpenAI from 'openai'
 
-const REASONING_MODEL = /^(o[0-9]|gpt-5)/
+const REASONING_MODEL = /^(o[0-9]|gpt-[5-9])/
 
 const MODEL_META: Record<string, { contextWindow: number; maxOutputTokens: number }> = {
   'gpt-4o': { contextWindow: 128_000, maxOutputTokens: 16_384 },
@@ -23,11 +23,11 @@ const MODEL_META: Record<string, { contextWindow: number; maxOutputTokens: numbe
 
 const CHAT_MODEL = /^(gpt-|o[0-9])/i
 
-const metaFor = (id: string) => MODEL_META[id] ?? { contextWindow: 128_000, maxOutputTokens: 16_384 }
+export const metaFor = (id: string) => MODEL_META[id] ?? { contextWindow: 128_000, maxOutputTokens: 16_384 }
 
 const isReasoningModel = (id: string) => REASONING_MODEL.test(id)
 
-const formatModelName = (id: string) =>
+export const formatModelName = (id: string) =>
   id
     .replace(/-/g, ' ')
     .replace(/\b(\w)/g, (_, c: string) => c.toUpperCase())
@@ -36,7 +36,7 @@ const formatModelName = (id: string) =>
     .replace(/\bOmni\b/g, 'Omni')
 const mapEffort = (effort: 'low' | 'medium' | 'high' | 'max'): 'low' | 'medium' | 'high' => (effort === 'max' ? 'high' : effort)
 
-const minimalEffort = (model: string): 'none' | 'minimal' | 'low' => (/^gpt-5\.[1-9]/.test(model) ? 'none' : /^gpt-5/.test(model) ? 'minimal' : 'low')
+const minimalEffort = (model: string): 'none' | 'minimal' | 'low' => (/^gpt-(5\.[1-9]|[6-9])/.test(model) ? 'none' : /^gpt-5/.test(model) ? 'minimal' : 'low')
 
 type InputContent = string | Array<{ type: 'input_text'; text: string } | { type: 'input_image'; image_url: string; detail: 'auto' }>
 
@@ -53,7 +53,7 @@ const buildInputContent = (m: ChatMessage): InputContent => {
   return parts
 }
 
-const buildResponsesInput = (messages: ChatMessage[]): OpenAI.Responses.ResponseInput => {
+const buildResponsesInput = (messages: ChatMessage[], toolNamespace?: string): OpenAI.Responses.ResponseInput => {
   const input: OpenAI.Responses.ResponseInput = []
 
   for (const m of messages) {
@@ -64,7 +64,7 @@ const buildResponsesInput = (messages: ChatMessage[]): OpenAI.Responses.Response
         input.push({ role: 'assistant', content: m.content })
       }
       for (const tc of m.toolCalls ?? []) {
-        input.push({ type: 'function_call', call_id: tc.id, name: tc.name, arguments: JSON.stringify(tc.arguments) })
+        input.push({ type: 'function_call', call_id: tc.id, name: tc.name, ...(toolNamespace ? { namespace: toolNamespace } : {}), arguments: JSON.stringify(tc.arguments) })
       }
     } else if (m.role === 'tool' && m.toolCallId) {
       input.push({ type: 'function_call_output', call_id: m.toolCallId, output: m.content })
@@ -74,6 +74,126 @@ const buildResponsesInput = (messages: ChatMessage[]): OpenAI.Responses.Response
   }
 
   return input
+}
+
+export type ResponsesBilling = 'api' | 'plan'
+
+const PLAN_TOOL_NAMESPACE = 'app'
+
+const buildFunctionTools = (request: ChatRequest) =>
+  (request.tools ?? []).map(t => ({
+    type: 'function' as const,
+    name: t.name,
+    description: t.description,
+    parameters: t.parameters,
+    strict: false,
+  }))
+
+export const buildResponsesParams = (request: ChatRequest, billing: ResponsesBilling): Record<string, unknown> => {
+  const reasoning = isReasoningModel(request.model)
+  const useThinking = reasoning && request.thinkingEffort && request.thinkingEffort !== 'none'
+  const planBilled = billing === 'plan'
+
+  const params: Record<string, unknown> = {
+    model: request.model,
+    instructions: request.systemPrompt,
+    input: buildResponsesInput(request.messages, planBilled ? PLAN_TOOL_NAMESPACE : undefined),
+    stream: true,
+  }
+
+  if (planBilled) {
+    params.store = false
+  } else {
+    params.max_output_tokens = request.maxTokens ?? 4096
+  }
+
+  if (request.outputSchema) {
+    params.text = { format: { type: 'json_schema', ...request.outputSchema, strict: true } }
+  }
+
+  if (!reasoning && !planBilled) {
+    params.temperature = request.temperature ?? undefined
+  }
+
+  if (reasoning) {
+    params.reasoning = {
+      effort: useThinking ? mapEffort(request.thinkingEffort as 'low' | 'medium' | 'high' | 'max') : minimalEffort(request.model),
+      ...(useThinking ? { summary: 'auto' } : {}),
+    }
+  }
+
+  if (request.tools?.length) {
+    params.tools = planBilled ? [{ type: 'namespace', name: PLAN_TOOL_NAMESPACE, description: 'Tools provided by Open Chat UI', tools: buildFunctionTools(request) }] : buildFunctionTools(request)
+  }
+
+  return params
+}
+
+export type ResponsesErrorFormatter = (error: { code?: string; message: string }) => string
+
+export async function* streamResponses(client: OpenAI, request: ChatRequest, billing: ResponsesBilling, formatError: ResponsesErrorFormatter = ({ message }) => message): AsyncGenerator<ChatStreamEvent> {
+  const params = buildResponsesParams(request, billing)
+
+  try {
+    const stream = await client.responses.create(params as unknown as OpenAI.Responses.ResponseCreateParamsStreaming, { signal: request.signal })
+
+    let usage: OpenAI.Responses.ResponseUsage | undefined
+    let completed = false
+    let failed: string | undefined
+    const toolCalls = new Map<string, ToolCallInfo>()
+
+    for await (const event of stream) {
+      if (event.type === 'response.output_text.delta') {
+        yield { type: 'text_delta', text: event.delta }
+      } else if (event.type === 'response.reasoning_summary_text.delta') {
+        yield { type: 'thinking_delta', thinking: event.delta }
+      } else if (event.type === 'response.output_item.added' && event.item.type === 'function_call') {
+        toolCalls.set(event.item.id ?? event.item.call_id, { id: event.item.call_id, name: event.item.name, arguments: {} })
+      } else if (event.type === 'response.function_call_arguments.done') {
+        const tc = toolCalls.get(event.item_id)
+        if (tc) {
+          try {
+            tc.arguments = JSON.parse(event.arguments || '{}')
+          } catch {
+            tc.arguments = {}
+          }
+        }
+      } else if (event.type === 'response.completed') {
+        usage = event.response.usage
+        completed = true
+      } else if (event.type === 'response.failed' || event.type === 'response.incomplete') {
+        failed = event.response.error ? formatError({ code: event.response.error.code ?? undefined, message: event.response.error.message }) : (event.response.incomplete_details?.reason ?? `Response ${event.response.status}`)
+      } else if (event.type === 'error') {
+        failed = formatError({ code: event.code ?? undefined, message: event.message })
+      }
+    }
+
+    if (!failed && !completed) {
+      failed = 'The response ended before it completed'
+    }
+
+    if (failed && toolCalls.size === 0) {
+      yield { type: 'error', error: failed }
+      return
+    }
+
+    for (const tc of toolCalls.values()) {
+      yield { type: 'tool_call', toolCall: tc }
+    }
+
+    const cachedTokens = usage?.input_tokens_details.cached_tokens ?? 0
+    yield {
+      type: 'usage',
+      inputTokens: (usage?.input_tokens ?? 0) - cachedTokens,
+      outputTokens: usage?.output_tokens ?? 0,
+      cacheReadInputTokens: cachedTokens,
+    }
+    yield { type: 'done', stopReason: toolCalls.size > 0 ? 'tool_use' : 'end' }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    const code = err && typeof err === 'object' && 'code' in err && typeof err.code === 'string' ? err.code : undefined
+    yield { type: 'error', error: formatError({ code, message }) }
+  }
 }
 
 const createOpenAIAdapter = (apiKey: string): LLMProvider => ({
@@ -101,99 +221,7 @@ const createOpenAIAdapter = (apiKey: string): LLMProvider => ({
     return [...seen.values()]
   },
 
-  async *chat(request: ChatRequest): AsyncGenerator<ChatStreamEvent> {
-    const client = new OpenAI({ apiKey })
-
-    const reasoning = isReasoningModel(request.model)
-    const useThinking = reasoning && request.thinkingEffort && request.thinkingEffort !== 'none'
-
-    const params: Record<string, unknown> = {
-      model: request.model,
-      max_output_tokens: request.maxTokens ?? 4096,
-      instructions: request.systemPrompt,
-      input: buildResponsesInput(request.messages),
-      stream: true,
-    }
-
-    if (request.outputSchema) {
-      params.text = { format: { type: 'json_schema', ...request.outputSchema, strict: true } }
-    }
-
-    if (!reasoning) {
-      params.temperature = request.temperature ?? undefined
-    }
-
-    if (reasoning) {
-      params.reasoning = {
-        effort: useThinking ? mapEffort(request.thinkingEffort as 'low' | 'medium' | 'high' | 'max') : minimalEffort(request.model),
-        ...(useThinking ? { summary: 'auto' } : {}),
-      }
-    }
-
-    if (request.tools?.length) {
-      params.tools = request.tools.map(t => ({
-        type: 'function',
-        name: t.name,
-        description: t.description,
-        parameters: t.parameters,
-        strict: false,
-      }))
-    }
-
-    try {
-      const stream = await client.responses.create(params as unknown as OpenAI.Responses.ResponseCreateParamsStreaming, { signal: request.signal })
-
-      let usage: OpenAI.Responses.ResponseUsage | undefined
-      let failed: string | undefined
-      const toolCalls = new Map<string, ToolCallInfo>()
-
-      for await (const event of stream) {
-        if (event.type === 'response.output_text.delta') {
-          yield { type: 'text_delta', text: event.delta }
-        } else if (event.type === 'response.reasoning_summary_text.delta') {
-          yield { type: 'thinking_delta', thinking: event.delta }
-        } else if (event.type === 'response.output_item.added' && event.item.type === 'function_call') {
-          toolCalls.set(event.item.id ?? event.item.call_id, { id: event.item.call_id, name: event.item.name, arguments: {} })
-        } else if (event.type === 'response.function_call_arguments.done') {
-          const tc = toolCalls.get(event.item_id)
-          if (tc) {
-            try {
-              tc.arguments = JSON.parse(event.arguments || '{}')
-            } catch {
-              tc.arguments = {}
-            }
-          }
-        } else if (event.type === 'response.completed') {
-          usage = event.response.usage
-        } else if (event.type === 'response.failed' || event.type === 'response.incomplete') {
-          failed = event.response.error?.message ?? event.response.incomplete_details?.reason ?? `Response ${event.response.status}`
-        } else if (event.type === 'error') {
-          failed = event.message
-        }
-      }
-
-      if (failed && toolCalls.size === 0) {
-        yield { type: 'error', error: failed }
-        return
-      }
-
-      for (const tc of toolCalls.values()) {
-        yield { type: 'tool_call', toolCall: tc }
-      }
-
-      const cachedTokens = usage?.input_tokens_details.cached_tokens ?? 0
-      yield {
-        type: 'usage',
-        inputTokens: (usage?.input_tokens ?? 0) - cachedTokens,
-        outputTokens: usage?.output_tokens ?? 0,
-        cacheReadInputTokens: cachedTokens,
-      }
-      yield { type: 'done', stopReason: toolCalls.size > 0 ? 'tool_use' : 'end' }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
-      yield { type: 'error', error: message }
-    }
-  },
+  chat: (request: ChatRequest) => streamResponses(new OpenAI({ apiKey }), request, 'api'),
 })
 
 export const createOpenAIProvider: ProviderFactory = createOpenAIAdapter

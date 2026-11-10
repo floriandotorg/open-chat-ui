@@ -39,7 +39,12 @@ const fetchPricing = async (): Promise<Record<string, RawPricing>> => {
 
 const lookup = (data: Record<string, RawPricing>, key: string): RawPricing | undefined => data[key]
 
-export const getPricing = async (modelRef: string): Promise<ModelPricing | null> => {
+const PLAN_BILLED_PROVIDER_PREFIX = 'chatgpt/'
+const PLAN_BILLED_PRICING: ModelPricing = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 }
+
+export const isPlanBilledModel = (modelRef: string) => modelRef.startsWith(PLAN_BILLED_PROVIDER_PREFIX)
+
+const getListedPricing = async (modelRef: string): Promise<ModelPricing | null> => {
   const data = await fetchPricing()
   const raw =
     lookup(data, modelRef) ??
@@ -55,3 +60,12 @@ export const getPricing = async (modelRef: string): Promise<ModelPricing | null>
     cacheCreation: raw.cache_creation_input_token_cost ?? 0,
   }
 }
+
+export const getPricing = async (modelRef: string): Promise<ModelPricing | null> => {
+  if (isPlanBilledModel(modelRef)) {
+    return PLAN_BILLED_PRICING
+  }
+  return getListedPricing(modelRef)
+}
+
+export const getApiEquivalentPricing = (modelRef: string): Promise<ModelPricing | null> => getListedPricing(isPlanBilledModel(modelRef) ? `openai/${modelRef.slice(PLAN_BILLED_PROVIDER_PREFIX.length)}` : modelRef)

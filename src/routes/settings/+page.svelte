@@ -5,6 +5,7 @@ import { resolve } from '$app/paths'
 import { page } from '$app/state'
 import ApiKeyForm from '#lib/components/ApiKeyForm.svelte'
 import BrowserAgentSettings from '#lib/components/BrowserAgentSettings.svelte'
+import ChatGPTPlanForm from '#lib/components/ChatGPTPlanForm.svelte'
 import ModelManager from '#lib/components/ModelManager.svelte'
 import SystemPromptManager from '#lib/components/SystemPromptManager.svelte'
 import TranslatorSettings from '#lib/components/TranslatorSettings.svelte'
@@ -142,7 +143,11 @@ const setTab = (tab: Tab) => {
   {#if activeTab === 'keys'}
     <div class="space-y-3">
       {#each data.providers as provider (provider.id)}
-        <ApiKeyForm {provider} />
+        {#if provider.id === 'chatgpt'}
+          <ChatGPTPlanForm {provider} account={data.chatgptAccount} />
+        {:else}
+          <ApiKeyForm {provider} />
+        {/if}
       {/each}
     </div>
   {:else if activeTab === 'models'}

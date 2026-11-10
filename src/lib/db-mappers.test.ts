@@ -1,4 +1,4 @@
-import { mapConversationSummary } from '#lib/db-mappers.ts'
+import { mapClientMessage, mapConversationSummary } from '#lib/db-mappers.ts'
 import { describe, expect, it } from 'vitest'
 
 const row = (overrides: Record<string, unknown> = {}) => ({
@@ -28,5 +28,20 @@ describe('mapConversationSummary', () => {
 
   it('defaults to null when no model is stored', () => {
     expect(mapConversationSummary(row()).defaultModel).toBeNull()
+  })
+})
+
+describe('mapClientMessage', () => {
+  const message = (toolCalls: unknown[]) => ({ id: 'm1', collectionId: 'messages', collectionName: 'messages', conversation: 'c1', role: 'assistant', content: '', toolCalls, generating: true, createdAt: '2024-01-01T00:00:00.000Z' })
+  const waiting = { sessionId: 's1', step: 3, status: 'waiting_for_user', summary: 'Log in', request: { kind: 'login', message: 'Log in to eBay', url: 'https://www.ebay.de/' } }
+
+  it('keeps tool progress from the folded snapshot', () => {
+    const [toolCall] = mapClientMessage(message([{ id: 't1', name: 'browser_task', textOffset: 0, done: false, progress: waiting }])).toolCalls ?? []
+    expect(toolCall.progress).toEqual(waiting)
+  })
+
+  it('drops malformed tool progress', () => {
+    const [toolCall] = mapClientMessage(message([{ id: 't1', name: 'browser_task', textOffset: 0, done: false, progress: { ...waiting, request: { kind: 'hack', message: 'x', url: '' } } }])).toolCalls ?? []
+    expect(toolCall.progress).toBeUndefined()
   })
 })
