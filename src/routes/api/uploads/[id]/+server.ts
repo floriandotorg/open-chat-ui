@@ -1,8 +1,8 @@
+import { existsSync } from 'node:fs'
 import { requireUser } from '#lib/server/auth-guard.ts'
 import { getUploadPath, mimeForExt } from '#lib/server/uploads.ts'
 import type { RequestHandler } from './$types'
 import { error } from '@sveltejs/kit'
-import { existsSync } from 'node:fs'
 
 export const GET: RequestHandler = async ({ params, locals }) => {
   requireUser(locals.user)

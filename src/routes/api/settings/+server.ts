@@ -1,5 +1,7 @@
 import { normalizeModelRef } from '#lib/model-ref.ts'
 import { requireUser } from '#lib/server/auth-guard.ts'
+import { isBrowserAgentModel } from '#lib/server/browser/config.ts'
+import { normalizeHostUrl } from '#lib/server/browser/host-client.ts'
 import { mapUserSettings, now, type UserSettings } from '#lib/server/db/records.ts'
 import { createOrRecover, getFirstOrNull, pb } from '#lib/server/pb.ts'
 import { DEFAULT_CONTEXTS, parseContexts } from '#lib/translator.ts'
@@ -14,7 +16,23 @@ const toSettings = (row: UserSettings) => ({
   dictationProvider: row.dictationProvider ?? 'mistral',
   translationModel: row.translationModel ?? null,
   translationContexts: row.translationContexts ?? DEFAULT_CONTEXTS,
+  browserAgentModel: row.browserAgentModel ?? null,
+  browserHostUrl: row.browserHostUrl ?? null,
 })
+
+const parseHostUrl = (value: unknown): string | null | undefined => {
+  if (value === undefined) {
+    return undefined
+  }
+  if (value === null || value === '') {
+    return null
+  }
+  const url = typeof value === 'string' ? normalizeHostUrl(value) : null
+  if (!url) {
+    throw error(400, 'Invalid browser host URL')
+  }
+  return url
+}
 
 export const GET: RequestHandler = async ({ locals }) => {
   const userId = requireUser(locals.user).id
@@ -37,6 +55,8 @@ export const GET: RequestHandler = async ({ locals }) => {
           dictationProvider: 'mistral',
           translationModel: null,
           translationContexts: DEFAULT_CONTEXTS,
+          browserAgentModel: null,
+          browserHostUrl: null,
         },
   )
 }
@@ -50,9 +70,15 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
   if (body.translationContexts !== undefined && !parseContexts(body.translationContexts)) {
     throw error(400, 'Invalid translation contexts')
   }
-  const translationFields = {
+  if (body.browserAgentModel !== undefined && body.browserAgentModel !== null && !isBrowserAgentModel(body.browserAgentModel)) {
+    throw error(400, 'Browser agent model must be an Anthropic or OpenAI model')
+  }
+  const browserHostUrl = parseHostUrl(body.browserHostUrl)
+  const validatedFields = {
     ...(body.translationModel !== undefined && { translationModel: body.translationModel }),
     ...(body.translationContexts !== undefined && { translationContexts: body.translationContexts }),
+    ...(body.browserAgentModel !== undefined && { browserAgentModel: body.browserAgentModel }),
+    ...(browserHostUrl !== undefined && { browserHostUrl }),
   }
 
   const existing = await getFirstOrNull(
@@ -64,7 +90,7 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
 
   if (existing) {
     const updated = await pb.collection('user_settings').update(existing.id, {
-      ...translationFields,
+      ...validatedFields,
       ...(body.defaultSystemPrompt !== undefined && { defaultSystemPrompt: body.defaultSystemPrompt }),
       ...(body.defaultModel !== undefined && { defaultModel: body.defaultModel }),
       ...(body.titleModel !== undefined && { titleModel: body.titleModel }),
@@ -79,7 +105,7 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
     'user_settings',
     {
       user: userId,
-      ...translationFields,
+      ...validatedFields,
       defaultSystemPrompt: body.defaultSystemPrompt ?? null,
       defaultModel: body.defaultModel ?? null,
       titleModel: body.titleModel ?? null,
@@ -89,7 +115,7 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
     },
     pb.filter('user = {:u}', { u: userId }),
     {
-      ...translationFields,
+      ...validatedFields,
       ...(body.defaultSystemPrompt !== undefined && { defaultSystemPrompt: body.defaultSystemPrompt }),
       ...(body.defaultModel !== undefined && { defaultModel: body.defaultModel }),
       ...(body.titleModel !== undefined && { titleModel: body.titleModel }),

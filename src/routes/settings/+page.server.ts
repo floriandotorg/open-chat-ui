@@ -1,4 +1,5 @@
 import { requireUser } from '#lib/server/auth-guard.ts'
+import { BROWSER_HOST_KEY } from '#lib/server/browser/config.ts'
 import { mapSystemPrompt, mapUserSettings } from '#lib/server/db/records.ts'
 import { getFirstOrNull, pb } from '#lib/server/pb.ts'
 import { listProviders } from '#lib/server/providers/index.ts'
@@ -15,6 +16,7 @@ const TOOL_SERVICES: ToolService[] = [
   { id: 'openalex', name: 'OpenAlex (API key or email, optional)', capabilities: [] },
   { id: 'elevenlabs', name: 'ElevenLabs Speech (API Key)', capabilities: [] },
   { id: 'elevenlabs-voice-id', name: 'ElevenLabs TTS (Voice ID)', capabilities: [] },
+  { id: BROWSER_HOST_KEY, name: 'Browser host token', capabilities: [] },
 ]
 
 export const load: PageServerLoad = async ({ locals }) => {

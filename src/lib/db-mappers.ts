@@ -76,6 +76,8 @@ export interface UserSettings {
   dictationProvider: string | null
   translationModel?: string | null
   translationContexts?: import('#lib/translator.ts').TranslationContext[] | null
+  browserAgentModel?: string | null
+  browserHostUrl?: string | null
   updatedAt: Date
 }
 
@@ -265,6 +267,8 @@ export const mapUserSettings = (r: RecordModel): UserSettings => ({
   dictationProvider: orNull(r.dictationProvider),
   translationModel: orNull(r.translationModel),
   translationContexts: parseContexts(r.translationContexts),
+  browserAgentModel: orNull(r.browserAgentModel),
+  browserHostUrl: orNull(r.browserHostUrl),
   updatedAt: toDate(r.updatedAt),
 })
 

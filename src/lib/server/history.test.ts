@@ -176,6 +176,12 @@ describe('hydrateEntries', () => {
 })
 
 describe('slimEntry', () => {
+  it('keeps tool progress only while the call is running', () => {
+    const entry = { id: 'toolu_2', name: 'browser_task', arguments: {}, textOffset: 0, progress: { sessionId: 's1', step: 3, status: 'running' as const, summary: 'click' } }
+    expect(slimEntry(entry, false)).toEqual({ id: 'toolu_2', name: 'browser_task', textOffset: 0, done: false, progress: entry.progress })
+    expect(slimEntry({ ...entry, result: 'ok' }, true)).toEqual({ id: 'toolu_2', name: 'browser_task', textOffset: 0, done: true, resultChars: 2 })
+  })
+
   it('strips results and precomputes citations for citation tools', () => {
     const entry = {
       id: 'toolu_1',

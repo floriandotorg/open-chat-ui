@@ -31,8 +31,12 @@ export const applyStreamOps = (base: Message, ops: StreamOp[]): Message => {
     } else if (op.t === 'tool_result') {
       const n = toolCalls.findIndex(tc => tc.id === op.id)
       if (n >= 0) {
-        toolCalls[n] = { ...toolCalls[n], done: true, resultChars: op.resultChars, ...(op.citations?.length ? { citations: op.citations } : {}) }
+        const { progress: _, ...rest } = toolCalls[n]
+        toolCalls[n] = { ...rest, done: true, resultChars: op.resultChars, ...(op.citations?.length ? { citations: op.citations } : {}) }
       }
+    } else if (op.t === 'tool_progress') {
+      const n = toolCalls.findIndex(tc => tc.id === op.id)
+      if (n >= 0) toolCalls[n] = { ...toolCalls[n], progress: op.progress }
     } else if (op.t === 'code_exec_start') {
       codeExecutions.push({ type: 'code_execution', id: op.id, name: op.name, input: {}, textOffset: op.textOffset, done: false })
     } else if (op.t === 'code_exec_input') {

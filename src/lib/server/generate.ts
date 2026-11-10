@@ -2,12 +2,14 @@ import { readFileSync } from 'node:fs'
 import { CITATION_TOOL_NAMES, extractCitations, renumberCitations } from '#lib/citations.ts'
 import { parseModelRef } from '#lib/model-ref.ts'
 import { getDecryptedKey, getDecryptedKeys } from '#lib/server/api-key.ts'
+import { isBrowserAgentConfigured } from '#lib/server/browser/config.ts'
 import { decrypt } from '#lib/server/crypto.ts'
 import { type Conversation, type Message, mapApiKey, mapMessagePayload, mapSystemPrompt, mapUserSettings, now } from '#lib/server/db/records.ts'
 import { type ActiveGeneration, finishGeneration, getGeneration, registerGeneration } from '#lib/server/generations.ts'
 import { buildHistoryMessages, hydrateEntries, isCodeExecutionEntry, type LiveEntry, type PersistedCodeExecution, type PersistedToolCall, slimEntry } from '#lib/server/history.ts'
 import { getKnowledgeCutoff } from '#lib/server/knowledge-cutoff.ts'
 import { createOrRecover, getFirstOrNull, isNotFound, pb } from '#lib/server/pb.ts'
+import { getPricing } from '#lib/server/pricing.ts'
 import { formatCurrentDate, getPostSystemPrompt } from '#lib/server/prompts.ts'
 import { containsServerToolBlocks } from '#lib/server/providers/anthropic.ts'
 import { getProviderFactory } from '#lib/server/providers/index.ts'
@@ -15,9 +17,11 @@ import type { ChatMessage, ChatMessageImage, ToolCallInfo } from '#lib/server/pr
 import { deleteStreamEventIds } from '#lib/server/stream-events.ts'
 import { StreamWriter } from '#lib/server/stream-writer.ts'
 import { generateConversationTitle } from '#lib/server/title.ts'
-import { executeTool, getToolSchemas } from '#lib/server/tools/index.ts'
-import { getUploadPath, hasUpload } from '#lib/server/uploads.ts'
-import type { FileAttachment, ImageAttachment, MessagePayload, ThinkingEffort } from '#lib/types.ts'
+import { BROWSER_TASK_TOOL_NAME } from '#lib/server/tools/browser-task.ts'
+import { executeTool, getToolSchemas, type ToolAttachment, type ToolContext } from '#lib/server/tools/index.ts'
+import { extForMime, getUploadPath, hasUpload } from '#lib/server/uploads.ts'
+import { resolveMessageCost } from '#lib/server/usage-cost.ts'
+import type { FileAttachment, ImageAttachment, MessagePayload, ThinkingEffort, ToolProgress } from '#lib/types.ts'
 import Anthropic, { toFile } from '@anthropic-ai/sdk'
 
 const MAX_TOOL_ROUNDS = 30
@@ -32,6 +36,22 @@ const loadImageData = (attachment: ImageAttachment): ChatMessageImage => {
 const parseImages = (raw: unknown[] | null | undefined): ImageAttachment[] => (raw ?? []) as ImageAttachment[]
 
 const parseFiles = (raw: unknown[] | null | undefined): FileAttachment[] => (raw ?? []) as FileAttachment[]
+
+const collectAttachments = (history: Message[]): ToolAttachment[] => {
+  const attachments: ToolAttachment[] = []
+  for (const m of history) {
+    if (m.role !== 'user') {
+      continue
+    }
+    for (const image of parseImages(m.images)) {
+      attachments.push({ id: image.id, name: `image-${attachments.length + 1}.${extForMime(image.mimeType) ?? 'bin'}`, mimeType: image.mimeType })
+    }
+    for (const file of parseFiles(m.files)) {
+      attachments.push({ id: file.id, name: file.filename, mimeType: file.mimeType })
+    }
+  }
+  return attachments.filter(attachment => hasUpload(attachment.id))
+}
 
 const uploadFileToAnthropic = async (client: Anthropic, attachment: FileAttachment): Promise<string> => {
   const filePath = getUploadPath(attachment.id)
@@ -230,12 +250,16 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
   }
 
   const llm = getProviderFactory(provider)(decryptedKey)
-  const toolSchemas = getToolSchemas()
+  const browserAgentConfigured = isBrowserAgentConfigured(settings)
+  const toolSchemas = getToolSchemas().filter(schema => schema.name !== BROWSER_TASK_TOOL_NAME || browserAgentConfigured)
   const useCodeExecution = CODE_EXEC_PROVIDERS.has(provider)
-  const toolContext = {
+  const toolContext: ToolContext = {
     userId,
     getApiKey: (p: string) => getDecryptedKey(userId, p),
     getApiKeys: (p: string) => getDecryptedKeys(userId, p),
+    conversationId,
+    signal,
+    attachments: collectAttachments(history),
   }
 
   let fullText = ''
@@ -253,6 +277,7 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
   const allRawContentBlocks: { textOffset: number; blocks: unknown[] }[] = []
   const liveToolCalls: LiveEntry[] = []
   let citationCounter = 0
+  let toolCost = 0
   let container: string | undefined = conversation.container ?? undefined
 
   // Retry of a failed send reuses the parent message; clear its stored
@@ -391,9 +416,17 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
 
       chatMessages.push({ role: 'assistant', content: roundText, toolCalls, rawContentBlocks })
 
-      const toolResults = await Promise.all(toolCalls.map(async tc => ({ tc, ...(await executeTool(tc.name, tc.arguments, toolContext)) })))
+      const emitToolProgress = (id: string) => (progress: ToolProgress) => {
+        const live = liveToolCalls.find(entry => entry.id === id)
+        if (live && !isCodeExecutionEntry(live)) {
+          live.progress = progress
+        }
+        emit({ t: 'tool_progress', id, progress })
+      }
+      const toolResults = await Promise.all(toolCalls.map(async tc => ({ tc, ...(await executeTool(tc.name, tc.arguments, { ...toolContext, toolCallId: tc.id, emitProgress: emitToolProgress(tc.id) })) })))
 
-      for (const { tc, result, rawResult } of toolResults) {
+      for (const { tc, result, rawResult, cost } of toolResults) {
+        toolCost += cost ?? 0
         let finalResult = result
         if (CITATION_TOOL_NAMES.has(tc.name)) {
           const { result: renumbered, count } = renumberCitations(result, citationCounter)
@@ -412,6 +445,7 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
         const live = liveToolCalls.find(entry => entry.id === tc.id)
         if (live && !('type' in live)) {
           live.result = finalResult
+          live.progress = undefined
           if (rawResult !== undefined) live.rawResult = rawResult
         }
         const citations = extractCitations([{ name: tc.name, result: finalResult }])
@@ -426,6 +460,11 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
   const persisted = !!(fullText || allToolCalls.length)
 
   await writer.drain()
+
+  if (toolCost > 0) {
+    const ownCost = totalUsage.cost || resolveMessageCost({ ...totalUsage, cost: 0 }, await getPricing(modelRef).catch(() => null)).cost
+    totalUsage.cost = ownCost + toolCost
+  }
 
   if (persisted) {
     const slimToolCalls = allToolCalls.map(entry => slimEntry(entry, true))

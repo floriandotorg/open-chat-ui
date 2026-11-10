@@ -2,6 +2,7 @@
 import { renderMarkdown } from '#lib/markdown.ts'
 import { loadPayload } from '#lib/stores/payloads.svelte.ts'
 import type { MessagePayload, ToolCallSummary } from '#lib/types.ts'
+import BrowserRequestCard from './BrowserRequestCard.svelte'
 
 let { messageId, toolCall }: { messageId: string; toolCall: ToolCallSummary } = $props()
 
@@ -23,7 +24,21 @@ const toggle = async () => {
 let args = $derived(toolCall.arguments ?? payload?.toolResults[toolCall.id]?.arguments)
 let result = $derived(toolCall.result ?? payload?.toolResults[toolCall.id]?.result)
 let rawResult = $derived(toolCall.rawResult ?? payload?.toolResults[toolCall.id]?.rawResult)
-let label = $derived(toolCall.done ? `Used ${formatToolName(toolCall.name)}` : `Using ${formatToolName(toolCall.name)}…`)
+let isBrowserTask = $derived(toolCall.name === 'browser_task')
+let progress = $derived(toolCall.done ? undefined : toolCall.progress)
+let waitingRequest = $derived(progress?.status === 'waiting_for_user' && progress.sessionId ? progress.request : undefined)
+let label = $derived.by(() => {
+  if (toolCall.done) {
+    return isBrowserTask ? 'Used the browser' : `Used ${formatToolName(toolCall.name)}`
+  }
+  if (isBrowserTask) {
+    if (waitingRequest) {
+      return 'Browser is waiting for you'
+    }
+    return progress?.summary ? `Browser: ${progress.summary}${progress.step ? ` (step ${progress.step})` : ''}` : 'Using the browser…'
+  }
+  return `Using ${formatToolName(toolCall.name)}…`
+})
 let renderedResult = $derived(result ? renderMarkdown(result) : '')
 let renderedRawResult = $derived(rawResult ? renderMarkdown(rawResult) : '')
 </script>
@@ -50,6 +65,9 @@ let renderedRawResult = $derived(rawResult ? renderMarkdown(rawResult) : '')
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
     </svg>
   </button>
+  {#if waitingRequest && progress}
+    <BrowserRequestCard sessionId={progress.sessionId} request={waitingRequest} />
+  {/if}
   {#if open}
     <div class="tool-call-details mt-1 overflow-hidden rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs text-gray-700 dark:border-cyan-800/50 dark:bg-cyan-900/20 dark:text-gray-300">
       {#if loading}
@@ -68,13 +86,13 @@ let renderedRawResult = $derived(rawResult ? renderMarkdown(rawResult) : '')
         {/if}
         {#if rawResult}
           <details class="mb-1">
-            <summary class="cursor-pointer text-[11px] font-medium text-gray-400 dark:text-gray-500">Raw output ({Math.round(rawResult.length / 1000)}k chars)</summary>
+            <summary class="cursor-pointer text-[11px] font-medium text-gray-400 dark:text-gray-500">{isBrowserTask ? 'Steps' : `Raw output (${Math.round(rawResult.length / 1000)}k chars)`}</summary>
             <div class="tool-call-result mt-1 overflow-hidden wrap-break-word text-[11px] leading-relaxed">{@html renderedRawResult}</div>
           </details>
         {/if}
         {#if result}
           {#if rawResult}
-            <div class="mb-1 text-[11px] font-medium text-gray-400 dark:text-gray-500">Summarized output</div>
+            <div class="mb-1 text-[11px] font-medium text-gray-400 dark:text-gray-500">{isBrowserTask ? 'Result' : 'Summarized output'}</div>
           {/if}
           <div class="tool-call-result overflow-hidden wrap-break-word text-[11px] leading-relaxed">{@html renderedResult}</div>
         {/if}

@@ -1,6 +1,6 @@
 import { extractCitations } from '#lib/citations.ts'
 import type { ChatMessage } from '#lib/server/providers/types.ts'
-import type { CodeExecutionSummary, MessagePayload, ToolCallSummary } from '#lib/types.ts'
+import type { CodeExecutionSummary, MessagePayload, ToolCallSummary, ToolProgress } from '#lib/types.ts'
 
 export interface PersistedToolCall {
   id: string
@@ -35,6 +35,7 @@ export interface LiveToolCall {
   textOffset: number
   result?: string
   rawResult?: string
+  progress?: ToolProgress
 }
 
 export type LiveEntry = LiveToolCall | PersistedCodeExecution
@@ -64,6 +65,7 @@ export const slimEntry = (entry: LiveEntry, done: boolean): ToolCallSummary | Co
     done,
     ...(entry.result !== undefined ? { resultChars: entry.result.length } : {}),
     ...(citations.length ? { citations } : {}),
+    ...(!done && entry.progress ? { progress: entry.progress } : {}),
   }
 }
 

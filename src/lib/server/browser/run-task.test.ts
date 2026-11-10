@@ -1,0 +1,107 @@
+import type { BrowserAgent } from '#lib/server/browser/agent.ts'
+import { createFakeHost } from '#lib/server/browser/fake-host.ts'
+import { BrowserHostError } from '#lib/server/browser/host-client.ts'
+import { type BrowserTaskDeps, runBrowserTask } from '#lib/server/browser/run-task.ts'
+import { getBrowserSession } from '#lib/server/browser/sessions.ts'
+import type { ToolContext } from '#lib/server/tools/types.ts'
+import type { ToolProgress } from '#lib/types.ts'
+import { describe, expect, it } from 'vitest'
+
+const setup = (agent: BrowserAgent, overrides: Partial<BrowserTaskDeps> = {}) => {
+  const fake = createFakeHost()
+  const closed: string[] = []
+  fake.host.closeSession = async sessionId => {
+    closed.push(sessionId)
+  }
+  const staged: string[] = []
+  const stageFile = fake.host.stageFile
+  fake.host.stageFile = (sessionId, fileId, name, data) => {
+    staged.push(`${fileId}:${name}`)
+    return stageFile(sessionId, fileId, name, data)
+  }
+  const progress: ToolProgress[] = []
+  const context: ToolContext = {
+    userId: 'u1',
+    conversationId: 'c1',
+    getApiKey: async () => null,
+    getApiKeys: async () => [],
+    attachments: [
+      { id: 'up1', name: 'front.jpg', mimeType: 'image/jpeg' },
+      { id: 'missing', name: 'gone.jpg', mimeType: 'image/jpeg' },
+    ],
+    emitProgress: p => progress.push(p),
+  }
+  const deps: BrowserTaskDeps = {
+    loadConfig: async () => ({ provider: 'anthropic', model: 'claude-sonnet-5-5', modelRef: 'anthropic/claude-sonnet-5-5', apiKey: 'k', host: fake.host }),
+    agents: { anthropic: agent, openai: agent },
+    readAttachment: async attachment => (attachment.id === 'missing' ? null : new Uint8Array([1, 2, 3])),
+    priceUsage: async (_modelRef, usage) => usage.inputTokens / 1000,
+    sleep: async () => {},
+    ...overrides,
+  }
+  return { ...fake, closed, staged, progress, context, deps }
+}
+
+describe('runBrowserTask', () => {
+  it('runs the configured agent with staged files and closes the session', async () => {
+    const agent: BrowserAgent = async ({ session, usage }) => {
+      usage.inputTokens = 2000
+      expect(getBrowserSession('s1', 'u1')).not.toBeNull()
+      expect(session.files).toEqual([{ id: 'file_1', name: 'front.jpg', size: 3 }])
+      return 'Listed the item.'
+    }
+    const { context, deps, closed, staged, calls } = setup(agent)
+    const output = await runBrowserTask({ task: 'List it', startUrl: 'https://www.ebay.de/' }, context, deps)
+    expect(output.result).toBe('Listed the item.\n\nFinal page: https://example.com/')
+    expect(output.rawResult).toBe('1. Prepared 1 file for upload\n2. Opening ebay.de')
+    expect(output.cost).toBe(2)
+    expect(staged).toEqual(['file_1:front.jpg'])
+    expect(calls[0].actions).toEqual([{ type: 'navigate', url: 'https://www.ebay.de/' }])
+    expect(closed).toEqual(['s1'])
+    expect(getBrowserSession('s1', 'u1')).toBeNull()
+  })
+
+  it('reports configuration problems without touching the host', async () => {
+    const { context, deps } = setup(async () => 'unused', { loadConfig: async () => ({ error: 'Choose a browser agent model in Settings > Tools.' }) })
+    expect((await runBrowserTask({ task: 'x' }, context, deps)).result).toBe('Error: Choose a browser agent model in Settings > Tools.')
+  })
+
+  it('retries while the browser is busy', async () => {
+    const { context, deps, host } = setup(async () => 'done')
+    let attempts = 0
+    const open = host.openSession
+    host.openSession = async signal => {
+      ++attempts
+      if (attempts < 3) {
+        throw new BrowserHostError('busy', 409)
+      }
+      return open(signal)
+    }
+    expect((await runBrowserTask({ task: 'x' }, context, deps)).result).toMatch(/^done/)
+    expect(attempts).toBe(3)
+  })
+
+  it('keeps the step log and cost when the agent fails', async () => {
+    const agent: BrowserAgent = async ({ session, usage }) => {
+      usage.inputTokens = 1000
+      await session.act([{ type: 'screenshot' }])
+      throw new Error('model overloaded')
+    }
+    const { context, deps, closed } = setup(agent)
+    const output = await runBrowserTask({ task: 'x' }, context, deps)
+    expect(output.result).toBe('Error: the browser task failed: model overloaded')
+    expect(output.rawResult).toBe('1. Prepared 1 file for upload\n2. Looking at the page')
+    expect(output.cost).toBe(1)
+    expect(closed).toEqual(['s1'])
+  })
+
+  it('reports a stop by the user', async () => {
+    const controller = new AbortController()
+    const agent: BrowserAgent = async () => {
+      controller.abort()
+      throw new DOMException('aborted', 'AbortError')
+    }
+    const { context, deps } = setup(agent)
+    expect((await runBrowserTask({ task: 'x' }, { ...context, signal: controller.signal }, deps)).result).toBe('Stopped by the user.')
+  })
+})

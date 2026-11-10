@@ -4,6 +4,7 @@ import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
 import { page } from '$app/state'
 import ApiKeyForm from '#lib/components/ApiKeyForm.svelte'
+import BrowserAgentSettings from '#lib/components/BrowserAgentSettings.svelte'
 import ModelManager from '#lib/components/ModelManager.svelte'
 import SystemPromptManager from '#lib/components/SystemPromptManager.svelte'
 import TranslatorSettings from '#lib/components/TranslatorSettings.svelte'
@@ -14,6 +15,7 @@ import { createSettingsStore } from '#lib/stores/settings.svelte.ts'
 import type { ActionData, PageData } from './$types'
 import { onMount } from 'svelte'
 
+const BROWSER_HOST_SERVICE = 'browser-host'
 const TABS = ['keys', 'models', 'prompt', 'translator', 'tools', 'usage', 'account'] as const
 type Tab = (typeof TABS)[number]
 
@@ -174,7 +176,9 @@ const setTab = (tab: Tab) => {
         </div>
       </div>
 
-      {#each data.toolServices as provider (provider.id)}
+      <BrowserAgentSettings settings={settingsStore.settings} providers={data.providers} hostKey={data.toolServices.find(service => service.id === BROWSER_HOST_SERVICE)} />
+
+      {#each data.toolServices.filter(service => service.id !== BROWSER_HOST_SERVICE) as provider (provider.id)}
         <ApiKeyForm {provider} />
       {/each}
     </div>

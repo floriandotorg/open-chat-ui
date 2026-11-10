@@ -1,3 +1,5 @@
+import type { BrowserUserRequest } from '#lib/browser-protocol.ts'
+
 export interface ImageAttachment {
   id: string
   mimeType: string
@@ -24,11 +26,20 @@ export interface CodeExecutionFile {
   mimeType: string
 }
 
+export interface ToolProgress {
+  sessionId: string
+  step: number
+  status: 'running' | 'waiting_for_user'
+  summary?: string
+  request?: BrowserUserRequest
+}
+
 export type StreamOp =
   | { t: 'text'; v: string }
   | { t: 'thinking'; v: string }
   | { t: 'tool_call'; id: string; name: string; arguments: Record<string, unknown>; textOffset: number }
   | { t: 'tool_result'; id: string; resultChars: number; citations?: Citation[] }
+  | { t: 'tool_progress'; id: string; progress: ToolProgress }
   | { t: 'code_exec_start'; id: string; name: string; textOffset: number }
   | { t: 'code_exec_input'; id: string; input: Record<string, unknown> }
   | { t: 'code_exec_result'; id: string; returnCode?: number; error?: string; stdoutChars: number; stderrChars: number }
@@ -52,6 +63,7 @@ export interface ToolCallSummary {
   citations?: Citation[]
   result?: string
   rawResult?: string
+  progress?: ToolProgress
 }
 
 // input/stdout/stderr only exist on live stream ops and unmigrated legacy rows.

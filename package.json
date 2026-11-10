@@ -23,7 +23,9 @@
     "pb:schema": "bun scripts/apply-pb-schema.ts",
     "pb:migrate-data": "bun scripts/migrate-to-pocketbase.ts",
     "size": "bun run build && bun scripts/report-bundle.ts",
-    "user:add": "bun scripts/add-user.ts"
+    "user:add": "bun scripts/add-user.ts",
+    "browser-host": "bun browser-host/main.ts",
+    "browser-host:install": "bun browser-host/install.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.6",

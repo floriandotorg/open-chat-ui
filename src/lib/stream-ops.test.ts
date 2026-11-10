@@ -155,4 +155,30 @@ describe('applyStreamOps', () => {
     const result = applyStreamOps(baseMessage(), [{ t: 'tool_result', id: 'nope', resultChars: 1 }])
     expect(result.toolCalls).toBeUndefined()
   })
+
+  it('applies the latest tool progress to its tool call', () => {
+    const running = { sessionId: 's1', step: 1, status: 'running' as const, summary: 'navigate example.com' }
+    const waiting = { sessionId: 's1', step: 2, status: 'waiting_for_user' as const, request: { kind: 'login' as const, message: 'Log in to example.com', url: 'https://example.com/login' } }
+    const result = applyStreamOps(baseMessage(), [
+      { t: 'tool_call', id: 'tc1', name: 'browser_task', arguments: {}, textOffset: 0 },
+      { t: 'tool_progress', id: 'tc1', progress: running },
+      { t: 'tool_progress', id: 'tc1', progress: waiting },
+    ])
+    expect(result.toolCalls?.[0].progress).toEqual(waiting)
+  })
+
+  it('clears progress when the tool result arrives', () => {
+    const result = applyStreamOps(baseMessage(), [
+      { t: 'tool_call', id: 'tc1', name: 'browser_task', arguments: {}, textOffset: 0 },
+      { t: 'tool_progress', id: 'tc1', progress: { sessionId: 's1', step: 1, status: 'running' } },
+      { t: 'tool_result', id: 'tc1', resultChars: 5 },
+    ])
+    expect(result.toolCalls?.[0].done).toBe(true)
+    expect(result.toolCalls?.[0].progress).toBeUndefined()
+  })
+
+  it('ignores progress ops for unknown ids', () => {
+    const result = applyStreamOps(baseMessage(), [{ t: 'tool_progress', id: 'nope', progress: { sessionId: 's1', step: 1, status: 'running' } }])
+    expect(result.toolCalls).toBeUndefined()
+  })
 })
