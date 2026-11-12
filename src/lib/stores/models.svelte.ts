@@ -1,18 +1,20 @@
 import { browser } from '$app/env'
 import type { ProviderModel } from '#lib/db-mappers.ts'
 import { mapProviderModel } from '#lib/db-mappers.ts'
-import { byProviderThenName, formatModelRef, parseModelRef } from '#lib/model-ref.ts'
+import { modelsForConnection, type OpenAIConnection } from '#lib/model-connection.ts'
+import { formatModelRef } from '#lib/model-ref.ts'
 import { pbClient } from '#lib/pb-client.ts'
 import { storedModelInfo } from '#lib/provider-models.ts'
 import type { ModelInfo, ProviderInfo } from '#lib/types.ts'
 
 const toModelInfo = (s: ProviderModel): ModelInfo => ({ ...storedModelInfo(s), id: formatModelRef(s.provider, s.modelId) })
 
-export const createModelsStore = (initial: ModelInfo[], providers: ProviderInfo[]) => {
+export const createModelsStore = (initial: ModelInfo[], providers: ProviderInfo[], initialConnection: OpenAIConnection = 'api') => {
+  let connection = $state(initialConnection)
   let byId = $state<Map<string, ModelInfo>>(new Map(initial.map(m => [m.id, m])))
   let configured = $state(new Set(providers.filter(p => p.hasKey).map(p => p.id)))
 
-  const models = $derived([...byId.values()].filter(m => configured.has(parseModelRef(m.id).provider)).sort(byProviderThenName))
+  const models = $derived(modelsForConnection([...byId.values()], configured, connection))
 
   const upsert = (m: ModelInfo) => {
     const next = new Map(byId)
@@ -92,6 +94,9 @@ export const createModelsStore = (initial: ModelInfo[], providers: ProviderInfo[
     apply,
     seed,
     setProviders,
+    setConnection: (next: OpenAIConnection) => {
+      connection = next
+    },
     subscribe,
     unsubscribe,
     resync,

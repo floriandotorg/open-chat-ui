@@ -5,11 +5,12 @@ import { resolve } from '$app/paths'
 import { page } from '$app/state'
 import ApiKeyForm from '#lib/components/ApiKeyForm.svelte'
 import BrowserAgentSettings from '#lib/components/BrowserAgentSettings.svelte'
-import ChatGPTPlanForm from '#lib/components/ChatGPTPlanForm.svelte'
 import ModelManager from '#lib/components/ModelManager.svelte'
+import OpenAIConnectionForm from '#lib/components/OpenAIConnectionForm.svelte'
 import SystemPromptManager from '#lib/components/SystemPromptManager.svelte'
 import TranslatorSettings from '#lib/components/TranslatorSettings.svelte'
 import UsagePanel from '#lib/components/UsagePanel.svelte'
+import { canonicalModelRef, parseOpenAIConnection, providersForConnection } from '#lib/model-connection.ts'
 import { clearPageCache } from '#lib/page-cache.ts'
 import { registerRealtime, startRealtimeWatchdog } from '#lib/realtime-watchdog.ts'
 import { createSettingsStore } from '#lib/stores/settings.svelte.ts'
@@ -28,6 +29,7 @@ let { data, form }: { data: PageData; form: ActionData } = $props()
 
 // svelte-ignore state_referenced_locally
 const settingsStore = createSettingsStore({ settings: data.settings ?? null, systemPrompts: data.systemPrompts })
+const modelProviders = $derived(providersForConnection(data.providers, parseOpenAIConnection(settingsStore.settings?.openaiConnection)))
 
 let titleModel = $state('')
 let savingTitleModel = $state(false)
@@ -44,13 +46,13 @@ $effect(() => {
 })
 
 $effect(() => {
-  const remote = settingsStore.settings?.titleModel ?? ''
+  const remote = canonicalModelRef(settingsStore.settings?.titleModel ?? '')
   if (titlePristine) titleModel = remote
   if (!titlePristine && remote === titleModel) titlePristine = true
 })
 
 $effect(() => {
-  const remote = settingsStore.settings?.toolSummarizerModel ?? ''
+  const remote = canonicalModelRef(settingsStore.settings?.toolSummarizerModel ?? '')
   if (summarizerPristine) summarizerModel = remote
   if (!summarizerPristine && remote === summarizerModel) summarizerPristine = true
 })
@@ -128,7 +130,7 @@ const setTab = (tab: Tab) => {
   </div>
 
   <div class="liquid-glass mb-6 flex flex-wrap gap-1 rounded-xl p-1">
-    {#each [['keys', 'API Keys'], ['models', 'Models'], ['prompt', 'System Prompt'], ['translator', 'Translator'], ['tools', 'Tools'], ['usage', 'Usage'], ['account', 'Account']] as [id, label] (id)}
+    {#each [['keys', 'Connections'], ['models', 'Models'], ['prompt', 'System Prompt'], ['translator', 'Translator'], ['tools', 'Tools'], ['usage', 'Usage'], ['account', 'Account']] as [id, label] (id)}
       <button
         onclick={() => setTab(id as Tab)}
         class="flex-1 rounded-lg px-3 py-2 text-sm font-medium transition {activeTab === id
@@ -143,17 +145,20 @@ const setTab = (tab: Tab) => {
   {#if activeTab === 'keys'}
     <div class="space-y-3">
       {#each data.providers as provider (provider.id)}
-        {#if provider.id === 'chatgpt'}
-          <ChatGPTPlanForm {provider} account={data.chatgptAccount} />
-        {:else}
+        {#if provider.id === 'openai'}
+          {@const subscriptionProvider = data.providers.find(candidate => candidate.id === 'chatgpt')}
+          {#if subscriptionProvider}
+            <OpenAIConnectionForm {provider} {subscriptionProvider} account={data.chatgptAccount} connection={settingsStore.settings?.openaiConnection} />
+          {/if}
+        {:else if provider.id !== 'chatgpt'}
           <ApiKeyForm {provider} />
         {/if}
       {/each}
     </div>
   {:else if activeTab === 'models'}
-    <ModelManager providers={data.providers} {titleModel} {savingTitleModel} onSaveTitleModel={saveTitleModel} {summarizerModel} {savingSummarizerModel} onSaveSummarizerModel={saveSummarizerModel} />
+    <ModelManager providers={modelProviders} {titleModel} {savingTitleModel} onSaveTitleModel={saveTitleModel} {summarizerModel} {savingSummarizerModel} onSaveSummarizerModel={saveSummarizerModel} />
   {:else if activeTab === 'translator'}
-    <TranslatorSettings settings={settingsStore.settings} providers={data.providers} />
+    <TranslatorSettings settings={settingsStore.settings} providers={modelProviders} />
   {:else if activeTab === 'tools'}
     <div class="space-y-3">
       <p class="text-sm text-gray-500 dark:text-gray-400">
@@ -181,7 +186,7 @@ const setTab = (tab: Tab) => {
         </div>
       </div>
 
-      <BrowserAgentSettings settings={settingsStore.settings} providers={data.providers} hostKey={data.toolServices.find(service => service.id === BROWSER_HOST_SERVICE)} />
+      <BrowserAgentSettings settings={settingsStore.settings} providers={modelProviders} hostKey={data.toolServices.find(service => service.id === BROWSER_HOST_SERVICE)} />
 
       {#each data.toolServices.filter(service => service.id !== BROWSER_HOST_SERVICE) as provider (provider.id)}
         <ApiKeyForm {provider} />

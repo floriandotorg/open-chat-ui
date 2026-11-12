@@ -206,14 +206,15 @@ const disconnect = async () => {
 
   {#if showWelcome}
     <div class="mt-3 rounded-lg bg-gray-50 p-3 text-sm dark:bg-gray-800/70">
-      <p class="font-medium">You're using your ChatGPT plan</p>
-      <p class="mt-1 text-gray-600 dark:text-gray-300">Eligible AI requests now use your ChatGPT plan. You can manage usage and set a limit for this app in ChatGPT settings.</p>
+      <p class="font-medium">Your ChatGPT subscription is connected</p>
+      <p class="mt-1 text-gray-600 dark:text-gray-300">Choose Use subscription in OpenAI connection settings to use it for requests. You can manage usage and set a limit for this app in ChatGPT settings.</p>
       <button type="button" onclick={dismissWelcome} class="mt-2 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700">Got it</button>
     </div>
   {/if}
 
   {#if account}
-    <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">Using ChatGPT plan{account.email ? ` as ${account.email}` : ''}.</p>
+    <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">ChatGPT subscription connected{account.email ? ` as ${account.email}` : ''}.</p>
+    <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">Remaining allowance: check ChatGPT usage. A live balance is not available through this connection.</p>
     <div class="mt-2 flex items-center gap-2">
       <a href={USAGE_URL} target="_blank" rel="noopener noreferrer" class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium transition hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800">Manage usage</a>
       <button

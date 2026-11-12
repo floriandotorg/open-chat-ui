@@ -3,11 +3,11 @@ import { CITATION_TOOL_NAMES, extractCitations, renumberCitations } from '#lib/c
 import { parseModelRef } from '#lib/model-ref.ts'
 import { getDecryptedKey, getDecryptedKeys } from '#lib/server/api-key.ts'
 import { isBrowserAgentConfigured } from '#lib/server/browser/config.ts'
-import { decrypt } from '#lib/server/crypto.ts'
-import { type Conversation, type Message, mapApiKey, mapMessagePayload, mapSystemPrompt, mapUserSettings, now } from '#lib/server/db/records.ts'
+import { type Conversation, type Message, mapMessagePayload, mapSystemPrompt, mapUserSettings, now } from '#lib/server/db/records.ts'
 import { type ActiveGeneration, closeSteering, closeSteeringIfIdle, finishGeneration, getGeneration, registerGeneration, takeSteers } from '#lib/server/generations.ts'
 import { buildHistoryMessages, hydrateEntries, isCodeExecutionEntry, isSteerEntry, type LiveEntry, type PersistedCodeExecution, type PersistedEntry, type PersistedSteer, slimEntry } from '#lib/server/history.ts'
 import { getKnowledgeCutoff } from '#lib/server/knowledge-cutoff.ts'
+import { resolveUserModelRef } from '#lib/server/model-connection.ts'
 import { createOrRecover, getFirstOrNull, isNotFound, pb } from '#lib/server/pb.ts'
 import { getPricing } from '#lib/server/pricing.ts'
 import { formatCurrentDate, getPostSystemPrompt } from '#lib/server/prompts.ts'
@@ -110,7 +110,11 @@ const settleOrphanedPlaceholder = async ({ conversationId, assistantMsgId, paren
 
 // Resolves once the assistant placeholder is persisted, so the request can
 // answer with the record the client already renders optimistically.
-export const startGeneration = async (params: GenerationParams): Promise<void> => {
+export const startGeneration = async (requested: GenerationParams): Promise<void> => {
+  if (getGeneration(requested.conversationId)) {
+    return
+  }
+  const params = { ...requested, modelRef: await resolveUserModelRef(requested.userId, requested.modelRef) }
   if (getGeneration(params.conversationId)) {
     return
   }
@@ -148,13 +152,8 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
 
   const { conversation, messages: allMsgs } = params.preloaded
 
-  const [keyRow, settings, payloadRows] = await Promise.all([
-    getFirstOrNull(
-      pb
-        .collection('api_keys')
-        .getFirstListItem(pb.filter('user = {:u} && provider = {:p}', { u: userId, p: provider }), { sort: 'createdAt' })
-        .then(mapApiKey),
-    ),
+  const [decryptedKey, settings, payloadRows] = await Promise.all([
+    getDecryptedKey(userId, provider),
     getFirstOrNull(
       pb
         .collection('user_settings')
@@ -163,10 +162,9 @@ const runGeneration = async (generation: ActiveGeneration, params: GenerationPar
     ),
     pb.collection('message_payloads').getFullList({ filter: pb.filter('message.conversation = {:c}', { c: conversationId }) }),
   ])
-  if (!keyRow) {
-    throw new Error(`No API key configured for ${provider}`)
+  if (!decryptedKey) {
+    throw new Error(provider === 'chatgpt' ? 'Connect your ChatGPT subscription in Settings, or choose API.' : `No API key configured for ${provider}`)
   }
-  const decryptedKey = await decrypt(keyRow.encryptedKey, keyRow.iv)
   const payloadByMessage = new Map(payloadRows.map(mapMessagePayload).map(p => [p.messageId, p]))
 
   const byId = new Map(allMsgs.map(m => [m.id, m]))

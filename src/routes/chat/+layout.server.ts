@@ -1,7 +1,9 @@
+import { canonicalModelRef } from '#lib/model-connection.ts'
 import { byProviderThenName } from '#lib/model-ref.ts'
 import { storedModelInfo } from '#lib/provider-models.ts'
 import { requireUser } from '#lib/server/auth-guard.ts'
 import { mapProviderModel, mapSystemPrompt, toChatBootstrap } from '#lib/server/db/records.ts'
+import { getUserOpenAIConnection } from '#lib/server/model-connection.ts'
 import { pb } from '#lib/server/pb.ts'
 import { listProviders } from '#lib/server/providers/index.ts'
 import { CONVERSATION_SUMMARY_FIELDS } from '#lib/types/chat.ts'
@@ -16,11 +18,12 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
   const sidebarWidth = rawWidth >= 200 && rawWidth <= 500 ? rawWidth : undefined
   const rawEffort = cookies.get('thinking-effort')
   const thinkingEffort = rawEffort && VALID_EFFORTS.has(rawEffort) ? rawEffort : undefined
-  const selectedModel = cookies.get('selected-model') ?? undefined
+  const savedModel = cookies.get('selected-model')
+  const selectedModel = savedModel ? canonicalModelRef(savedModel) : undefined
   const rawTtsSpeed = Number(cookies.get('tts-speed'))
   const ttsSpeed = [1, 1.25, 1.5, 1.75, 2].includes(rawTtsSpeed) ? rawTtsSpeed : undefined
 
-  const [convoRows, userKeys, prompts, modelRows] = await Promise.all([
+  const [convoRows, userKeys, prompts, modelRows, openaiConnection] = await Promise.all([
     pb.collection('conversations').getFullList({ filter: pb.filter('user = {:u}', { u: userId }), sort: '-updatedAt', fields: CONVERSATION_SUMMARY_FIELDS }),
     pb.collection('api_keys').getFullList({ filter: pb.filter('user = {:u}', { u: userId }), fields: 'provider' }),
     pb
@@ -28,6 +31,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
       .getFullList({ filter: pb.filter('user = {:u}', { u: userId }), sort: 'createdAt' })
       .then(rows => rows.map(mapSystemPrompt)),
     pb.collection('provider_models').getFullList({ filter: 'enabled = true', fields: 'id,provider,modelId,enabled,metadata' }),
+    getUserOpenAIConnection(userId),
   ])
 
   const configuredProviders = new Set(userKeys.map(k => k.provider))
@@ -47,6 +51,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
     providers,
     systemPrompts: prompts,
     models,
+    openaiConnection,
     sidebarWidth,
     thinkingEffort,
     selectedModel,

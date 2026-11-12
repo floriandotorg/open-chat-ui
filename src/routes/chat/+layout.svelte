@@ -9,6 +9,7 @@ import SystemPromptPicker from '#lib/components/SystemPromptPicker.svelte'
 import ThinkingEffortPicker from '#lib/components/ThinkingEffortPicker.svelte'
 import TtsPlayer from '#lib/components/TtsPlayer.svelte'
 import { mapSystemPrompt } from '#lib/db-mappers.ts'
+import { canonicalModelRef, parseOpenAIConnection } from '#lib/model-connection.ts'
 import { pbClient } from '#lib/pb-client.ts'
 import { createRealtimeSlot, registerRealtime, resyncOnceConnected, startRealtimeWatchdog } from '#lib/realtime-watchdog.ts'
 import { chatContext } from '#lib/stores/chat-context.svelte.ts'
@@ -28,7 +29,7 @@ let { data, children }: { data: LayoutData; children: Snippet } = $props()
 // svelte-ignore state_referenced_locally
 conversations.reset(data.conversations)
 // svelte-ignore state_referenced_locally
-const modelsStore = createModelsStore(data.models, data.providers)
+const modelsStore = createModelsStore(data.models, data.providers, data.openaiConnection)
 chatContext.modelsStore = modelsStore
 // svelte-ignore state_referenced_locally
 let systemPrompts: SystemPrompt[] = $state(data.systemPrompts)
@@ -107,6 +108,7 @@ $effect(() => {
 
 $effect(() => {
   modelsStore.setProviders(data.providers)
+  modelsStore.setConnection(data.openaiConnection)
 })
 
 $effect(() => {
@@ -118,7 +120,7 @@ $effect(() => {
 })
 
 $effect(() => {
-  chatContext.selectedModel = currentConversation?.defaultModel ?? fallbackModel
+  chatContext.selectedModel = canonicalModelRef(currentConversation?.defaultModel ?? fallbackModel)
 })
 
 const changeSystemPrompt = (promptId: string | null) => {
@@ -199,27 +201,34 @@ onMount(() => {
       }
     }),
   )
+  const settingsSlot = createRealtimeSlot(() =>
+    pbClient.collection('user_settings').subscribe('*', e => {
+      modelsStore.setConnection(parseOpenAIConnection(e.action === 'delete' ? undefined : e.record.openaiConnection))
+    }),
+  )
   void promptsSlot.subscribe()
+  void settingsSlot.subscribe()
   modelsStore.subscribe()
   const deregister = registerRealtime({
     subscribe: () => {
       void promptsSlot.subscribe()
+      void settingsSlot.subscribe()
       modelsStore.subscribe()
     },
     unsubscribe: () => {
       promptsSlot.unsubscribe()
+      settingsSlot.unsubscribe()
       modelsStore.unsubscribe()
     },
-    isHealthy: () => promptsSlot.isHealthy() && modelsStore.isSubscribed(),
+    isHealthy: () => promptsSlot.isHealthy() && settingsSlot.isHealthy() && modelsStore.isSubscribed(),
     resync: async () => {
       const userId = pbClient.authStore.record?.id
       await modelsStore.resync()
       if (!userId) return
-      const rows = await pbClient.collection('system_prompts').getFullList({
-        filter: pbClient.filter('user = {:u}', { u: userId }),
-        sort: 'createdAt',
-      })
+      const filter = pbClient.filter('user = {:u}', { u: userId })
+      const [rows, settings] = await Promise.all([pbClient.collection('system_prompts').getFullList({ filter, sort: 'createdAt' }), pbClient.collection('user_settings').getFullList({ filter, fields: 'id,openaiConnection', perPage: 1 })])
       systemPrompts = rows.map(mapSystemPrompt)
+      modelsStore.setConnection(parseOpenAIConnection(settings[0]?.openaiConnection))
     },
   })
   if (Date.now() - data.renderedAt > STALE_RENDER_MS) {
@@ -231,6 +240,7 @@ onMount(() => {
     deregister()
     conversationsRealtime.dispose()
     promptsSlot.cancel()
+    settingsSlot.cancel()
     modelsStore.unsubscribe()
   }
 })

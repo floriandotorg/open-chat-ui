@@ -1,6 +1,7 @@
 import { parseModelRef } from '#lib/model-ref.ts'
 import { getDecryptedKey } from '#lib/server/api-key.ts'
 import { mapUserSettings } from '#lib/server/db/records.ts'
+import { resolveUserModelRef } from '#lib/server/model-connection.ts'
 import { getFirstOrNull, pb } from '#lib/server/pb.ts'
 import { getProviderFactory } from '#lib/server/providers/index.ts'
 import type { ToolContext, ToolDefinition } from './types'
@@ -33,7 +34,7 @@ export const summarizeSearchResult = async (userId: string, researchQuestion: st
     )
     if (!settings?.toolSummarizerModel) return rawResult
 
-    const { provider, model } = parseModelRef(settings.toolSummarizerModel)
+    const { provider, model } = parseModelRef(await resolveUserModelRef(userId, settings.toolSummarizerModel))
     const apiKey = await getDecryptedKey(userId, provider)
     if (!apiKey) return rawResult
 

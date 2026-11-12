@@ -1,8 +1,10 @@
+import { canonicalModelRef } from '#lib/model-connection.ts'
 import { parseModelRef } from '#lib/model-ref.ts'
 import { fallbackModelInfo, storedModelInfo } from '#lib/provider-models.ts'
 import { getDecryptedKey } from '#lib/server/api-key.ts'
 import { requireUser } from '#lib/server/auth-guard.ts'
 import { mapProviderModel, now } from '#lib/server/db/records.ts'
+import { resolveUserModelRef } from '#lib/server/model-connection.ts'
 import { syncProviderModels } from '#lib/server/model-sync.ts'
 import { createOrRecover, getFirstOrNull, pb } from '#lib/server/pb.ts'
 import { getProviderFactory } from '#lib/server/providers/index.ts'
@@ -15,14 +17,15 @@ const listStoredModels = async (provider: string) => (await pb.collection('provi
 export const GET: RequestHandler = async ({ locals, url }) => {
   const userId = requireUser(locals.user).id
 
-  const provider = url.searchParams.get('provider')
-  if (!provider) {
+  const requestedProvider = url.searchParams.get('provider')
+  if (!requestedProvider) {
     return json({ error: 'provider query param required' }, { status: 400 })
   }
 
+  const { provider } = parseModelRef(await resolveUserModelRef(userId, `${requestedProvider}/model`))
   const apiKey = await getDecryptedKey(userId, provider)
   if (!apiKey) {
-    throw error(400, `No API key configured for ${provider}`)
+    throw error(400, `No connection configured for ${requestedProvider}`)
   }
 
   if (url.searchParams.get('refresh') === '1') {
@@ -33,7 +36,12 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 
   const stored = await listStoredModels(provider)
 
-  return json(stored.map(s => ({ ...storedModelInfo(s), enabled: s.enabled })))
+  return json(
+    stored.map(s => {
+      const info = storedModelInfo(s)
+      return { ...info, id: canonicalModelRef(info.id), name: info.name.replace(/ \(ChatGPT plan\)$/, ''), enabled: s.enabled }
+    }),
+  )
 }
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -81,14 +89,14 @@ export const DELETE: RequestHandler = async ({ request, locals }) => {
 }
 
 export const PUT: RequestHandler = async ({ request, locals }) => {
-  requireUser(locals.user)
+  const userId = requireUser(locals.user).id
 
   const { modelId, enabled } = (await request.json()) as {
     modelId: string
     enabled: boolean
   }
 
-  const { provider, model } = parseModelRef(modelId)
+  const { provider, model } = parseModelRef(await resolveUserModelRef(userId, modelId))
 
   await upsertProviderModel(provider, model, enabled)
 
@@ -98,10 +106,9 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
 export const PATCH: RequestHandler = async ({ request, locals }) => {
   const userId = requireUser(locals.user).id
 
-  const { provider, enabled } = (await request.json()) as {
-    provider: string
-    enabled: boolean
-  }
+  const body: { provider: string; enabled: boolean } = await request.json()
+  const { enabled } = body
+  const { provider } = parseModelRef(await resolveUserModelRef(userId, `${body.provider}/model`))
 
   const apiKey = await getDecryptedKey(userId, provider)
   if (!apiKey) {

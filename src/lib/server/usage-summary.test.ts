@@ -25,6 +25,17 @@ const row = (overrides: Partial<UsageRow>): UsageRow => ({
 })
 
 describe('summarizeUsage', () => {
+  it('keeps the same model split by its historical connection', () => {
+    const summary = summarizeUsage([row({ model: 'openai/gpt-5.5', cost: 2 }), row({ model: 'chatgpt/gpt-5.5' })], pricingFor, NOW)
+    expect(summary.api.cost).toBe(2)
+    expect(summary.plan.cost).toBe(0)
+    expect(summary.plan.apiEquivalentCost).toBeCloseTo(3)
+    expect(summary.models.map(m => [m.model, m.billing])).toEqual([
+      ['chatgpt/gpt-5.5', 'plan'],
+      ['openai/gpt-5.5', 'api'],
+    ])
+  })
+
   it('bills API models at their price', () => {
     const summary = summarizeUsage([row({})], pricingFor, NOW)
     expect(summary.api).toMatchObject({ requests: 1, inputTokens: 1_000_000, outputTokens: 100_000 })

@@ -18,6 +18,7 @@ const toSettings = (row: UserSettings) => ({
   translationContexts: row.translationContexts ?? DEFAULT_CONTEXTS,
   browserAgentModel: row.browserAgentModel ?? null,
   browserHostUrl: row.browserHostUrl ?? null,
+  openaiConnection: row.openaiConnection ?? 'api',
 })
 
 const parseHostUrl = (value: unknown): string | null | undefined => {
@@ -57,6 +58,7 @@ export const GET: RequestHandler = async ({ locals }) => {
           translationContexts: DEFAULT_CONTEXTS,
           browserAgentModel: null,
           browserHostUrl: null,
+          openaiConnection: 'api',
         },
   )
 }
@@ -73,8 +75,12 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
   if (body.browserAgentModel !== undefined && body.browserAgentModel !== null && !isBrowserAgentModel(body.browserAgentModel)) {
     throw error(400, 'Browser agent model must be an Anthropic or OpenAI model')
   }
+  if (body.openaiConnection !== undefined && body.openaiConnection !== 'api' && body.openaiConnection !== 'subscription') {
+    throw error(400, 'Choose API or subscription')
+  }
   const browserHostUrl = parseHostUrl(body.browserHostUrl)
   const validatedFields = {
+    ...(body.openaiConnection !== undefined && { openaiConnection: body.openaiConnection }),
     ...(body.translationModel !== undefined && { translationModel: body.translationModel }),
     ...(body.translationContexts !== undefined && { translationContexts: body.translationContexts }),
     ...(body.browserAgentModel !== undefined && { browserAgentModel: body.browserAgentModel }),

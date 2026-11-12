@@ -3,6 +3,19 @@ process.env.POCKETBASE_URL = 'http://127.0.0.1:1'
 import type { ToolContext, ToolDefinition } from './types'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('#lib/server/pb.ts', () => ({
+  pb: {
+    collection: () => ({
+      getFirstListItem: async () => {
+        throw new Error('No summarizer configured')
+      },
+    }),
+    filter: () => '',
+  },
+  getFirstOrNull: (promise: Promise<unknown>) => promise.catch(() => null),
+}))
+vi.mock('#lib/server/providers/index.ts', () => ({ getProviderFactory: vi.fn() }))
+
 const ctx: ToolContext = { userId: 'u1', getApiKey: async () => null, getApiKeys: async () => [] }
 
 const makeTool = (result: string): ToolDefinition => ({

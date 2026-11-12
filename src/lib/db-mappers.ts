@@ -1,4 +1,5 @@
 import type { BrowserUserRequest } from '#lib/browser-protocol.ts'
+import type { OpenAIConnection } from '#lib/model-connection.ts'
 import { normalizeModelRef } from '#lib/model-ref.ts'
 import { parseContexts } from '#lib/translator.ts'
 import type { ChatMessage, ConversationDetail, ConversationSummary } from '#lib/types/chat.ts'
@@ -79,6 +80,7 @@ export interface UserSettings {
   translationContexts?: import('#lib/translator.ts').TranslationContext[] | null
   browserAgentModel?: string | null
   browserHostUrl?: string | null
+  openaiConnection?: OpenAIConnection
   updatedAt: Date
 }
 
@@ -313,6 +315,7 @@ export const mapUserSettings = (r: RecordModel): UserSettings => ({
   translationContexts: parseContexts(r.translationContexts),
   browserAgentModel: orNull(r.browserAgentModel),
   browserHostUrl: orNull(r.browserHostUrl),
+  openaiConnection: r.openaiConnection === 'subscription' ? 'subscription' : 'api',
   updatedAt: toDate(r.updatedAt),
 })
 

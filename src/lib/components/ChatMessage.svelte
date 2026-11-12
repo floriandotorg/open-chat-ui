@@ -3,6 +3,7 @@ import { collectCitations, filterReferencedCitations, processCitations } from '#
 import { buildContentSegments } from '#lib/content-segments.ts'
 import { copyCodeAction } from '#lib/copy-code.ts'
 import { renderMarkdownBlocks, whenKatexReady } from '#lib/markdown.ts'
+import { canonicalModelRef } from '#lib/model-connection.ts'
 import { selectionIntersects } from '#lib/selection.ts'
 import type { createTtsPlayer } from '#lib/stores/tts-player.svelte.ts'
 import { stripMarkdown } from '#lib/strip-markdown.ts'
@@ -288,7 +289,7 @@ const autoResizeEdit = () => {
             <div class="min-w-0">
               {#if partIdx === 0}
                 {#if displayed.model}
-                  <div class="mb-1 text-xs font-medium text-gray-400 dark:text-neutral-500">{displayed.model}</div>
+                  <div class="mb-1 text-xs font-medium text-gray-400 dark:text-neutral-500">{canonicalModelRef(displayed.model)}</div>
                 {/if}
                 {#if displayed.thinking || displayed.thinkingDuration != null}
                   <ThinkingBlock messageId={displayed.id} thinking={displayed.thinking} duration={displayed.thinkingDuration} isActive={!!displayed.generating && !displayed.content} />

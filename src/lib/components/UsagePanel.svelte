@@ -77,6 +77,7 @@ onMount(async () => {
         <span class="text-emerald-600 dark:text-emerald-400">cache {fmtTokens(m.cacheReadInputTokens)}</span>
       {/if}
       {#if m.billing === 'plan' && m.priced}
+        <span>Included in subscription · $0.00 model charge</span>
         <span>API equivalent</span>
       {/if}
       {#if m.billing === 'plan' && m.cost > 0}
@@ -115,23 +116,29 @@ onMount(async () => {
   <div class="space-y-5">
     <div class="rounded-lg border border-gray-200 p-4 dark:border-gray-800">
       <p class="text-xs uppercase tracking-wide text-gray-400">{monthName(data.month)}</p>
-      <div class="mt-2 grid gap-4 {hasPlanUsage ? 'grid-cols-2' : 'grid-cols-1'}">
+      <div class="mt-2 grid gap-4 {hasPlanUsage ? 'sm:grid-cols-3' : 'grid-cols-1'}">
         <div>
-          <p class="text-xs text-gray-500 dark:text-gray-400">Paid</p>
-          <p class="mt-0.5 text-3xl font-bold text-gray-900 dark:text-gray-100">{fmtMoney(paid)}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">Actual API</p>
+          <p class="mt-0.5 text-3xl font-bold text-gray-900 dark:text-gray-100">{fmtMoney(data.api.cost)}</p>
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{data.api.requests} req · ↓ {fmtTokens(data.api.inputTokens)} · ↑ {fmtTokens(data.api.outputTokens)}</p>
-          {#if data.plan.cost > 0}
-            <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">Includes {fmtMoney(data.plan.cost)} of paid tools in ChatGPT plan chats</p>
-          {/if}
         </div>
         {#if hasPlanUsage}
           <div>
-            <p class="text-xs text-gray-500 dark:text-gray-400">ChatGPT plan, API equivalent</p>
-            <p class="mt-0.5 text-3xl font-bold text-emerald-600 dark:text-emerald-400">{fmtMoney(data.plan.apiEquivalentCost)}</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400">Subscription usage</p>
+            <p class="mt-0.5 text-3xl font-bold text-emerald-600 dark:text-emerald-400">$0.00</p>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">No additional model charge. Included in your ChatGPT subscription.</p>
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{data.plan.requests} req · ↓ {fmtTokens(data.plan.inputTokens)} · ↑ {fmtTokens(data.plan.outputTokens)}</p>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 dark:text-gray-400">Subscription API equivalent</p>
+            <p class="mt-0.5 text-3xl font-bold text-emerald-600 dark:text-emerald-400">{fmtMoney(data.plan.apiEquivalentCost)}</p>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Estimated cost at public API token prices, not a charge.</p>
           </div>
         {/if}
       </div>
+      {#if data.plan.cost > 0}
+        <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">{fmtMoney(data.plan.cost)} of paid tools in subscription chats, separate from model usage. Total paid: {fmtMoney(paid)}.</p>
+      {/if}
       {#if hasPlanUsage}
         <p class="mt-3 border-t border-gray-100 pt-3 text-sm text-gray-600 dark:border-gray-800 dark:text-gray-300">
           Without your ChatGPT plan, this month would have cost <span class="font-semibold text-gray-900 dark:text-gray-100">{fmtMoney(withoutPlan)}</span>.

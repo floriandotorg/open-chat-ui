@@ -44,6 +44,17 @@ describe('createModelsStore', () => {
     expect(store.models[0].name).toBe('gpt-x')
   })
 
+  it('switches connections without duplicating model references, including realtime changes', () => {
+    const store = createModelsStore([info('openai/gpt-5', 'GPT API'), info('chatgpt/gpt-5', 'GPT (ChatGPT plan)')], [provider('openai', true), provider('chatgpt', true)])
+    expect(store.models.map(m => [m.id, m.name])).toEqual([['openai/gpt-5', 'GPT API']])
+    store.setConnection('subscription')
+    expect(store.models.map(m => [m.id, m.name])).toEqual([['openai/gpt-5', 'GPT']])
+    store.apply({ ...row('gpt-5', false, null), provider: 'chatgpt' })
+    expect(store.models).toEqual([])
+    store.setConnection('api')
+    expect(store.models.map(m => m.id)).toEqual(['openai/gpt-5'])
+  })
+
   it('seed replaces models and setProviders refilters', () => {
     const store = createModelsStore([], [provider('openai', false)])
 

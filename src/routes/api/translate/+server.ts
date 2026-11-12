@@ -2,6 +2,7 @@ import { parseModelRef } from '#lib/model-ref.ts'
 import { getDecryptedKey } from '#lib/server/api-key.ts'
 import { requireUser } from '#lib/server/auth-guard.ts'
 import { mapUserSettings } from '#lib/server/db/records.ts'
+import { resolveUserModelRef } from '#lib/server/model-connection.ts'
 import { getFirstOrNull, pb } from '#lib/server/pb.ts'
 import { getProviderFactory } from '#lib/server/providers/index.ts'
 import { translate } from '#lib/server/translator.ts'
@@ -50,7 +51,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
   const contextId = 'contextId' in body ? body.contextId : undefined
   const context = (settings.translationContexts ?? DEFAULT_CONTEXTS).find(entry => entry.id === contextId)
-  const { provider, model } = parseModelRef(settings.translationModel)
+  const { provider, model } = parseModelRef(await resolveUserModelRef(userId, settings.translationModel))
   const apiKey = await getDecryptedKey(userId, provider)
   if (!apiKey) {
     throw error(400, 'Add an API key for your translation model in Settings')

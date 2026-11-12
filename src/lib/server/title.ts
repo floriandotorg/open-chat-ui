@@ -1,6 +1,7 @@
 import { parseModelRef } from '#lib/model-ref.ts'
 import { getDecryptedKey } from '#lib/server/api-key.ts'
 import { mapMessage, mapUserSettings, now } from '#lib/server/db/records.ts'
+import { resolveUserModelRef } from '#lib/server/model-connection.ts'
 import { getFirstOrNull, pb } from '#lib/server/pb.ts'
 import { getProviderFactory } from '#lib/server/providers/index.ts'
 
@@ -13,7 +14,7 @@ export const generateConversationTitle = async (userId: string, conversationId: 
   )
   if (!settings?.titleModel) return null
 
-  const { provider, model } = parseModelRef(settings.titleModel)
+  const { provider, model } = parseModelRef(await resolveUserModelRef(userId, settings.titleModel))
 
   const apiKey = await getDecryptedKey(userId, provider)
   if (!apiKey) return null

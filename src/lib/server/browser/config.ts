@@ -60,6 +60,9 @@ export const loadBrowserAgentConfig = async (userId: string): Promise<BrowserAge
   if (!provider) {
     return { error: 'The browser agent model must be an Anthropic or OpenAI model.' }
   }
+  if (provider === 'openai' && settings.openaiConnection === 'subscription') {
+    return { error: 'The browser agent does not support ChatGPT subscriptions. Choose an Anthropic model or switch OpenAI to API in Settings > Connections.' }
+  }
   const [host, apiKey] = await Promise.all([loadBrowserHost(userId), getDecryptedKey(userId, provider)])
   if ('error' in host) {
     return host

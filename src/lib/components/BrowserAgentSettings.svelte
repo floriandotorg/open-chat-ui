@@ -20,7 +20,7 @@ let checking = $state(false)
 let connection = $state<{ ok: boolean; text: string } | null>(null)
 let notificationPermission = $state<NotificationPermission | 'unsupported'>('default')
 const saving = $derived(mutation?.status === 'pending')
-const agentProviders = $derived(providers.filter(provider => AGENT_PROVIDERS.has(provider.id)))
+const agentProviders = $derived(providers.filter(provider => AGENT_PROVIDERS.has(provider.id) && (provider.id !== 'openai' || settings?.openaiConnection !== 'subscription')))
 
 $effect(() => {
   if (!dirty) {
@@ -120,6 +120,9 @@ const enableNotifications = async () => {
       </select>
       <span class="block text-xs text-gray-500 dark:text-gray-400">Anthropic models use the browser toolset (reads pages directly, cheaper). OpenAI models use the computer tool (screenshots only). Needs a recent computer use model.</span>
     </label>
+    {#if settings?.openaiConnection === 'subscription'}
+      <p class="text-xs text-gray-500 dark:text-gray-400">ChatGPT subscriptions do not support the browser agent. Choose an Anthropic model, or switch OpenAI to API in Connections.</p>
+    {/if}
     {#if loadError}<p role="alert" class="text-xs text-red-500">{loadError}</p>{/if}
     {#if agentProviders.every(provider => !provider.hasKey)}<p class="text-xs text-amber-600 dark:text-amber-400">Add an Anthropic or OpenAI API key first.</p>{/if}
 

@@ -20,6 +20,7 @@ const send = async <T>(method: string, path: string, body?: Record<string, unkno
 }
 
 export const api = {
+  put: <T = unknown>(path: string, body: Record<string, unknown>) => send<T>('PUT', path, body),
   post: <T = unknown>(path: string, body: Record<string, unknown>) => send<T>('POST', path, body),
   patch: <T = unknown>(path: string, body: Record<string, unknown>) => send<T>('PATCH', path, body),
   delete: <T = unknown>(path: string) => send<T>('DELETE', path),

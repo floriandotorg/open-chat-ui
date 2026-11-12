@@ -37,9 +37,11 @@ test('separates paid API usage from the ChatGPT plan and shows the cost without 
     models: [model({ model: 'chatgpt/gpt-6.1-sol', billing: 'plan', requests: 10, cost: 0.25, apiEquivalentCost: 12.4 }), model({ model: 'anthropic/claude-x', billing: 'api', requests: 4, cost: 1.5, apiEquivalentCost: 1.5 })],
   })
 
-  expect(text).toContain('Paid $1.75')
-  expect(text).toContain('ChatGPT plan, API equivalent $12.40')
-  expect(text).toContain('Includes $0.25 of paid tools')
+  expect(text).toContain('Actual API $1.50')
+  expect(text).toContain('Subscription usage $0.00')
+  expect(text).toContain('Subscription API equivalent $12.40')
+  expect(text).toContain('$0.25 of paid tools')
+  expect(text).toContain('No additional model charge')
   expect(text).toContain('Without your ChatGPT plan, this month would have cost $14.15')
   expect(text).toContain('ChatGPT plan, per model')
   expect(text).toContain('API, per model')
@@ -55,7 +57,7 @@ test('hides the plan breakdown when the plan was not used', async () => {
     models: [model({ model: 'anthropic/claude-x', billing: 'api', requests: 2, cost: 0.5, apiEquivalentCost: 0.5 })],
   })
 
-  expect(text).toContain('Paid $0.50')
+  expect(text).toContain('Actual API $0.50')
   expect(text).not.toContain('ChatGPT plan')
   expect(text).not.toContain('Without your ChatGPT plan')
 })
