@@ -1,7 +1,7 @@
-import { createHash, timingSafeEqual } from 'node:crypto'
 import { join } from 'node:path'
 import type { BrowserActionOutcome, BrowserActionResult, BrowserActionsResponse, BrowserHostHealth, BrowserSessionResponse } from '#lib/browser-protocol.ts'
 import { captureJpeg, dispatchLiveInput, runAction, selectTab } from './actions'
+import { isAuthorized } from './auth'
 import { createChrome, findChromiumInstall } from './chrome'
 import { dataDir, findBindAddress, loadConfig } from './config'
 import { credentialsFor } from './credentials'
@@ -16,14 +16,6 @@ const EXPIRY_CHECK_MS = 30_000
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } })
 const fail = (status: number, error: string) => json({ error }, status)
-
-const digest = (value: string) => createHash('sha256').update(value).digest()
-
-const isAuthorized = (request: Request, token: string): boolean => {
-  const header = request.headers.get('authorization') ?? ''
-  const presented = header.startsWith('Bearer ') ? header.slice(7) : ''
-  return presented.length > 0 && timingSafeEqual(digest(presented), digest(token))
-}
 
 const withNotes = (outcome: BrowserActionOutcome, notes: string[]): BrowserActionOutcome => {
   if (!notes.length) {
@@ -127,7 +119,7 @@ const start = async () => {
   }
 
   const handle = async (request: Request): Promise<Response> => {
-    if (!isAuthorized(request, config.token)) {
+    if (!isAuthorized(request, config.tokenHash)) {
       return fail(401, 'Unauthorized')
     }
     const segments = new URL(request.url).pathname.split('/').filter(Boolean)

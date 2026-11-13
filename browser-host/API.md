@@ -14,6 +14,25 @@ Implementation: `browser-host/main.ts`. Shared TypeScript types: `src/lib/browse
 
 The host currently has one shared bearer token, not per-client permissions. Possession grants control of the browser, including its saved authenticated sessions. There is no per-client session ownership check. Only connect trusted clients.
 
+### Token storage and rotation
+
+The host stores only a SHA-256 `tokenHash` and the port in `~/Library/Application Support/open-chat-ui-browser/config.json` (or under `BROWSER_HOST_DATA_DIR`). New configurations are written atomically with owner-only permissions (`0600`). Tokens contain 32 cryptographically random bytes; requests are verified by hashing the supplied bearer token and comparing hashes in constant time. The stored hash cannot be used as the bearer token.
+
+`bun run browser-host:install` displays a newly generated token once. Save it securely on the client; reinstalling preserves the existing token but cannot display it again. Clients still need the original token to authenticate, so their storage must be recoverable and protected.
+
+On the first startup or installer run with this version, legacy configurations containing a plaintext `token` are automatically rewritten to contain only its hash. Existing clients keep working without changes. Migration does not erase copies in backups, terminal history, or earlier installer output. Rotate the token if it may have been exposed.
+
+To replace a forgotten or exposed token, run these commands yourself on the host Mac, using the same `BROWSER_HOST_DATA_DIR` override if configured:
+
+```bash
+bun run browser-host:rotate-token
+launchctl kickstart -k "gui/$(id -u)/de.open-chat-ui.browser-host"
+```
+
+The rotation command displays the new token once. Save it securely and update every client, including Settings > Tools > Browser Agent in Open Chat UI. Restarting activates the replacement and invalidates the old token; until restart, a running host still accepts the old token. If you run the host manually rather than through the LaunchAgent, restart that process instead.
+
+This only changes the browser host API token. The separate Proton Pass token must remain recoverable so the host can authenticate to Proton.
+
 ## Session lifecycle
 
 1. `POST /sessions` to acquire a session.

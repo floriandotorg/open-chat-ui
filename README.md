@@ -171,6 +171,8 @@ After logging in, go to **Settings** to configure:
 
 Trusted external tools can control the Mac browser host through its [HTTP API](browser-host/API.md). Browser agents can also fill selected Proton Pass credentials without receiving their values through the credential tools.
 
+The browser host stores only a SHA-256 hash of its API token. Setup displays new tokens once; existing plaintext configurations migrate automatically on the next host startup or installer run without changing the token clients use. If you lose the token, run `bun run browser-host:rotate-token` on the host Mac, save the new token, restart the host, and update all clients. See [token storage and rotation](browser-host/API.md#token-storage-and-rotation) for details.
+
 Configure the local Proton token with `bash browser-host/proton-setup.sh`. It stays on the browser-host Mac, and each operation uses a fresh CLI session without disturbing other services. See [Proton Pass setup and privacy limits](browser-host/PROTON.md) before enabling access. One token is shared by all trusted clients of that browser host.
 
 ## Project Structure

@@ -133,11 +133,17 @@ const installLaunchAgent = async () => {
 }
 
 await installChromium()
-const config = await ensureConfig()
+const { config, token } = await ensureConfig()
+const address = findBindAddress() ?? '<tailscale-ip>'
+console.log('\nSettings > Tools > Browser Agent:')
+console.log(`  Host URL: http://${address}:${config.port}`)
+if (token) {
+  console.log(`  Token (shown only once): ${token}`)
+  console.log('Save this token securely now. The host stores only its hash.')
+} else {
+  console.log('Existing token preserved. It cannot be recovered from its hash.')
+  console.log('If you lost it, run bun run browser-host:rotate-token.')
+}
 if (!process.argv.includes('--no-launchd')) {
   await installLaunchAgent()
 }
-const address = findBindAddress() ?? '<tailscale-ip>'
-console.log('\nAdd these in Settings > Tools > Browser Agent:')
-console.log(`  Host URL: http://${address}:${config.port}`)
-console.log(`  Token:    ${config.token}`)

@@ -25,7 +25,8 @@
     "size": "bun run build && bun scripts/report-bundle.ts",
     "user:add": "bun scripts/add-user.ts",
     "browser-host": "bun browser-host/main.ts",
-    "browser-host:install": "bun browser-host/install.ts"
+    "browser-host:install": "bun browser-host/install.ts",
+    "browser-host:rotate-token": "bun browser-host/rotate-token.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.6",
