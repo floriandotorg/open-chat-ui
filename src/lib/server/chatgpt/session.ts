@@ -20,7 +20,7 @@ type PendingSignIn = { userId: string; origin: string; clientId?: string; codeVe
 export type ChatGPTAccount = { email?: string; name?: string }
 
 const pendingSignIns = new Map<string, PendingSignIn>()
-const inflightRefreshes = new Map<string, Promise<string | null>>()
+const inflightRefreshes = new Map<string, { promise: Promise<string | null>; rejectedToken?: string }>()
 
 const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 
@@ -202,12 +202,12 @@ export const completeChatGPTSignIn = async (userId: string, params: URLSearchPar
   return { email: identity.email, name: identity.name }
 }
 
-const refreshSessionToken = async (userId: string): Promise<string | null> => {
+const refreshSessionToken = async (userId: string, rejectedToken?: string): Promise<string | null> => {
   const session = await readSession(userId)
   if (!session) {
     return null
   }
-  if (!needsRefresh(session.tokens, Date.now())) {
+  if (session.tokens.accessToken !== rejectedToken && !needsRefresh(session.tokens, Date.now())) {
     return session.tokens.accessToken
   }
   try {
@@ -219,20 +219,24 @@ const refreshSessionToken = async (userId: string): Promise<string | null> => {
       await deleteRecord(userId, CHATGPT_PROVIDER)
       return null
     }
-    if (session.tokens.expiresAt > Date.now()) {
+    if (session.tokens.accessToken !== rejectedToken && session.tokens.expiresAt > Date.now()) {
       return session.tokens.accessToken
     }
     throw err
   }
 }
 
-export const getChatGPTAccessToken = (userId: string): Promise<string | null> => {
+export const getChatGPTAccessToken = async (userId: string, rejectedToken?: string): Promise<string | null> => {
   const running = inflightRefreshes.get(userId)
   if (running) {
-    return running
+    const token = await running.promise
+    if (!rejectedToken || token !== rejectedToken || running.rejectedToken === rejectedToken) {
+      return token
+    }
+    return getChatGPTAccessToken(userId, rejectedToken)
   }
-  const promise = refreshSessionToken(userId).finally(() => inflightRefreshes.delete(userId))
-  inflightRefreshes.set(userId, promise)
+  const promise = refreshSessionToken(userId, rejectedToken).finally(() => inflightRefreshes.delete(userId))
+  inflightRefreshes.set(userId, { promise, rejectedToken })
   return promise
 }
 

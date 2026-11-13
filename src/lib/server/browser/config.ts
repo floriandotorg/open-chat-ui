@@ -3,6 +3,8 @@ import { connectionModelRef, parseOpenAIConnection } from '#lib/model-connection
 import { parseModelRef } from '#lib/model-ref.ts'
 import { getDecryptedKey } from '#lib/server/api-key.ts'
 import { type BrowserHost, createBrowserHost } from '#lib/server/browser/host-client.ts'
+import { type ChatGPTTokenSource, resolveChatGPTToken } from '#lib/server/chatgpt/access.ts'
+import { getChatGPTAccessToken } from '#lib/server/chatgpt/session.ts'
 import { mapUserSettings } from '#lib/server/db/records.ts'
 import { getFirstOrNull, pb } from '#lib/server/pb.ts'
 
@@ -15,6 +17,7 @@ export interface BrowserAgentConfig {
   model: string
   modelRef: string
   apiKey: string
+  getAccessToken?: ChatGPTTokenSource
   host: BrowserHost
 }
 
@@ -61,12 +64,17 @@ export const loadBrowserAgentConfig = async (userId: string): Promise<BrowserAge
   if (!provider) {
     return { error: 'The browser agent model must be an Anthropic or OpenAI model.' }
   }
-  const [host, apiKey] = await Promise.all([loadBrowserHost(userId), getDecryptedKey(userId, provider)])
-  if ('error' in host) {
-    return host
+  const getAccessToken: ChatGPTTokenSource | undefined = provider === 'chatgpt' ? rejectedToken => getChatGPTAccessToken(userId, rejectedToken) : undefined
+  try {
+    const [host, apiKey] = await Promise.all([loadBrowserHost(userId), getAccessToken ? resolveChatGPTToken(getAccessToken) : getDecryptedKey(userId, provider)])
+    if ('error' in host) {
+      return host
+    }
+    if (!apiKey) {
+      return { error: `Add an ${provider === 'anthropic' ? 'Anthropic' : 'OpenAI'} API key to use the browser agent.` }
+    }
+    return { provider, model, modelRef, apiKey, getAccessToken, host }
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : 'Could not load the browser agent connection.' }
   }
-  if (!apiKey) {
-    return { error: provider === 'chatgpt' ? 'Connect your ChatGPT subscription in Settings > Connections to use the browser agent.' : `Add an ${provider === 'anthropic' ? 'Anthropic' : 'OpenAI'} API key to use the browser agent.` }
-  }
-  return { provider, model, modelRef, apiKey, host }
 }

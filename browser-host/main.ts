@@ -4,9 +4,12 @@ import type { BrowserActionOutcome, BrowserActionResult, BrowserActionsResponse,
 import { captureJpeg, dispatchLiveInput, runAction, selectTab } from './actions'
 import { createChrome, findChromiumInstall } from './chrome'
 import { dataDir, findBindAddress, loadConfig } from './config'
+import { credentialsFor } from './credentials'
+import { networkAccessFor } from './network-access'
+import { createLocalProtonPass } from './proton-runtime'
 import { activeTab, buildState, createSessionManager, type Session, SessionBusyError, takeNotes } from './session'
 import { createUploadStore, isValidFileId, MAX_UPLOAD_BYTES } from './uploads'
-import { parseActionsRequest, parseLiveInput, RequestError } from './validate'
+import { parseActionsRequest, parseLiveInput, parseNetworkDecision, RequestError } from './validate'
 
 const BIND_RETRY_MS = 10_000
 const EXPIRY_CHECK_MS = 30_000
@@ -48,6 +51,7 @@ const start = async () => {
   }
   const chrome = createChrome(install, join(dataDir, 'profile'))
   const uploads = createUploadStore(join(dataDir, 'uploads'))
+  const protonPass = createLocalProtonPass(dataDir)
   await uploads.clearAll()
   const sessions = createSessionManager(chrome, uploads)
   setInterval(() => {
@@ -56,7 +60,8 @@ const start = async () => {
 
   const handleSession = async (request: Request, session: Session, rest: string[]): Promise<Response> => {
     const [action, fileId] = rest
-    const context = { session, sessions, chrome, uploads }
+    const context = { session, sessions, chrome, uploads, protonPass }
+    const credentials = credentialsFor(session)
     if (request.method === 'DELETE' && rest.length === 0) {
       await sessions.release(session.id)
       return json({ ok: true })
@@ -70,18 +75,25 @@ const start = async () => {
           (err: unknown) => (err instanceof Error ? err.message : String(err)),
         )
         if (selected) {
-          return json({ results: [{ ok: false, error: selected, state: await buildState(session) }] } satisfies BrowserActionsResponse)
+          return json({ results: [{ ok: false, error: credentials.redact(selected), state: await buildState(session) }] } satisfies BrowserActionsResponse)
         }
       }
       for (const entry of body.actions) {
         const outcome = withNotes(await runAction(context, entry), takeNotes(session))
         session.lastUsedAt = Date.now()
         results.push({ ...outcome, state: await buildState(session) })
-        if (!outcome.ok) {
+        if (!outcome.ok || networkAccessFor(session).pending().length) {
           break
         }
       }
-      return json({ results } satisfies BrowserActionsResponse)
+      return json({ results: results.map(result => ({ ...credentials.redactOutcome(result), state: credentials.redactState(result.state) })) } satisfies BrowserActionsResponse)
+    }
+    if (request.method === 'POST' && action === 'network-access' && rest.length === 1) {
+      const { origin, allow } = parseNetworkDecision(await readJson(request))
+      if (!networkAccessFor(session).decide(origin, allow)) {
+        return fail(400, 'No pending local network request for this origin')
+      }
+      return json({ ok: true })
     }
     if (request.method === 'POST' && action === 'show') {
       session.shown = true
@@ -120,7 +132,7 @@ const start = async () => {
     }
     const segments = new URL(request.url).pathname.split('/').filter(Boolean)
     if (request.method === 'GET' && segments.length === 1 && segments[0] === 'health') {
-      return json({ version: install.version, browserRunning: chrome.isConnected(), busySessionId: sessions.busySessionId() } satisfies BrowserHostHealth)
+      return json({ version: install.version, browserRunning: chrome.isConnected(), busySessionId: sessions.busySessionId(), protonPassConfigured: await protonPass.configured() } satisfies BrowserHostHealth)
     }
     if (segments[0] !== 'sessions') {
       return fail(404, 'Not found')

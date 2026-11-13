@@ -80,6 +80,19 @@ describe('runBrowserTask', () => {
     expect(paidAgent).not.toHaveBeenCalled()
   })
 
+  it('passes renewable credentials to the agent after startup and navigation', async () => {
+    const getAccessToken = vi.fn().mockResolvedValue('fresh-token')
+    const agent: BrowserAgent = async run => {
+      expect(run.getAccessToken).toBe(getAccessToken)
+      expect(await run.getAccessToken?.()).toBe('fresh-token')
+      return 'done'
+    }
+    const { context, deps, host } = setup(agent)
+    deps.loadConfig = async () => ({ provider: 'chatgpt', model: 'gpt-5.4', modelRef: 'chatgpt/gpt-5.4', apiKey: 'old-token', getAccessToken, host })
+    expect((await runBrowserTask({ task: 'x', startUrl: 'https://example.com' }, context, deps)).result).toMatch(/^done/)
+    expect(getAccessToken).toHaveBeenCalledOnce()
+  })
+
   it('reports configuration problems without touching the host', async () => {
     const { context, deps } = setup(async () => 'unused', { loadConfig: async () => ({ error: 'Choose a browser agent model in Settings > Tools.' }) })
     expect((await runBrowserTask({ task: 'x' }, context, deps)).result).toBe('Error: Choose a browser agent model in Settings > Tools.')

@@ -40,6 +40,12 @@ describe('mapClientMessage', () => {
     expect(toolCall.progress).toEqual(waiting)
   })
 
+  it('preserves local network approval IDs in folded progress', () => {
+    const progress = { ...waiting, request: { id: 'approval-1', kind: 'local_network', message: 'Allow for this task?', url: 'https://192.168.50.1:8443' } }
+    const [toolCall] = mapClientMessage(message([{ id: 't1', name: 'browser_task', progress }])).toolCalls ?? []
+    expect(toolCall.progress).toEqual(progress)
+  })
+
   it('drops malformed tool progress', () => {
     const [toolCall] = mapClientMessage(message([{ id: 't1', name: 'browser_task', textOffset: 0, done: false, progress: { ...waiting, request: { kind: 'hack', message: 'x', url: '' } } }])).toolCalls ?? []
     expect(toolCall.progress).toBeUndefined()

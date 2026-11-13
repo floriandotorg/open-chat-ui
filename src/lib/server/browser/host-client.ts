@@ -18,6 +18,7 @@ export interface BrowserHost {
   hide: (sessionId: string) => Promise<void>
   frame: (sessionId: string) => Promise<Response>
   input: (sessionId: string, input: BrowserLiveInput) => Promise<void>
+  decideNetworkAccess: (sessionId: string, origin: string, allow: boolean, signal?: AbortSignal) => Promise<void>
   closeSession: (sessionId: string) => Promise<void>
 }
 
@@ -105,6 +106,9 @@ export const createBrowserHost = ({ url, token }: { url: string; token: string }
     frame: sessionId => request(`${session(sessionId)}/frame`, { timeoutMs: 10_000 }),
     input: async (sessionId, input) => {
       await request(`${session(sessionId)}/input`, { method: 'POST', json: input, timeoutMs: 10_000 })
+    },
+    decideNetworkAccess: async (sessionId, origin, allow, signal) => {
+      await request(`${session(sessionId)}/network-access`, { method: 'POST', json: { origin, allow }, signal })
     },
     closeSession: async sessionId => {
       await request(session(sessionId), { method: 'DELETE', timeoutMs: 15_000 })

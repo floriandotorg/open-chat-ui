@@ -95,7 +95,7 @@ export const runBrowserTask = async ({ task, startUrl }: BrowserTaskInput, conte
     if (startUrl) {
       await session.act([{ type: 'navigate', url: startUrl }])
     }
-    const answer = await deps.agents[config.provider]({ task, startUrl, model: config.model, apiKey: config.apiKey, session, usage, signal })
+    const answer = await deps.agents[config.provider]({ task, startUrl, model: config.model, apiKey: config.apiKey, getAccessToken: config.getAccessToken, session, usage, signal })
     return { result: `${answer}\n\nFinal page: ${session.state().url}`, rawResult: formatLog(session.log), cost: await price() }
   } catch (err) {
     const rawResult = session ? formatLog(session.log) : undefined

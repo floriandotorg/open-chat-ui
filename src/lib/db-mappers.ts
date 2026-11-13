@@ -177,7 +177,13 @@ const toUserRequest = (value: unknown): BrowserUserRequest | undefined => {
     return undefined
   }
   const { kind } = value
-  return kind === 'login' || kind === 'captcha' || kind === 'confirm' ? { kind, message: value.message, url: value.url } : undefined
+  if (kind !== 'login' && kind !== 'captcha' && kind !== 'confirm' && kind !== 'local_network') {
+    return undefined
+  }
+  if (kind === 'local_network' && (typeof value.id !== 'string' || !value.id)) {
+    return undefined
+  }
+  return { kind, message: value.message, url: value.url, ...(typeof value.id === 'string' ? { id: value.id } : {}) }
 }
 
 const toToolProgress = (value: unknown): ToolProgress | undefined => {

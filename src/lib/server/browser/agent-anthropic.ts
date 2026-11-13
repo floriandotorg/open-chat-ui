@@ -1,6 +1,7 @@
 import type { BrowserAction, BrowserActionResult, BrowserTarget } from '#lib/browser-protocol.ts'
 import { type BrowserAgent, budgetExhausted, buildAgentSystemPrompt, buildTaskMessage, parseModifiers, REQUEST_USER_DESCRIPTION, REQUEST_USER_PARAMETERS, readUserRequest } from '#lib/server/browser/agent.ts'
 import type { TaskSession } from '#lib/server/browser/task-session.ts'
+import { CREDENTIAL_TOOLS, runCredentialTool } from './agent-credentials'
 import Anthropic from '@anthropic-ai/sdk'
 import { BetaAbstractBrowserToolset20260801, type BetaBrowserNavigateResult, type BetaBrowserState, type BetaScreenshotResult, type BetaToolsetCallContext, ToolError } from '@anthropic-ai/sdk/helpers/beta/toolsets'
 import type {
@@ -332,6 +333,11 @@ const answerTurn = async (toolset: HostBrowserToolset, session: TaskSession, too
       results.push({ type: 'tool_result', tool_use_id: toolUse.id, is_error: true, content: NOT_EXECUTED, ...(toolUse.toolset_name ? { toolset_name: toolUse.toolset_name } : {}) })
       continue
     }
+    const credentialResult = !toolUse.toolset_name ? await runCredentialTool(session, toolUse.name, toolUse.input) : null
+    if (credentialResult !== null) {
+      results.push({ type: 'tool_result', tool_use_id: toolUse.id, content: credentialResult })
+      continue
+    }
     if (toolUse.name === 'request_user' && !toolUse.toolset_name) {
       const request = readUserRequest(toolUse.input)
       const content = request ? (await session.askUser(request.kind, request.message)).message : 'Invalid input: kind must be login, captcha or confirm, and message must be non-empty.'
@@ -361,7 +367,18 @@ export const runAnthropicBrowserAgent: BrowserAgent = async ({ task, startUrl, m
         return exhausted
       }
       messages = pruneScreenshots(messages)
-      const response = await client.beta.messages.create({ model, max_tokens: 16_000, system, tools: [toolset.toJSON(), REQUEST_USER_TOOL], messages: withCacheBreakpoint(messages), thinking: { type: 'adaptive', display: 'omitted' }, output_config: { effort: 'medium' } }, { signal })
+      const response = await client.beta.messages.create(
+        {
+          model,
+          max_tokens: 16_000,
+          system,
+          tools: [toolset.toJSON(), REQUEST_USER_TOOL, ...CREDENTIAL_TOOLS.map(tool => ({ name: tool.name, description: tool.description, input_schema: tool.parameters }))],
+          messages: withCacheBreakpoint(messages),
+          thinking: { type: 'adaptive', display: 'omitted' },
+          output_config: { effort: 'medium' },
+        },
+        { signal },
+      )
       usage.inputTokens += response.usage.input_tokens
       usage.outputTokens += response.usage.output_tokens
       usage.cacheReadInputTokens += response.usage.cache_read_input_tokens ?? 0

@@ -28,6 +28,20 @@ describe('browser sessions', () => {
     expect(getBrowserSession('s1', 'u1')?.pending).toBeNull()
   })
 
+  it('requires the owner and the current approval ID for local access', async () => {
+    register('s1')
+    const first = waitForUser('s1', { ...request, id: 'first', kind: 'local_network' }, { timeoutMs: 1_000 })
+    expect(resolveUserRequest('s1', 'u1', 'done')).toBe(false)
+    expect(resolveUserRequest('s1', 'u2', 'done', 'first')).toBe(false)
+    expect(resolveUserRequest('s1', 'u1', 'done', 'wrong')).toBe(false)
+    expect(resolveUserRequest('s1', 'u1', 'done', 'first')).toBe(true)
+    expect(await first).toBe('done')
+    const second = waitForUser('s1', { ...request, id: 'second', kind: 'local_network' }, { timeoutMs: 1_000 })
+    expect(resolveUserRequest('s1', 'u1', 'done', 'first')).toBe(false)
+    expect(resolveUserRequest('s1', 'u1', 'declined', 'second')).toBe(true)
+    expect(await second).toBe('declined')
+  })
+
   it('times out', async () => {
     register('s1')
     expect(await waitForUser('s1', request, { timeoutMs: 10 })).toBe('timeout')

@@ -10,7 +10,8 @@ let liveViewOpen = $state(false)
 let mutation = $state<Mutation | null>(null)
 const busy = $derived(mutation?.status === 'pending')
 
-const isConfirm = $derived(request.kind === 'confirm')
+const isNetwork = $derived(request.kind === 'local_network')
+const isConfirm = $derived(request.kind === 'confirm' || isNetwork)
 const site = $derived.by(() => {
   try {
     return new URL(request.url).hostname.replace(/^www\./, '')
@@ -18,7 +19,7 @@ const site = $derived.by(() => {
     return ''
   }
 })
-const title = $derived(request.kind === 'login' ? 'Login needed' : request.kind === 'captcha' ? 'Check needed' : 'Approval needed')
+const title = $derived(isNetwork ? 'Local network access' : request.kind === 'login' ? 'Login needed' : request.kind === 'captcha' ? 'Check needed' : 'Approval needed')
 
 const post = (path: string, body?: unknown) => {
   mutation = new Mutation([], { silent: true })
@@ -36,7 +37,7 @@ const post = (path: string, body?: unknown) => {
 
 const resume = async (outcome: BrowserUserOutcome) => {
   liveViewOpen = false
-  await post('resume', { outcome })
+  await post('resume', { outcome, requestId: request.id })
 }
 
 $effect(() => {
@@ -63,14 +64,16 @@ $effect(() => {
   </div>
   <p class="mb-3 text-amber-900/90 dark:text-amber-100/90">{request.message}</p>
   <div class="flex flex-wrap gap-2">
-    <button type="button" disabled={busy} onclick={() => post('show')} class="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-500/40 dark:bg-transparent dark:text-amber-100 dark:hover:bg-amber-500/20">
-      Open on MacBook
-    </button>
-    <button type="button" disabled={busy} onclick={() => (liveViewOpen = true)} class="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-500/40 dark:bg-transparent dark:text-amber-100 dark:hover:bg-amber-500/20">
-      {isConfirm ? 'View browser' : 'Do it here'}
-    </button>
+    {#if !isNetwork}
+      <button type="button" disabled={busy} onclick={() => post('show')} class="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-500/40 dark:bg-transparent dark:text-amber-100 dark:hover:bg-amber-500/20">
+        Open on MacBook
+      </button>
+      <button type="button" disabled={busy} onclick={() => (liveViewOpen = true)} class="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-500/40 dark:bg-transparent dark:text-amber-100 dark:hover:bg-amber-500/20">
+        {isConfirm ? 'View browser' : 'Do it here'}
+      </button>
+    {/if}
     <button type="button" disabled={busy} onclick={() => resume('done')} class="rounded-lg bg-amber-600 px-3 py-1.5 font-medium text-white hover:bg-amber-700 disabled:opacity-50">
-      {isConfirm ? 'Approve' : 'Done'}
+      {isNetwork ? 'Allow for this task' : isConfirm ? 'Approve' : 'Done'}
     </button>
     <button type="button" disabled={busy} onclick={() => resume('declined')} class="rounded-lg px-3 py-1.5 font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:text-amber-100 dark:hover:bg-amber-500/20">
       {isConfirm ? 'Decline' : 'Skip'}

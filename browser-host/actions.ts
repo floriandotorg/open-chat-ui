@@ -1,8 +1,10 @@
 import type { BrowserAction, BrowserActionOutcome, BrowserImage, BrowserLiveInput, BrowserPoint, BrowserTarget } from '#lib/browser-protocol.ts'
 import { type AxNode, findNodes, MAX_READ_CHARS, renderAxTree } from './accessibility'
 import type { Chrome } from './chrome'
+import { credentialsFor } from './credentials'
 import { parseKeyChord, splitKeySequence, toPlaywrightModifier } from './keys'
 import { isAllowedNavigationUrl } from './network-guard'
+import type { ProtonPass } from './proton-pass'
 import { activeTab, cdpFor, type Session, type SessionManager, type Tab } from './session'
 import type { UploadStore } from './uploads'
 import type { Frame, Page, Request } from 'playwright-core'
@@ -22,6 +24,7 @@ export interface ActionContext {
   sessions: SessionManager
   chrome: Chrome
   uploads: UploadStore
+  protonPass?: ProtonPass
 }
 
 class ActionError extends Error {}
@@ -35,9 +38,11 @@ const errorMessage = (err: unknown): string => {
 
 const toImage = (buffer: Buffer, mediaType: BrowserImage['mediaType']): BrowserImage => ({ base64: buffer.toString('base64'), mediaType })
 
-export const captureJpeg = async (page: Page, quality: number): Promise<Buffer> => page.screenshot({ type: 'jpeg', quality, scale: 'css', timeout: 10_000 })
+const secretMasks = (page: Page) => page.frames().map(frame => frame.locator('[data-open-chat-secret], input[type="password"]'))
 
-const SETTLING_ACTIONS = new Set<BrowserAction['type']>(['click', 'drag', 'mouse', 'key', 'file_upload', 'form_input'])
+export const captureJpeg = async (page: Page, quality: number): Promise<Buffer> => page.screenshot({ type: 'jpeg', quality, scale: 'css', mask: secretMasks(page), timeout: 10_000 })
+
+const SETTLING_ACTIONS = new Set<BrowserAction['type']>(['click', 'drag', 'mouse', 'key', 'file_upload', 'form_input', 'credential_fill'])
 
 const watchNavigation = (page: Page) => {
   let requested = false
@@ -192,6 +197,50 @@ const formInput = async (tab: Tab, ref: string, value: string | number | boolean
   return outcome.text
 }
 
+const fillSecret = async (tab: Tab, target: BrowserTarget, value: string) => {
+  if ('ref' in target) {
+    const objectId = await resolveObjectId(tab, target.ref)
+    const cdp = await cdpFor(tab)
+    const { result, exceptionDetails } = await cdp.send('Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration: `function (value) {
+        if (!(this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement) || this.disabled || this.readOnly) {
+          return false
+        }
+        if (this instanceof HTMLInputElement && !['text', 'email', 'password', 'tel', 'url', 'search', 'number'].includes(this.type)) {
+          return false
+        }
+        this.setAttribute('data-open-chat-secret', '')
+        this.focus()
+        const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(this), 'value')?.set
+        if (!setter) {
+          return false
+        }
+        setter.call(this, value)
+        this.dispatchEvent(new Event('input', { bubbles: true }))
+        this.dispatchEvent(new Event('change', { bubbles: true }))
+        return true
+      }`,
+      arguments: [{ value }],
+      returnByValue: true,
+    })
+    if (exceptionDetails || result.value !== true) {
+      throw new ActionError('Select an editable input for credential filling.')
+    }
+    return
+  }
+  await tab.page.mouse.click(target.x, target.y)
+  for (const frame of tab.page.frames()) {
+    const field = frame.locator('input:focus, textarea:focus')
+    if ((await field.count()) === 1) {
+      await field.evaluate(element => element.setAttribute('data-open-chat-secret', ''))
+      await field.fill(value, { timeout: 5_000 })
+      return
+    }
+  }
+  throw new ActionError('Select an editable input for credential filling.')
+}
+
 const fileInputObjectId = async (tab: Tab, ref: string): Promise<string | null> => {
   const objectId = await resolveObjectId(tab, ref)
   const cdp = await cdpFor(tab)
@@ -325,7 +374,7 @@ const execute = async (context: ActionContext, action: BrowserAction): Promise<B
       if (x1 <= x0 || y1 <= y0) {
         throw new ActionError('zoom region must be [x0, y0, x1, y1] with x1 > x0 and y1 > y0.')
       }
-      const buffer = await page.screenshot({ type: 'jpeg', quality: 90, scale: 'device', clip: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }, timeout: 10_000 })
+      const buffer = await page.screenshot({ type: 'jpeg', quality: 90, scale: 'device', mask: secretMasks(page), clip: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }, timeout: 10_000 })
       return { ok: true, image: toImage(buffer, 'image/jpeg') }
     }
     case 'click': {
@@ -395,6 +444,19 @@ const execute = async (context: ActionContext, action: BrowserAction): Promise<B
       const body = content.length > MAX_READ_CHARS ? `${content.slice(0, MAX_READ_CHARS)}\n[Truncated at ${MAX_READ_CHARS} characters.]` : content
       return { ok: true, text: header + body }
     }
+    case 'credential_list': {
+      if (!context.protonPass) {
+        throw new ActionError('Proton Pass is not configured on the browser host.')
+      }
+      return { ok: true, text: JSON.stringify(await credentialsFor(context.session).list(context.protonPass, action.query)) }
+    }
+    case 'credential_fill': {
+      if (!context.protonPass) {
+        throw new ActionError('Proton Pass is not configured on the browser host.')
+      }
+      await credentialsFor(context.session).fill(context.protonPass, action.credentialId, action.field, value => fillSecret(tab, action.target, value))
+      return { ok: true, text: 'Credential field filled. Its value is not returned. Continue the login normally.' }
+    }
     case 'form_input':
       return { ok: true, text: await formInput(tab, action.ref, action.value) }
     case 'file_upload':
@@ -431,9 +493,9 @@ const execute = async (context: ActionContext, action: BrowserAction): Promise<B
 export const runAction = async (context: ActionContext, action: BrowserAction): Promise<BrowserActionOutcome> => {
   const settle = SETTLING_ACTIONS.has(action.type) && context.session.tabs.has(context.session.activeTabId) ? watchNavigation(activeTab(context.session).page) : null
   try {
-    return await execute(context, action)
+    return credentialsFor(context.session).redactOutcome(await execute(context, action))
   } catch (err) {
-    return { ok: false, error: errorMessage(err) }
+    return credentialsFor(context.session).redactOutcome({ ok: false, error: errorMessage(err) })
   } finally {
     await settle?.()
   }

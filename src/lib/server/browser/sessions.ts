@@ -62,9 +62,9 @@ export const waitForUser = (sessionId: string, request: BrowserUserRequest, { ti
   })
 }
 
-export const resolveUserRequest = (sessionId: string, userId: string, outcome: BrowserUserOutcome): boolean => {
+export const resolveUserRequest = (sessionId: string, userId: string, outcome: BrowserUserOutcome, requestId?: string): boolean => {
   const pending = getBrowserSession(sessionId, userId)?.pending
-  if (!pending) {
+  if (!pending || (pending.request.kind === 'local_network' && (!requestId || pending.request.id !== requestId))) {
     return false
   }
   pending.resolve(outcome)

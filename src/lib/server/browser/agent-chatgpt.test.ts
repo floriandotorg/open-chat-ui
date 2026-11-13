@@ -75,10 +75,32 @@ it('sends subscription-compatible requests through the real provider adapter', a
   expect(usage).toEqual({ inputTokens: 16, outputTokens: 10, cacheReadInputTokens: 4, cacheCreationInputTokens: 0 })
 })
 
+it('renews expired authentication mid-task without replaying browser clicks', async () => {
+  const { createChatGPTProvider } = await vi.importActual<typeof import('#lib/server/providers/chatgpt.ts')>('#lib/server/providers/chatgpt.ts')
+  mocks.createProvider.mockImplementation(createChatGPTProvider)
+  const completed = { type: 'response.completed', response: { usage: { input_tokens: 10, output_tokens: 5, input_tokens_details: { cached_tokens: 2 } } } }
+  const sse = (events: unknown[]) => new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } })
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(sse([{ type: 'response.output_item.added', item: { type: 'function_call', id: 'item-1', call_id: 'call-1', namespace: 'app', name: 'browser_action' } }, { type: 'response.function_call_arguments.done', item_id: 'item-1', arguments: '{"type":"click","x":40,"y":50}' }, completed]))
+    .mockResolvedValueOnce(Response.json({ error: { message: 'Provided authentication token is expired', type: 'invalid_request_error', code: 'invalid_api_key' } }, { status: 401 }))
+    .mockResolvedValueOnce(sse([{ type: 'response.output_text.delta', delta: 'Finished after renewal.' }, completed]))
+  vi.stubGlobal('fetch', fetchMock)
+  const getAccessToken = vi.fn().mockResolvedValueOnce('old-token').mockResolvedValueOnce('old-token').mockResolvedValue('renewed-token')
+  const { run, calls, usage } = setup()
+  expect(await runChatGPTBrowserAgent({ ...run, getAccessToken })).toBe('Finished after renewal.')
+  expect(fetchMock).toHaveBeenCalledTimes(3)
+  expect(fetchMock.mock.calls.map(([, init]) => new Headers(init.headers).get('authorization'))).toEqual(['Bearer old-token', 'Bearer old-token', 'Bearer renewed-token'])
+  expect(fetchMock.mock.calls[2][1].body).toBe(fetchMock.mock.calls[1][1].body)
+  expect(getAccessToken.mock.calls).toEqual([[], [], ['old-token']])
+  expect(calls.flatMap(call => call.actions).filter(action => action.type === 'click')).toHaveLength(1)
+  expect(usage).toEqual({ inputTokens: 16, outputTokens: 10, cacheReadInputTokens: 4, cacheCreationInputTokens: 0 })
+})
+
 it('uses only the ChatGPT provider and ordinary browser function tools', async () => {
   const { run, usage } = setup()
   expect(await runChatGPTBrowserAgent(run)).toBe('Finished.')
-  expect(mocks.createProvider).toHaveBeenCalledWith('plan-token')
+  expect(mocks.createProvider).toHaveBeenCalledWith('plan-token', undefined)
   expect(mocks.chat.mock.calls[0][0]).toMatchObject({ model: 'gpt-5.4', thinkingEffort: 'medium', messages: [{ role: 'user', images: [{ data: 'aGk=', mimeType: 'image/jpeg' }] }] })
   expect(mocks.chat.mock.calls[0][0].tools.map((tool: { name: string }) => tool.name)).toEqual(expect.arrayContaining(['browser_action', 'navigate', 'read_page_text', 'request_user']))
   expect(usage).toEqual({ inputTokens: 10, outputTokens: 5, cacheReadInputTokens: 2, cacheCreationInputTokens: 0 })

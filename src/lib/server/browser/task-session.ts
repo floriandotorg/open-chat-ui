@@ -1,4 +1,4 @@
-import type { BrowserAction, BrowserActionResult, BrowserStagedFile, BrowserState, BrowserUserRequestKind } from '#lib/browser-protocol.ts'
+import type { BrowserAction, BrowserActionResult, BrowserStagedFile, BrowserState, BrowserUserRequest, BrowserUserRequestKind } from '#lib/browser-protocol.ts'
 import type { BrowserHost } from '#lib/server/browser/host-client.ts'
 import { type UserWaitOutcome, waitForUser } from '#lib/server/browser/sessions.ts'
 import type { ToolProgress } from '#lib/types.ts'
@@ -47,6 +47,10 @@ export const describeAction = (action: BrowserAction): string => {
     case 'find':
     case 'page_text':
       return 'Reading the page'
+    case 'credential_list':
+      return 'Looking up Proton Pass logins'
+    case 'credential_fill':
+      return 'Filling a credential privately'
     case 'form_input':
       return 'Filling in a field'
     case 'file_upload':
@@ -94,6 +98,20 @@ export const createTaskSession = ({ host, sessionId, initialState, files, signal
 
   const report = (progress: Omit<ToolProgress, 'sessionId' | 'step'>) => emitProgress?.({ sessionId, step: steps, ...progress })
 
+  const waitForAnswer = async (request: BrowserUserRequest): Promise<Exclude<UserWaitOutcome, 'aborted'>> => {
+    log.push(`Asked you: ${request.message}`)
+    const waitStartedAt = now()
+    const waiting = waitForUser(sessionId, request, { timeoutMs: userWaitMs, signal })
+    report({ status: 'waiting_for_user', summary: request.message, request })
+    const outcome = await waiting
+    waitedMs += now() - waitStartedAt
+    if (outcome === 'aborted') {
+      throw new DOMException('Browser task stopped', 'AbortError')
+    }
+    log.push(outcome === 'done' ? 'You finished' : outcome === 'declined' ? 'You declined' : 'No answer')
+    return outcome
+  }
+
   const act = async (actions: BrowserAction[], tabId?: string): Promise<BrowserActionResult[]> => {
     if (actions.length === 0) {
       return []
@@ -105,6 +123,27 @@ export const createTaskSession = ({ host, sessionId, initialState, files, signal
       log.push(result.ok ? describeAction(actions[n]) : `${describeAction(actions[n])} (failed: ${result.error})`)
       state = result.state
     }
+    if (!results.length) {
+      return results
+    }
+    for (const origin of state.localNetworkRequests ?? []) {
+      const outcome = await waitForAnswer({
+        id: crypto.randomUUID(),
+        kind: 'local_network',
+        url: origin,
+        message: `Allow access to ${origin} for this task only? The browser agent and pages in this task will be able to contact this local service. Other local origins remain blocked.`,
+      })
+      signal?.throwIfAborted()
+      const allowed = outcome === 'done'
+      await host.decideNetworkAccess(sessionId, origin, allowed, signal)
+      const note = allowed
+        ? `Local network access approved for ${origin} for this task only. Blocked requests were not replayed. Inspect the page and navigate or reload if needed; do not blindly repeat submissions or clicks.`
+        : `Local network access to ${origin} was not approved and remains blocked for this task. Do not try to bypass this decision.`
+      log.push(note)
+      state = { ...state, localNetworkRequests: state.localNetworkRequests?.filter(pending => pending !== origin) }
+      const result = results[results.length - 1]
+      results[results.length - 1] = result.ok ? { ...result, state, text: [result.text, note].filter(Boolean).join('\n') } : { ...result, state, error: `${result.error}\n${note}` }
+    }
     const attempted = actions.slice(0, results.length)
     const last = attempted.findLast(action => action.type !== 'screenshot') ?? attempted[0]
     const site = hostnameOf(state.url)
@@ -114,16 +153,7 @@ export const createTaskSession = ({ host, sessionId, initialState, files, signal
   }
 
   const askUser = async (kind: BrowserUserRequestKind, message: string): Promise<{ outcome: Exclude<UserWaitOutcome, 'aborted'>; message: string }> => {
-    const request = { kind, message, url: state.url }
-    log.push(`Asked you: ${message}`)
-    report({ status: 'waiting_for_user', summary: message, request })
-    const waitStartedAt = now()
-    const outcome = await waitForUser(sessionId, request, { timeoutMs: userWaitMs, signal })
-    waitedMs += now() - waitStartedAt
-    if (outcome === 'aborted') {
-      throw new DOMException('Browser task stopped', 'AbortError')
-    }
-    log.push(outcome === 'done' ? 'You finished' : outcome === 'declined' ? 'You declined' : 'No answer')
+    const outcome = await waitForAnswer({ kind, message, url: state.url })
     await host.hide(sessionId).catch(() => {})
     const refreshed = await host.actions(sessionId, { actions: [{ type: 'tab_list' }] }, signal).catch(() => null)
     const latest = refreshed?.results.at(-1)

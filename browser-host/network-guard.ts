@@ -1,5 +1,6 @@
 import { lookup } from 'node:dns/promises'
-import type { BrowserContext } from 'playwright-core'
+import type { NetworkAccess } from './network-access'
+import type { BrowserContext, Page, WebSocketRoute } from 'playwright-core'
 
 const BLOCKED_NAME_SUFFIXES = ['.localhost', '.local', '.ts.net', '.internal', '.lan', '.home.arpa']
 const NAVIGATION_PROTOCOLS = new Set(['http:', 'https:'])
@@ -177,7 +178,23 @@ export const createHostChecker = (resolve: LookupAll = lookupAll, ttlMs = LOOKUP
   return { isBlocked, cachedVerdict }
 }
 
-export const installNetworkGuard = async (context: BrowserContext, checker = createHostChecker()) => {
+const pageAccess = new WeakMap<object, NetworkAccess>()
+
+const guardWebSocket = async (ws: WebSocketRoute, checker: ReturnType<typeof createHostChecker>, access?: NetworkAccess) => {
+  const parsed = parseUrl(ws.url())
+  if (!parsed || ((await checker.isBlocked(parsed.hostname)) && !access?.request(parsed.origin))) {
+    await ws.close({ code: 1008, reason: 'Local network access requires approval for this task' })
+    return
+  }
+  ws.connectToServer()
+}
+
+export const bindNetworkAccess = async (page: Pick<Page, 'routeWebSocket'>, access: NetworkAccess, checker = createHostChecker()) => {
+  pageAccess.set(page, access)
+  await page.routeWebSocket('**/*', ws => guardWebSocket(ws, checker, access))
+}
+
+export const installNetworkGuard = async (context: Pick<BrowserContext, 'route' | 'routeWebSocket'>, checker = createHostChecker()) => {
   await context.route('**/*', async route => {
     const url = route.request().url()
     const parsed = parseUrl(url)
@@ -186,13 +203,16 @@ export const installNetworkGuard = async (context: BrowserContext, checker = cre
       return
     }
     if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && (await checker.isBlocked(parsed.hostname))) {
-      await route.abort('blockedbyclient')
-      return
+      let access: NetworkAccess | undefined
+      try {
+        access = pageAccess.get(route.request().frame().page())
+      } catch {}
+      if (!access?.request(parsed.origin)) {
+        await route.abort('blockedbyclient')
+        return
+      }
     }
     await route.continue()
   })
-  await context.routeWebSocket(
-    url => isBlockedHostname(url.hostname) || checker.cachedVerdict(url.hostname) === true,
-    ws => ws.close({ code: 1008, reason: 'Blocked by browser host network policy' }),
-  )
+  await context.routeWebSocket('**/*', ws => guardWebSocket(ws, checker))
 }

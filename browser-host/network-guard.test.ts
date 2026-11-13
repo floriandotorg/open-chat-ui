@@ -1,5 +1,58 @@
-import { isAllowedNavigationUrl, isAllowedRequestUrl, isBlockedAddress, isBlockedHostname } from './network-guard'
-import { describe, expect, it } from 'vitest'
+import { createNetworkAccess } from './network-access'
+import { bindNetworkAccess, createHostChecker, installNetworkGuard, isAllowedNavigationUrl, isAllowedRequestUrl, isBlockedAddress, isBlockedHostname } from './network-guard'
+import type { BrowserContext, Page } from 'playwright-core'
+import { describe, expect, it, vi } from 'vitest'
+
+describe('network approval enforcement', () => {
+  const setup = async () => {
+    const checker = createHostChecker(async () => ['192.168.50.1'])
+    const context = { route: vi.fn<BrowserContext['route']>().mockResolvedValue({ dispose: async () => {}, [Symbol.asyncDispose]: async () => {} }), routeWebSocket: vi.fn<BrowserContext['routeWebSocket']>().mockResolvedValue(undefined) }
+    const page = { routeWebSocket: vi.fn<Page['routeWebSocket']>().mockResolvedValue(undefined) }
+    const access = createNetworkAccess()
+    await installNetworkGuard(context, checker)
+    await bindNetworkAccess(page, access, checker)
+    const request = async (url: string, owner: object = page) => {
+      const route = { request: () => ({ url: () => url, frame: () => ({ page: () => owner }) }), abort: vi.fn(), continue: vi.fn() }
+      await Reflect.apply(context.route.mock.calls[0][1], undefined, [route])
+      return route
+    }
+    const websocket = async (url: string, owned = true) => {
+      const ws = { url: () => url, close: vi.fn(), connectToServer: vi.fn() }
+      const target = owned ? page : context
+      await Reflect.apply(target.routeWebSocket.mock.calls[0][1], undefined, [ws])
+      return ws
+    }
+    return { access, request, websocket }
+  }
+
+  it.each(['https://192.168.50.1:8443', 'http://router.local', 'https://public-name.example'])('gates requests to %s including DNS-resolved private addresses', async origin => {
+    const { access, request } = await setup()
+    expect((await request(`${origin}/login`)).abort).toHaveBeenCalledWith('blockedbyclient')
+    expect(access.pending()).toEqual([origin])
+    access.decide(origin, true)
+    expect((await request(`${origin}/login`)).continue).toHaveBeenCalledOnce()
+    expect((await request(`${origin}/login`, {})).abort).toHaveBeenCalledOnce()
+    access.dispose()
+    expect((await request(`${origin}/login`)).abort).toHaveBeenCalledOnce()
+  })
+
+  it('requires matching WebSocket origin approval and preserves default-deny for other pages', async () => {
+    const { access, websocket } = await setup()
+    const origin = 'wss://192.168.50.1:8443'
+    expect((await websocket(`${origin}/events`)).close).toHaveBeenCalledOnce()
+    expect(access.pending()).toEqual([origin])
+    access.decide(origin, true)
+    expect((await websocket(`${origin}/events`)).connectToServer).toHaveBeenCalledOnce()
+    expect((await websocket(`${origin}/events`, false)).close).toHaveBeenCalledOnce()
+  })
+
+  it('preserves protocol restrictions and allows public literal addresses without approval', async () => {
+    const { access, request } = await setup()
+    expect((await request('file:///etc/passwd')).abort).toHaveBeenCalledOnce()
+    expect((await request('https://8.8.8.8')).continue).toHaveBeenCalledOnce()
+    expect(access.pending()).toEqual([])
+  })
+})
 
 describe('isBlockedAddress', () => {
   it('blocks loopback, private, CGNAT and link-local IPv4', () => {

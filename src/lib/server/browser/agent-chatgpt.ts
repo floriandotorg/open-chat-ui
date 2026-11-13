@@ -80,9 +80,9 @@ const pruneScreenshots = (messages: ChatMessage[]) => {
   }
 }
 
-export const runChatGPTBrowserAgent: BrowserAgent = async ({ task, startUrl, model, apiKey, session, usage, signal }) => {
+export const runChatGPTBrowserAgent: BrowserAgent = async ({ task, startUrl, model, apiKey, getAccessToken, session, usage, signal }) => {
   signal?.throwIfAborted()
-  const provider = createChatGPTProvider(apiKey)
+  const provider = createChatGPTProvider(apiKey, getAccessToken)
   const runner = createRunner(session)
   const systemPrompt = buildAgentSystemPrompt({
     files: session.files,

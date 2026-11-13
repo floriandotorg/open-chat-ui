@@ -32,6 +32,7 @@ export const createFakeHost = (respond: (action: BrowserAction, tabId?: string) 
     },
     frame: unused,
     input: unused,
+    decideNetworkAccess: unused,
     closeSession: async () => {},
   }
   return { host, calls, hidden }

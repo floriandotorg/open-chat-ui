@@ -67,6 +67,14 @@ const region = (value: unknown): [number, number, number, number] => {
   return [number(value[0], 'region[0]'), number(value[1], 'region[1]'), number(value[2], 'region[2]'), number(value[3], 'region[3]')]
 }
 
+export const parseNetworkDecision = (value: unknown): { origin: string; allow: boolean } => {
+  const body = record(value, 'decision')
+  if (typeof body.allow !== 'boolean') {
+    throw new RequestError('allow must be a boolean')
+  }
+  return { origin: string(body.origin, 'origin'), allow: body.allow }
+}
+
 export const parseAction = (value: unknown): BrowserAction => {
   const action = record(value, 'action')
   const type = string(action.type, 'action.type')
@@ -122,6 +130,10 @@ export const parseAction = (value: unknown): BrowserAction => {
       }
       return { type, ref: string(action.ref, 'ref'), value: formValue }
     }
+    case 'credential_list':
+      return { type, query: optionalString(action.query, 'query') ?? '' }
+    case 'credential_fill':
+      return { type, credentialId: string(action.credentialId, 'credentialId'), field: oneOf(action.field, ['username', 'email', 'password', 'totp'] as const, 'field'), target: target(action.target, 'target') }
     case 'file_upload':
       return { type, target: target(action.target, 'target'), fileIds: stringArray(action.fileIds, 'fileIds') }
     case 'tab_new': {

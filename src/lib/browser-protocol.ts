@@ -5,6 +5,7 @@ export type BrowserPoint = { x: number; y: number }
 export type BrowserTarget = BrowserPoint | { ref: string }
 export type BrowserMouseButton = 'left' | 'right' | 'middle'
 export type BrowserModifier = 'shift' | 'ctrl' | 'alt' | 'meta'
+export type BrowserCredentialField = 'username' | 'email' | 'password' | 'totp'
 
 export type BrowserAction =
   | { type: 'navigate'; url: string }
@@ -25,6 +26,8 @@ export type BrowserAction =
   | { type: 'page_text' }
   | { type: 'form_input'; ref: string; value: string | number | boolean }
   | { type: 'file_upload'; target: BrowserTarget; fileIds: string[] }
+  | { type: 'credential_list'; query: string }
+  | { type: 'credential_fill'; credentialId: string; field: BrowserCredentialField; target: BrowserTarget }
   | { type: 'tab_new'; url?: string }
   | { type: 'tab_switch'; tabId: string }
   | { type: 'tab_close'; tabId: string }
@@ -41,6 +44,7 @@ export interface BrowserState {
   activeTabId: string
   url: string
   viewport: { width: number; height: number }
+  localNetworkRequests?: string[]
 }
 
 export interface BrowserImage {
@@ -76,13 +80,15 @@ export interface BrowserHostHealth {
   version: string
   browserRunning: boolean
   busySessionId: string | null
+  protonPassConfigured?: boolean
 }
 
 export type BrowserLiveInput = { type: 'pointer'; event: 'down' | 'up' | 'move'; x: number; y: number; button?: BrowserMouseButton } | { type: 'tap'; x: number; y: number } | { type: 'wheel'; x: number; y: number; deltaX: number; deltaY: number } | { type: 'key'; key: string } | { type: 'text'; text: string }
 
-export type BrowserUserRequestKind = 'login' | 'captcha' | 'confirm'
+export type BrowserUserRequestKind = 'login' | 'captcha' | 'confirm' | 'local_network'
 
 export interface BrowserUserRequest {
+  id?: string
   kind: BrowserUserRequestKind
   message: string
   url: string

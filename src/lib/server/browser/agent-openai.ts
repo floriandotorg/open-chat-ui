@@ -1,6 +1,7 @@
 import type { BrowserAction, BrowserActionResult } from '#lib/browser-protocol.ts'
 import { type BrowserAgent, budgetExhausted, buildAgentSystemPrompt, buildTaskMessage, parseModifiers, REQUEST_USER_DESCRIPTION, REQUEST_USER_PARAMETERS, readUserRequest } from '#lib/server/browser/agent.ts'
 import type { TaskSession } from '#lib/server/browser/task-session.ts'
+import { CREDENTIAL_TOOLS, runCredentialTool } from './agent-credentials'
 import OpenAI from 'openai'
 import type { ComputerAction, FunctionTool, ResponseComputerToolCall, ResponseFunctionCallOutputItemList, ResponseFunctionToolCall, ResponseInputItem, Tool } from 'openai/resources/responses/responses'
 
@@ -52,6 +53,7 @@ const FUNCTION_TOOLS: FunctionTool[] = [
   functionTool('go_back', 'Go back to the previous page in the current tab.', {}, []),
   functionTool('read_page_text', 'Return the visible text of the current page. Use it to read long content instead of scrolling through screenshots.', {}, []),
   functionTool('request_user', REQUEST_USER_DESCRIPTION, REQUEST_USER_PARAMETERS.properties, REQUEST_USER_PARAMETERS.required),
+  ...CREDENTIAL_TOOLS.map(tool => ({ type: 'function' as const, ...tool, strict: true })),
 ]
 
 const UPLOAD_TOOL = functionTool(
@@ -123,6 +125,10 @@ export const createRunner = (session: TaskSession) => {
 
   const runFunction = async (call: Pick<ResponseFunctionToolCall, 'name' | 'arguments'>): Promise<string | ResponseFunctionCallOutputItemList> => {
     const args = parseArguments(call.arguments)
+    const credentialResult = await runCredentialTool(session, call.name, args)
+    if (credentialResult !== null) {
+      return credentialResult
+    }
     if (call.name === 'navigate') {
       if (typeof args.url !== 'string') {
         return 'Error: url is required.'

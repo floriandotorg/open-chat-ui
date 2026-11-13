@@ -129,7 +129,7 @@ export const buildResponsesParams = (request: ChatRequest, billing: ResponsesBil
   return params
 }
 
-export type ResponsesErrorFormatter = (error: { code?: string; message: string }) => string
+export type ResponsesErrorFormatter = (error: { code?: string; status?: number; message: string }) => string
 
 export async function* streamResponses(client: OpenAI, request: ChatRequest, billing: ResponsesBilling, formatError: ResponsesErrorFormatter = ({ message }) => message): AsyncGenerator<ChatStreamEvent> {
   const params = buildResponsesParams(request, billing)
@@ -172,7 +172,7 @@ export async function* streamResponses(client: OpenAI, request: ChatRequest, bil
       failed = 'The response ended before it completed'
     }
 
-    if (failed && toolCalls.size === 0) {
+    if (failed && (billing === 'plan' || toolCalls.size === 0)) {
       yield { type: 'error', error: failed }
       return
     }
@@ -192,7 +192,8 @@ export async function* streamResponses(client: OpenAI, request: ChatRequest, bil
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     const code = err && typeof err === 'object' && 'code' in err && typeof err.code === 'string' ? err.code : undefined
-    yield { type: 'error', error: formatError({ code, message }) }
+    const status = err && typeof err === 'object' && 'status' in err && typeof err.status === 'number' ? err.status : undefined
+    yield { type: 'error', error: formatError({ code, status, message }) }
   }
 }
 

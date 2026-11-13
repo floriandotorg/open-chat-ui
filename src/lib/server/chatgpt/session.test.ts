@@ -240,6 +240,37 @@ describe('getChatGPTAccessToken', () => {
     expect(record('u1', CHATGPT_PROVIDER).tokens).toMatchObject({ accessToken: 'access-2', refreshToken: 'refresh-2' })
   })
 
+  it('refreshes a rejected token even when the stored expiry is still in the future', async () => {
+    await connect()
+    oauth.refreshTokens.mockResolvedValue(tokens({ accessToken: 'access-2', refreshToken: 'refresh-2' }))
+    expect(await getChatGPTAccessToken('u1', 'access-1')).toBe('access-2')
+    expect(oauth.refreshTokens).toHaveBeenCalledTimes(1)
+  })
+
+  it('reuses a newer token when another request already refreshed the rejected one', async () => {
+    await connect()
+    oauth.refreshTokens.mockResolvedValue(tokens({ accessToken: 'access-2', refreshToken: 'refresh-2' }))
+    const results = await Promise.all([getChatGPTAccessToken('u1', 'access-1'), getChatGPTAccessToken('u1', 'access-1')])
+    expect(results).toEqual(['access-2', 'access-2'])
+    expect(await getChatGPTAccessToken('u1', 'access-1')).toBe('access-2')
+    expect(oauth.refreshTokens).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not lose forced refresh behind an in-flight normal token lookup', async () => {
+    await connect()
+    oauth.refreshTokens.mockResolvedValue(tokens({ accessToken: 'access-2' }))
+    const results = await Promise.all([getChatGPTAccessToken('u1'), getChatGPTAccessToken('u1', 'access-1'), getChatGPTAccessToken('u1', 'access-1')])
+    expect(results).toEqual(['access-1', 'access-2', 'access-2'])
+    expect(oauth.refreshTokens).toHaveBeenCalledTimes(1)
+  })
+
+  it('never returns a rejected token as the temporary-refresh fallback', async () => {
+    await connect()
+    oauth.refreshTokens.mockRejectedValue(new OAuthError('http_503', 'unavailable'))
+    await expect(getChatGPTAccessToken('u1', 'access-1')).rejects.toThrow('unavailable')
+    expect(record('u1', CHATGPT_PROVIDER)).not.toBeNull()
+  })
+
   it('clears the session after a terminal refresh error', async () => {
     oauth.exchangeCode.mockResolvedValue(tokens({ expiresAt: Date.now() + 60_000 }))
     await connect()

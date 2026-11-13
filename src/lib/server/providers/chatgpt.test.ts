@@ -28,9 +28,9 @@ vi.mock('openai', () => ({
   },
 }))
 
-const collect = async (request: ChatRequest) => {
+const collect = async (request: ChatRequest, getAccessToken?: (rejectedToken?: string) => Promise<string | null>) => {
   const events: ChatStreamEvent[] = []
-  for await (const event of createChatGPTProvider('access-token').chat(request)) {
+  for await (const event of createChatGPTProvider('access-token', getAccessToken).chat(request)) {
     events.push(event)
   }
   return events
@@ -134,6 +134,117 @@ describe('chatgpt provider chat', () => {
     mocks.events = [failed('subscription_sharing_unsupported_capability', 'Unsupported tool: image_generation')]
     const events = await collect({ model: 'gpt-6.1-sol', messages: [{ role: 'user', content: 'Hi' }] })
     expect(events).toEqual([{ type: 'error', error: 'Unsupported tool: image_generation' }])
+  })
+})
+
+describe('automatic ChatGPT authentication recovery', () => {
+  const request: ChatRequest = { model: 'gpt-5.4', messages: [{ role: 'user', content: 'Hello' }] }
+  const expired = Object.assign(new Error('401 Provided authentication token is expired'), { status: 401, code: 'invalid_api_key' })
+
+  it('loads a fresh token immediately before every request', async () => {
+    const getAccessToken = vi.fn().mockResolvedValueOnce('fresh-1').mockResolvedValueOnce('fresh-2')
+    const provider = createChatGPTProvider('stale-token', getAccessToken)
+    await Array.fromAsync(provider.chat(request))
+    await Array.fromAsync(provider.chat(request))
+    expect(mocks.clientOptions.map(options => options.apiKey)).toEqual(['fresh-1', 'fresh-2'])
+    expect(getAccessToken.mock.calls).toEqual([[], []])
+  })
+
+  it('refreshes once on a 401 and retries only the failed model request', async () => {
+    mocks.createFailure = expired
+    const getAccessToken = vi
+      .fn()
+      .mockResolvedValueOnce('fresh-token')
+      .mockImplementationOnce(async () => {
+        mocks.createFailure = null
+        return 'renewed-token'
+      })
+    const events = await collect(request, getAccessToken)
+    expect(getAccessToken.mock.calls).toEqual([[], ['fresh-token']])
+    expect(mocks.clientOptions.map(options => options.apiKey)).toEqual(['fresh-token', 'renewed-token'])
+    expect(mocks.createArgs[1]).toEqual(mocks.createArgs[0])
+    expect(events.map(event => event.type)).toEqual(['text_delta', 'usage', 'done'])
+  })
+
+  it('recovers from token expiry reported in an SSE error', async () => {
+    mocks.events = [failed('token_expired', 'Provided authentication token is expired')]
+    const getAccessToken = vi
+      .fn()
+      .mockResolvedValueOnce('fresh-token')
+      .mockImplementationOnce(async () => {
+        mocks.events = [completed]
+        return 'renewed-token'
+      })
+    expect((await collect(request, getAccessToken)).map(event => event.type)).toEqual(['usage', 'done'])
+    expect(getAccessToken).toHaveBeenLastCalledWith('fresh-token')
+  })
+
+  it('stops after one retry and gives an actionable sign-in message', async () => {
+    mocks.createFailure = expired
+    const getAccessToken = vi.fn().mockResolvedValueOnce('fresh-token').mockResolvedValue('renewed-token')
+    const events = await collect(request, getAccessToken)
+    expect(mocks.createArgs).toHaveLength(2)
+    expect(getAccessToken).toHaveBeenCalledTimes(2)
+    expect(events).toEqual([{ type: 'error', error: expect.stringContaining('Settings > Connections') }])
+    expect(events[0].error).not.toContain('401')
+  })
+
+  it('does not refresh for quota or other non-authentication errors', async () => {
+    mocks.createFailure = Object.assign(new Error('429 too many requests'), { status: 429 })
+    const getAccessToken = vi.fn().mockResolvedValue('fresh-token')
+    expect(await collect(request, getAccessToken)).toEqual([{ type: 'error', error: '429 too many requests' }])
+    expect(getAccessToken.mock.calls).toEqual([[]])
+    expect(mocks.createArgs).toHaveLength(1)
+  })
+
+  it('never retries a partially delivered response', async () => {
+    mocks.events = [{ type: 'response.output_text.delta', delta: 'Partial' }, failed('token_expired')]
+    const getAccessToken = vi.fn().mockResolvedValue('fresh-token')
+    const events = await collect(request, getAccessToken)
+    expect(events.map(event => event.type)).toEqual(['text_delta', 'error'])
+    expect(getAccessToken).toHaveBeenCalledTimes(1)
+    expect(mocks.createArgs).toHaveLength(1)
+  })
+
+  it('does not execute partial tool calls from an authentication failure', async () => {
+    mocks.events = [{ type: 'response.output_item.added', item: { type: 'function_call', id: 'item-1', call_id: 'call-1', name: 'browser_action' } }, failed('token_expired')]
+    const getAccessToken = vi
+      .fn()
+      .mockResolvedValueOnce('fresh-token')
+      .mockImplementationOnce(async () => {
+        mocks.events = [completed]
+        return 'renewed-token'
+      })
+    const events = await collect(request, getAccessToken)
+    expect(events.map(event => event.type)).toEqual(['usage', 'done'])
+    expect(getAccessToken).toHaveBeenLastCalledWith('fresh-token')
+  })
+
+  it('does not contact the model when the connection was revoked', async () => {
+    const events = await collect(request, vi.fn().mockResolvedValue(null))
+    expect(events).toEqual([{ type: 'error', error: expect.stringContaining('Settings > Connections') }])
+    expect(mocks.createArgs).toHaveLength(0)
+  })
+
+  it('keeps temporary renewal failures distinct from a revoked connection', async () => {
+    const events = await collect(request, vi.fn().mockRejectedValue(new Error('503 unavailable')))
+    expect(events).toEqual([{ type: 'error', error: expect.stringContaining('Try again') }])
+    expect(events[0].error).not.toContain('Settings > Connections')
+    expect(mocks.createArgs).toHaveLength(0)
+  })
+
+  it('does not retry after cancellation while refreshing', async () => {
+    const controller = new AbortController()
+    mocks.createFailure = expired
+    const getAccessToken = vi
+      .fn()
+      .mockResolvedValueOnce('fresh-token')
+      .mockImplementationOnce(async () => {
+        controller.abort()
+        return 'renewed-token'
+      })
+    await collect({ ...request, signal: controller.signal }, getAccessToken)
+    expect(mocks.createArgs).toHaveLength(1)
   })
 })
 

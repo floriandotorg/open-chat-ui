@@ -1,11 +1,14 @@
 import { BROWSER_VIEWPORT, type BrowserState } from '#lib/browser-protocol.ts'
 import { createRefRegistry, type RefRegistry } from './accessibility'
 import type { Chrome } from './chrome'
+import { credentialsFor } from './credentials'
+import { networkAccessFor } from './network-access'
+import { bindNetworkAccess } from './network-guard'
 import type { UploadStore } from './uploads'
 import type { Subprocess } from 'bun'
 import type { BrowserContext, CDPSession, Page } from 'playwright-core'
 
-export const SESSION_IDLE_MS = 10 * 60_000
+export const SESSION_IDLE_MS = 20 * 60_000
 const STATE_TIMEOUT_MS = 2_000
 
 export interface Tab {
@@ -68,7 +71,7 @@ export const buildState = async (session: Session): Promise<BrowserState> => {
         { ...BROWSER_VIEWPORT },
       )
     : { ...BROWSER_VIEWPORT }
-  return { tabs, activeTabId: session.activeTabId, url: active?.page.url() ?? '', viewport }
+  return credentialsFor(session).redactState({ tabs, activeTabId: session.activeTabId, url: active?.page.url() ?? '', viewport, localNetworkRequests: networkAccessFor(session).pending() })
 }
 
 export const takeNotes = (session: Session): string[] => session.notes.splice(0)
@@ -99,7 +102,7 @@ export const createSessionManager = (chrome: Chrome, uploads: UploadStore) => {
     }
   }
 
-  const adoptPage = (session: Session, page: Page): Tab => {
+  const adoptPage = async (session: Session, page: Page): Promise<Tab> => {
     const tab: Tab = { id: `tab_${session.nextTabNumber++}`, page, refs: createRefRegistry(), cdp: null }
     session.tabs.set(tab.id, tab)
     session.activeTabId = tab.id
@@ -123,6 +126,8 @@ export const createSessionManager = (chrome: Chrome, uploads: UploadStore) => {
         removeTab(session, tab.id)
       }
     })
+    await bindNetworkAccess(page, networkAccessFor(session))
+    await (await cdpFor(tab)).send('Network.setBypassServiceWorker', { bypass: true })
     return tab
   }
 
@@ -137,7 +142,7 @@ export const createSessionManager = (chrome: Chrome, uploads: UploadStore) => {
       if (!session || !opener || ![...session.tabs.values()].some(tab => tab.page === opener)) {
         return
       }
-      adoptPage(session, page)
+      await adoptPage(session, page)
       session.notes.push('A new tab opened and is now active.')
       await keepHidden(session, page)
     })
@@ -154,7 +159,7 @@ export const createSessionManager = (chrome: Chrome, uploads: UploadStore) => {
   const openTab = async (session: Session, url?: string): Promise<Tab> => {
     const context = await chrome.ensure()
     const page = await context.newPage()
-    const tab = adoptPage(session, page)
+    const tab = await adoptPage(session, page)
     await keepHidden(session, page)
     if (url) {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
@@ -210,6 +215,7 @@ export const createSessionManager = (chrome: Chrome, uploads: UploadStore) => {
       return
     }
     current = null
+    networkAccessFor(session).dispose()
     session.caffeinate?.kill()
     const pages = [...session.tabs.values()].map(tab => tab.page)
     session.tabs.clear()

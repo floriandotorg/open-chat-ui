@@ -10,7 +10,8 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   if (outcome !== 'done' && outcome !== 'declined') {
     throw error(400, 'outcome must be done or declined')
   }
-  if (!resolveUserRequest(params.id, userId, outcome)) {
+  const requestId = typeof body === 'object' && body !== null && 'requestId' in body && typeof body.requestId === 'string' ? body.requestId : undefined
+  if (!resolveUserRequest(params.id, userId, outcome, requestId)) {
     throw error(404, 'Nothing is waiting for you in this browser session')
   }
   return new Response(null, { status: 204 })
