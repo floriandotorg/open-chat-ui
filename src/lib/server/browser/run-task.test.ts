@@ -3,9 +3,11 @@ import { createFakeHost } from '#lib/server/browser/fake-host.ts'
 import { BrowserHostError } from '#lib/server/browser/host-client.ts'
 import { type BrowserTaskDeps, runBrowserTask } from '#lib/server/browser/run-task.ts'
 import { getBrowserSession } from '#lib/server/browser/sessions.ts'
+import { getPricing } from '#lib/server/pricing.ts'
 import type { ToolContext } from '#lib/server/tools/types.ts'
+import { resolveMessageCost } from '#lib/server/usage-cost.ts'
 import type { ToolProgress } from '#lib/types.ts'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 const setup = (agent: BrowserAgent, overrides: Partial<BrowserTaskDeps> = {}) => {
   const fake = createFakeHost()
@@ -33,7 +35,7 @@ const setup = (agent: BrowserAgent, overrides: Partial<BrowserTaskDeps> = {}) =>
   }
   const deps: BrowserTaskDeps = {
     loadConfig: async () => ({ provider: 'anthropic', model: 'claude-sonnet-5-5', modelRef: 'anthropic/claude-sonnet-5-5', apiKey: 'k', host: fake.host }),
-    agents: { anthropic: agent, openai: agent },
+    agents: { anthropic: agent, openai: agent, chatgpt: agent },
     readAttachment: async attachment => (attachment.id === 'missing' ? null : new Uint8Array([1, 2, 3])),
     priceUsage: async (_modelRef, usage) => usage.inputTokens / 1000,
     sleep: async () => {},
@@ -59,6 +61,23 @@ describe('runBrowserTask', () => {
     expect(calls[0].actions).toEqual([{ type: 'navigate', url: 'https://www.ebay.de/' }])
     expect(closed).toEqual(['s1'])
     expect(getBrowserSession('s1', 'u1')).toBeNull()
+  })
+
+  it('dispatches subscription tasks without API agents or model charges', async () => {
+    const chatgpt: BrowserAgent = async ({ usage }) => {
+      usage.inputTokens = 2000
+      usage.outputTokens = 1000
+      return 'Read your listings.'
+    }
+    const paidAgent = vi.fn(async () => 'unused')
+    const { context, deps, host } = setup(chatgpt)
+    deps.loadConfig = async () => ({ provider: 'chatgpt', model: 'gpt-5.4', modelRef: 'chatgpt/gpt-5.4', apiKey: 'plan-token', host })
+    deps.agents = { anthropic: paidAgent, openai: paidAgent, chatgpt }
+    deps.priceUsage = async (modelRef, usage) => resolveMessageCost(usage, await getPricing(modelRef)).cost
+    const output = await runBrowserTask({ task: 'Read my listings' }, context, deps)
+    expect(output.result).toContain('Read your listings.')
+    expect(output.cost).toBe(0)
+    expect(paidAgent).not.toHaveBeenCalled()
   })
 
   it('reports configuration problems without touching the host', async () => {

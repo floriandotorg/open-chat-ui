@@ -1,4 +1,5 @@
 import type { UserSettings } from '#lib/db-mappers.ts'
+import { connectionModelRef, parseOpenAIConnection } from '#lib/model-connection.ts'
 import { parseModelRef } from '#lib/model-ref.ts'
 import { getDecryptedKey } from '#lib/server/api-key.ts'
 import { type BrowserHost, createBrowserHost } from '#lib/server/browser/host-client.ts'
@@ -7,7 +8,7 @@ import { getFirstOrNull, pb } from '#lib/server/pb.ts'
 
 export const BROWSER_HOST_KEY = 'browser-host'
 
-export type BrowserAgentProvider = 'anthropic' | 'openai'
+export type BrowserAgentProvider = 'anthropic' | 'openai' | 'chatgpt'
 
 export interface BrowserAgentConfig {
   provider: BrowserAgentProvider
@@ -17,7 +18,7 @@ export interface BrowserAgentConfig {
   host: BrowserHost
 }
 
-const toProvider = (provider: string): BrowserAgentProvider | null => (provider === 'anthropic' || provider === 'openai' ? provider : null)
+const toProvider = (provider: string): BrowserAgentProvider | null => (provider === 'anthropic' || provider === 'openai' || provider === 'chatgpt' ? provider : null)
 
 export const isBrowserAgentModel = (value: unknown): value is string => {
   if (typeof value !== 'string' || value.length > 500 || !value.includes('/')) {
@@ -54,21 +55,18 @@ export const loadBrowserAgentConfig = async (userId: string): Promise<BrowserAge
   if (!isBrowserAgentModel(settings?.browserAgentModel)) {
     return { error: 'Choose a browser agent model in Settings > Tools.' }
   }
-  const modelRef = settings.browserAgentModel
+  const modelRef = connectionModelRef(settings.browserAgentModel, parseOpenAIConnection(settings.openaiConnection))
   const { provider: rawProvider, model } = parseModelRef(modelRef)
   const provider = toProvider(rawProvider)
   if (!provider) {
     return { error: 'The browser agent model must be an Anthropic or OpenAI model.' }
-  }
-  if (provider === 'openai' && settings.openaiConnection === 'subscription') {
-    return { error: 'The browser agent does not support ChatGPT subscriptions. Choose an Anthropic model or switch OpenAI to API in Settings > Connections.' }
   }
   const [host, apiKey] = await Promise.all([loadBrowserHost(userId), getDecryptedKey(userId, provider)])
   if ('error' in host) {
     return host
   }
   if (!apiKey) {
-    return { error: `Add an ${provider === 'anthropic' ? 'Anthropic' : 'OpenAI'} API key to use the browser agent.` }
+    return { error: provider === 'chatgpt' ? 'Connect your ChatGPT subscription in Settings > Connections to use the browser agent.' : `Add an ${provider === 'anthropic' ? 'Anthropic' : 'OpenAI'} API key to use the browser agent.` }
   }
   return { provider, model, modelRef, apiKey, host }
 }

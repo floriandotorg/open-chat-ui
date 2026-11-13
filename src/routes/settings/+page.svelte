@@ -186,7 +186,7 @@ const setTab = (tab: Tab) => {
         </div>
       </div>
 
-      <BrowserAgentSettings settings={settingsStore.settings} providers={modelProviders} hostKey={data.toolServices.find(service => service.id === BROWSER_HOST_SERVICE)} />
+      <BrowserAgentSettings settings={settingsStore.settings} providers={data.providers} hostKey={data.toolServices.find(service => service.id === BROWSER_HOST_SERVICE)} />
 
       {#each data.toolServices.filter(service => service.id !== BROWSER_HOST_SERVICE) as provider (provider.id)}
         <ApiKeyForm {provider} />

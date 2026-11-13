@@ -61,6 +61,8 @@ const UPLOAD_TOOL = functionTool(
   ['x', 'y', 'file_ids'],
 )
 
+export const getBrowserFunctionTools = (includeUploads: boolean): FunctionTool[] => [...FUNCTION_TOOLS, ...(includeUploads ? [UPLOAD_TOOL] : [])]
+
 const parseArguments = (raw: string): Record<string, unknown> => {
   try {
     const parsed: unknown = JSON.parse(raw)
@@ -119,7 +121,7 @@ export const createRunner = (session: TaskSession) => {
     return notes.length ? [output, { role: 'user', content: [{ type: 'input_text', text: notes.join('\n') }] }] : [output]
   }
 
-  const runFunction = async (call: ResponseFunctionToolCall): Promise<string | ResponseFunctionCallOutputItemList> => {
+  const runFunction = async (call: Pick<ResponseFunctionToolCall, 'name' | 'arguments'>): Promise<string | ResponseFunctionCallOutputItemList> => {
     const args = parseArguments(call.arguments)
     if (call.name === 'navigate') {
       if (typeof args.url !== 'string') {
@@ -151,7 +153,7 @@ export const createRunner = (session: TaskSession) => {
     return `Error: unknown function ${call.name}.`
   }
 
-  return { screenshot, runComputerCall, runFunction }
+  return { screenshot, actAndCapture, runComputerCall, runFunction }
 }
 
 export const runOpenAiBrowserAgent: BrowserAgent = async ({ task, startUrl, model, apiKey, session, usage, signal }) => {
@@ -162,7 +164,7 @@ export const runOpenAiBrowserAgent: BrowserAgent = async ({ task, startUrl, mode
     readingHint: 'Use navigate to open URLs and read_page_text to read long text instead of scrolling through screenshots.',
     uploadHint: 'use upload_files with the position of the file input or upload button',
   })
-  const tools: Tool[] = [{ type: 'computer' }, ...FUNCTION_TOOLS, ...(session.files.length ? [UPLOAD_TOOL] : [])]
+  const tools: Tool[] = [{ type: 'computer' }, ...getBrowserFunctionTools(session.files.length > 0)]
   let previousResponseId: string | undefined
   let input: ResponseInputItem[] = [
     {

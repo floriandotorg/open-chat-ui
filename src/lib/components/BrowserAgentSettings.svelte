@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { UserSettings } from '#lib/db-mappers.ts'
+import { canonicalModelRef, parseOpenAIConnection, providersForConnection } from '#lib/model-connection.ts'
 import { Mutation } from '#lib/sync/collection.svelte.ts'
 import type { ModelInfo, ProviderInfo } from '#lib/types.ts'
 import ApiKeyForm from './ApiKeyForm.svelte'
@@ -20,17 +21,23 @@ let checking = $state(false)
 let connection = $state<{ ok: boolean; text: string } | null>(null)
 let notificationPermission = $state<NotificationPermission | 'unsupported'>('default')
 const saving = $derived(mutation?.status === 'pending')
-const agentProviders = $derived(providers.filter(provider => AGENT_PROVIDERS.has(provider.id) && (provider.id !== 'openai' || settings?.openaiConnection !== 'subscription')))
+const agentProviders = $derived(providersForConnection(providers, parseOpenAIConnection(settings?.openaiConnection)).filter(provider => AGENT_PROVIDERS.has(provider.id)))
 
 $effect(() => {
   if (!dirty) {
-    model = settings?.browserAgentModel ?? ''
+    model = canonicalModelRef(settings?.browserAgentModel ?? '')
     hostUrl = settings?.browserHostUrl ?? ''
   }
 })
 
 onMount(() => {
   notificationPermission = 'Notification' in window ? Notification.permission : 'unsupported'
+})
+
+$effect(() => {
+  let cancelled = false
+  loadError = ''
+  models = []
   void Promise.all(
     agentProviders
       .filter(provider => provider.hasKey)
@@ -44,11 +51,18 @@ onMount(() => {
       }),
   )
     .then(results => {
-      models = results.flat()
+      if (!cancelled) {
+        models = results.flat()
+      }
     })
     .catch(error => {
-      loadError = error.message
+      if (!cancelled) {
+        loadError = error instanceof Error ? error.message : 'Could not load models.'
+      }
     })
+  return () => {
+    cancelled = true
+  }
 })
 
 const changed = () => {
@@ -118,13 +132,13 @@ const enableNotifications = async () => {
           </optgroup>
         {/each}
       </select>
-      <span class="block text-xs text-gray-500 dark:text-gray-400">Anthropic models use the browser toolset (reads pages directly, cheaper). OpenAI models use the computer tool (screenshots only). Needs a recent computer use model.</span>
+      <span class="block text-xs text-gray-500 dark:text-gray-400">Anthropic models use the browser toolset. OpenAI API models use the computer tool and need a recent computer use model. ChatGPT subscriptions use browser function tools and screenshots.</span>
     </label>
     {#if settings?.openaiConnection === 'subscription'}
-      <p class="text-xs text-gray-500 dark:text-gray-400">ChatGPT subscriptions do not support the browser agent. Choose an Anthropic model, or switch OpenAI to API in Connections.</p>
+      <p class="text-xs text-gray-500 dark:text-gray-400">OpenAI browser tasks use your connected ChatGPT subscription. Requests never fall back to the paid API.</p>
     {/if}
     {#if loadError}<p role="alert" class="text-xs text-red-500">{loadError}</p>{/if}
-    {#if agentProviders.every(provider => !provider.hasKey)}<p class="text-xs text-amber-600 dark:text-amber-400">Add an Anthropic or OpenAI API key first.</p>{/if}
+    {#if agentProviders.every(provider => !provider.hasKey)}<p class="text-xs text-amber-600 dark:text-amber-400">Connect a ChatGPT subscription or add an Anthropic or OpenAI API key in Connections first.</p>{/if}
 
     <label class="block space-y-1">
       <span class="text-xs font-medium text-gray-600 dark:text-gray-300">Browser host URL</span>

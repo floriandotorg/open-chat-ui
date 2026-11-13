@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { runAnthropicBrowserAgent } from '#lib/server/browser/agent-anthropic.ts'
+import { runChatGPTBrowserAgent } from '#lib/server/browser/agent-chatgpt.ts'
 import { runOpenAiBrowserAgent } from '#lib/server/browser/agent-openai.ts'
 import { loadBrowserAgentConfig } from '#lib/server/browser/config.ts'
 import { runBrowserTask } from '#lib/server/browser/run-task.ts'
@@ -33,7 +34,7 @@ The agent sees only the task, not this conversation. Write a complete, self-cont
     const startUrl = typeof args.start_url === 'string' && /^https?:\/\//i.test(args.start_url) ? args.start_url : undefined
     return runBrowserTask({ task, ...(startUrl ? { startUrl } : {}) }, context, {
       loadConfig: loadBrowserAgentConfig,
-      agents: { anthropic: runAnthropicBrowserAgent, openai: runOpenAiBrowserAgent },
+      agents: { anthropic: runAnthropicBrowserAgent, openai: runOpenAiBrowserAgent, chatgpt: runChatGPTBrowserAgent },
       readAttachment: async attachment => (hasUpload(attachment.id) ? new Uint8Array(await readFile(getUploadPath(attachment.id))) : null),
       priceUsage: async (modelRef, usage) => resolveMessageCost(usage, await getPricing(modelRef).catch(() => null)).cost,
     })
